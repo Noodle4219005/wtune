@@ -22,6 +22,7 @@ from datetime import timedelta
 from wtune.post import atcf
 from wtune.post import tc_metrics as tm
 from wtune.post.extract import frame_ref
+from wtune.post import figdpi
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 RADIUS_BINS_KM = list(range(0, 401, 25))
@@ -118,7 +119,7 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
     ax.set_ylabel("radius (km)")
     ax.set_title("10 m tangential wind, radius-time")
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 

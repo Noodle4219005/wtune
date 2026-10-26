@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from wtune.post import tools
 from wtune.post.extract import frame_ref, list_frame_refs
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 TOP_AGL_M = 4000.0
@@ -174,7 +175,7 @@ def plot_time_height(series, obs_pblh, label, lon, out_path, run_label, domain):
     ax2.xaxis.set_major_locator(mdates.HourLocator(interval=6))
     ax2.set_xlabel("valid time (UTC)")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -241,7 +242,7 @@ def plot_cross_section(run_dir, domain, time_str, j, i, out_path, run_label, lab
     ax.set_title("%s d%02d  W-E theta cross-section through %s  %s UTC" % (run_label, domain, label, time_str),
                  fontsize=10)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -306,7 +307,7 @@ def plot_skewt_station(rows, out_path, run_label, domain):
                  % (run_label, domain), fontsize=12)
     fig.tight_layout(rect=(0, 0.03, 1, 0.96))
     fig.subplots_adjust(wspace=0.4)
-    fig.savefig(out_path, dpi=90)
+    fig.savefig(out_path, dpi=figdpi.dpi(90))
     plt.close(fig)
     return out_path
 
@@ -338,7 +339,7 @@ def plot_pblh_compare(rows, out_path, run_label, domain):
     ax.legend(fontsize=6, ncol=2)
     ax.set_aspect("equal")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 

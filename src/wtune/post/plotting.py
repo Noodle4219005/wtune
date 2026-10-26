@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 
 from wtune.post.extract import _level_base_field, _surface_field, list_frame_refs, UNITS
+from wtune.post import figdpi
 
 WIND_SUBSAMPLE = 8      # every Nth grid point in each direction for the wind overlay
 
@@ -195,7 +196,7 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                                     % (field, domain, time_str.replace(":", ""), lev_tag, fmt))
             from wtune.post.basemap import caption_rect
             fig.tight_layout(rect=caption_rect(fig))
-            fig.savefig(out_path)
+            fig.savefig(out_path, dpi=figdpi.dpi())
             plt.close(fig)
             written.append(out_path)
     return written

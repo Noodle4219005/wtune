@@ -13,6 +13,7 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import list_frames
+from wtune.post import figdpi
 
 # what one figure of a set may raise on a reduced history stream / an out-of-range point
 # (cloud.py's _ERRORS = tool/import errors + these)
@@ -94,7 +95,7 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None):
                    fontsize=8, frameon=False)
         ax.set_title("%s domain/nest configuration (%d domain(s))  valid %s"
                      % (run_label, max_dom, time0), fontsize=10)
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         plt.close(fig)
     return out_path
 
@@ -133,7 +134,7 @@ def plot_repro_envelope(run_dirs, labels, out_dir):
     ax.legend(fontsize=7)
     path = os.path.join(out_dir, "common_repro_envelope.png")
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=figdpi.dpi())
     plt.close(fig)
     return path
 

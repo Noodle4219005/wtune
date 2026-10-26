@@ -14,6 +14,7 @@ import os
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs, list_frames
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 
 def _plt():
@@ -170,7 +171,7 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
                      % (run_label, domain, scale_note, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "moisture_ivt_d%02d.png" % domain)
         fig.tight_layout()
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         plt.close(fig)
     return out_path
 
@@ -292,7 +293,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
                        point_ll=point_marker, cmap="terrain")
 
     out_path = os.path.join(out_dir, "moisture_crosssection_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -361,7 +362,7 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, 
                  % (run_label, domain, abs(lat), "N" if lat >= 0 else "S",
                     abs(lon), "E" if lon >= 0 else "W", reason or "user-given point"), fontsize=9, pad=8)
     out_path = os.path.join(out_dir, "moisture_timeheight_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 

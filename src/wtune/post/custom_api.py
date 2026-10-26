@@ -10,6 +10,7 @@ import csv
 import glob
 import os
 import re
+from wtune.post import figdpi
 
 WRF_FRAME_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
 
@@ -24,7 +25,7 @@ def subplots(*args, **kwargs):
 
 
 class _LazyWrf:
-    """`from post import custom_api as api; api.wrf.getvar(...)` -- wrf-python imported only
+    """`from wtune.post import custom_api as api; api.wrf.getvar(...)` -- wrf-python imported only
     on first attribute access, not at post/custom_api.py import time."""
 
     def __getattr__(self, name):
@@ -95,7 +96,7 @@ class Context:
     def save_figure(self, fig, filename, close=True):
         import matplotlib.pyplot as plt
         path = os.path.join(self.out_dir, filename)
-        fig.savefig(path)
+        fig.savefig(path, dpi=figdpi.dpi())
         if close:
             plt.close(fig)
         self.outputs.append(("figure", path, self.script_name))

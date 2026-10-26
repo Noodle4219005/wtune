@@ -23,6 +23,7 @@ def precip_cmap():
     base = colormaps[PRECIP_CMAP]
     return ListedColormap(base(np.linspace(0.18, 1.0, 256)), name="precip_wpc")
 from wtune.post.conventions import DBZ_LEVELS  # noqa: F401  re-export: recipes/convection.py reads obs_figs.DBZ_LEVELS; NWS table, 5..75 dBZ (decision 0064)
+from wtune.post import figdpi
 
 
 def _cartopy_axes(fig, spec, extent):
@@ -74,7 +75,7 @@ def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap
         cb.set_ticklabels(["%g mm (%g in)" % (mm, inch)
                            for mm, inch in zip(PRECIP_LEVELS, PRECIP_LEVELS_IN)], fontsize=7)
     fig.suptitle(suptitle, fontsize=10)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -96,7 +97,7 @@ def diff_map(lat, lon, fcst, obs, title, out_path, cbar_label, vmax):
     fig.colorbar(mesh, ax=ax, shrink=0.85, label=cbar_label, extend="both")
     import textwrap
     ax.set_title("\n".join(textwrap.wrap(title, 75)), fontsize=9)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -150,7 +151,7 @@ def scores_vs_threshold(rows, title, out_path, thresh_label="threshold", op="≥
     import textwrap
     ax.set_title("\n".join(textwrap.wrap(title, 70))
                  + "\ngrey curves: CSI; dashed rays: frequency bias", fontsize=9)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -176,7 +177,7 @@ def fss_vs_scale(nbr_rows, cell_km, title, out_path, thresh_unit=""):
     ax.grid(alpha=0.3)
     ax.legend(title="event threshold", fontsize=8, ncol=2)
     ax.set_title(title, fontsize=9)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -203,7 +204,7 @@ def station_bias_maps(panels, suptitle, out_path):
         cb.set_label(p.get("cbar_label", "model - observation"))
         ax.set_title(p["title"], fontsize=9)
     fig.suptitle(suptitle, fontsize=10)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -229,7 +230,7 @@ def scatter_compare(fcst, obs, title, out_path, unit):
                  % (textwrap.fill(title, 60), f.size, float(np.mean(f - o)), float(np.sqrt(np.mean((f - o) ** 2))),
                     unit, r), fontsize=9)
     ax.legend(loc="upper left", fontsize=8)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -271,6 +272,6 @@ def bias_rmse_series(times_by_label, series, title, out_path):
         lab.set_rotation(30)
         lab.set_ha("right")
     fig.suptitle(title, fontsize=10)
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path

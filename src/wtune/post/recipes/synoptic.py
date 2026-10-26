@@ -14,6 +14,7 @@ from typing import Any, Callable
 from wtune.post import met_gridstat, tools
 from wtune.post.extract import list_frame_refs
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 KT_PER_MS = 1.943844          # kt per m s-1
 _SYNOPTIC_DOMAIN = 1          # read on d01, the domain the extent test used
@@ -403,6 +404,6 @@ def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon
                  % (run_label, time_str, gs["rmse_m"], gs["bias_m"]), fontsize=9)
     from wtune.post.basemap import caption_rect
     fig_.tight_layout(rect=caption_rect(fig_))
-    fig_.savefig(out_path, dpi=130)
+    fig_.savefig(out_path, dpi=figdpi.dpi(130))
     plt.close(fig_)
     return out_path

@@ -446,7 +446,7 @@ Storm-following central pressure and max 10 m wind time series: prefers an exist
 search via wrf-python when no track csv is found yet, so this script produces something
 even before the tc recipe has run.
 """
-from post import custom_api as api
+from wtune.post import custom_api as api
 
 
 def run(ctx):

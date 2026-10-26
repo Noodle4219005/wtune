@@ -40,6 +40,7 @@ from datetime import datetime
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs, list_frames
 from wtune.post.recipes import cloud as cl
+from wtune.post import figdpi
 
 BOX_HALF_KM = 300.0                 # A1: 600 km x 600 km
 R_MAX_KM = 300.0                    # A3 radius window
@@ -363,7 +364,7 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain,
             "domain) + 10 m wind 34/50/64 kt + RMW; centre: %s%s%s\n%s"
             % (run_label, domain, 2 * BOX_HALF_KM, 2 * BOX_HALF_KM, source, no_kt,
                ("\n" + note) if note else "", ds_time_label(ds, time_str))), fontsize=9)
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         cl._plt().close(fig)
     return out_path, rmw
 
@@ -430,7 +431,7 @@ def _rz_finish(fig, ax, rz, title, out_path, handles=()):
     cl.figure_legend(fig, handles, loc="outside lower center", ncol=max(min(len(handles), 4), 1),
                      fontsize=7, frameon=False)
     ax.set_title(cl.wrap_title(title), fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     cl._plt().close(fig)
     return out_path
 
@@ -573,7 +574,7 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain, timeidx=0):
         "reflectivity + w + 0/-20 °C, terrain grey; lines follow the model grid axes%s\n%s"
         % (run_label, domain, source, BOX_HALF_KM, ("\n" + note) if note else "", tlabel), 120),
         fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -641,7 +642,7 @@ def hovmoller_figure(run_dir, domain, frame_times, track, bdy_width, out_path, r
            "; %d without a track centre left blank" % n_blank if track and n_blank else "",
            path_time_label(frame_path(run_dir, domain, frame_times[-1]), frame_times[-1]))),
         fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 

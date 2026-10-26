@@ -16,6 +16,7 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import frame_ref, list_frames
+from wtune.post import figdpi
 
 
 def _member_field(run_dir, domain, time_str, field="slp"):
@@ -92,7 +93,7 @@ def plot_spaghetti(run_dirs, labels, domain, time_str, out_path, contour_level=N
                  % (level, time_str, len(run_dirs)), fontsize=9)
     ax.legend(fontsize=7, loc="lower left")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 
@@ -131,7 +132,7 @@ def plot_probability(run_dirs, domain, time_str, out_path, threshold_mm=25.0):
     ax.set_title("fraction of %d members with rain accumulated since t0 >= %g mm, valid %s\n"
                  "(lateral boundary zone blanked)" % (n, threshold_mm, time_str), fontsize=9)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=110)
+    fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path
 

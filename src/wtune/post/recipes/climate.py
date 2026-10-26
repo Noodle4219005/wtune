@@ -43,6 +43,7 @@ from datetime import datetime, timedelta
 
 from wtune.post import tools
 from wtune.post.extract import file_times, list_frame_refs
+from wtune.post import figdpi
 
 SPINUP_DAYS = 30.0
 SEASONS = {"DJF": (12, 1, 2), "MAM": (3, 4, 5), "JJA": (6, 7, 8), "SON": (9, 10, 11)}
@@ -368,7 +369,7 @@ def plot_annual_cycle(months, series, out_path, run_label, notes):
     fig.suptitle("%s  monthly means, model vs reference%s" % (run_label, ("\n" + "; ".join(notes)) if notes else ""),
                  fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(out_path, dpi=100)
+    fig.savefig(out_path, dpi=figdpi.dpi(100))
     plt.close(fig)
     return out_path
 
@@ -413,7 +414,7 @@ def plot_seasonal_bias(diffs, lat, lon, crs, landmask, out_path, run_label, var_
         fig.colorbar(cf, ax=axes, ticks=levels, shrink=0.8, pad=0.02,
                      label="%s, model - %s (%s)" % (var_label, ref_label, unit))
     fig.suptitle("%s  seasonal %s bias vs %s%s" % (run_label, var_label, ref_label, note), fontsize=12)
-    fig.savefig(out_path, dpi=90, bbox_inches="tight")
+    fig.savefig(out_path, dpi=figdpi.dpi(90), bbox_inches="tight")
     plt.close(fig)
     return out_path
 

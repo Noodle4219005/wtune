@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 
 from wtune.post.extract import frame_ref
+from wtune.post import figdpi
 
 
 class SoundingError(RuntimeError):
@@ -120,7 +121,7 @@ def make_sounding(run_dir, lat, lon, time_str, out_path, domain=1):
                          path_time_label(path, time_str),
                          cape.magnitude, cin.magnitude), fontsize=10)
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
 
     return dict(out=out_path, lat=lat, lon=lon, grid_j=j, grid_i=i,

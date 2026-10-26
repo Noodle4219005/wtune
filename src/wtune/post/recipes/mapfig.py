@@ -10,6 +10,7 @@ draws what it is given.
 from __future__ import annotations
 
 from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir)
+from wtune.post import figdpi
 
 
 def nice_levels(lo, hi, nbins=14):
@@ -181,6 +182,6 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     if basemap != "cartopy":
         ax.set_xlabel("lon")
         ax.set_ylabel("lat")
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path

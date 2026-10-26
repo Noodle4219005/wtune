@@ -37,6 +37,7 @@ from datetime import datetime, timedelta
 from wtune.post import met_pointstat, sources, tools
 from wtune.post.extract import list_frame_refs
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 
 DEFAULT_XSEC_TOP_KM = 10.0
@@ -142,7 +143,7 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
                      % (run_label, domain, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "terrain_wind_d%02d.png" % domain)
         fig.tight_layout()
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         plt.close(fig)
     return out_path
 
@@ -388,7 +389,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
                        point_ll=peak_marker)
 
     out_path = os.path.join(out_dir, "terrain_crosssection_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -612,7 +613,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
                     lat_here, lon_here, hgt_here), fontsize=9)
     out_path = os.path.join(out_dir, "terrain_valley_timeheight_d%02d.png" % domain)
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path, None
 
@@ -732,7 +733,7 @@ def _plot_leeward(model, obs, title, path):
     axes[-1].set_xlabel("valid time (UTC)")
     fig.autofmt_xdate()
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=figdpi.dpi())
     plt.close(fig)
     return path
 

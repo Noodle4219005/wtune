@@ -31,6 +31,7 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs
+from wtune.post import figdpi
 
 CONDENSATE_LEVELS_GKG = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]   # = 1e-5 .. 1e-3 kg/kg
 CONDENSATE_CMAP = "bone_r"
@@ -201,7 +202,7 @@ def plot_ir_proxy(ds, time_str, out_path, run_label, domain, timeidx=0):
     ax.set_title(wrap_title("%s  d%02d  %s; colour below %g K (%g °C)\n%s"
                             % (run_label, domain, IR_TITLE, IR_ENHANCE_K,
                                IR_ENHANCE_K - 273.15, ds_time_label(ds, time_str))), fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     _plt().close(fig)
     return out_path
 
@@ -466,7 +467,7 @@ def water_path_figure(path, time_str, out_path, run_label, domain, timeidx=0):
                                 "species group) + 10 m wind barbs (kt)%s\n%s"
                                 % (run_label, domain, omit_txt, ds_time_label(ds, time_str)),
                                 120), fontsize=9)
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         _plt().close(fig)
     return out_path
 
@@ -512,7 +513,7 @@ def cloud_top_figure(path, time_str, out_path, run_label, domain, timeidx=0):
             "white = no cloud) + composite reflectivity 15/25 dBZ (lake-effect echo thresholds, "
             "Gaudet et al. 2021)%s\n%s" % (run_label, domain, condensate.CLOUD_EDGE_KGKG * 1000.0,
                                            absent, ds_time_label(ds, time_str))), fontsize=9)
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         _plt().close(fig)
     return out_path
 
@@ -637,7 +638,7 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width,
         "(all species, log 0.01-1 g/kg) + w + 0/-15 °C + PBLH; %s; +-%g km (clipped to "
         "domain)\n%s" % (run_label, domain, lat[jc, ic], lon[jc, ic], wind_txt, XSEC_HALF_KM,
                          tlabel), 120), fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 

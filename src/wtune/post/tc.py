@@ -32,6 +32,7 @@ import sys
 from datetime import datetime
 
 from wtune.post import atcf, extract, met_tc, tc_metrics as tm, tools
+from wtune.post import figdpi
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 KT_TO_MS = 0.514444
@@ -982,7 +983,7 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=figdpi.dpi())
     plt.close(fig)
     return path
 
@@ -1129,7 +1130,7 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
                  % (label, int(round(lead_h[k]))), fontsize=10)
     path = os.path.join(out_dir, "%s_rmw_radius_height.png" % label)
     fig.tight_layout()
-    fig.savefig(path, bbox_inches="tight")
+    fig.savefig(path, bbox_inches="tight", dpi=figdpi.dpi())
     plt.close(fig)
     return path
 
@@ -1204,7 +1205,7 @@ def _error_figures(out_dir, tcsts):
         ax.legend()
         path = os.path.join(out_dir, "tc_pairs_%s.png" % stem)
         fig.tight_layout()
-        fig.savefig(path)
+        fig.savefig(path, dpi=figdpi.dpi())
         plt.close(fig)
         figures.append(path)
     return figures

@@ -170,16 +170,18 @@ def cmd_tc(args: argparse.Namespace) -> int:
     if project_dir and not hurdat2 and not storm:
         import wtune.project
         storm, hurdat2 = wtune.project.project_storm(project_doc)
-    if not (hurdat2 and storm):
-        raise SystemExit("--hurdat2/--storm required (or set them in project.yaml's storm:)")
+    bdeck = _project_bdeck(args.bdeck, project_dir, hurdat2, storm)
+    if not (storm and (hurdat2 or bdeck)):
+        raise SystemExit("--storm with --hurdat2 or --bdeck required (or set them in "
+                         "project.yaml's storm:)")
 
     out = _resolve_out(args, project_dir, "tc")
     summary = tc.run_tc_report(run_dirs, labels, hurdat2, storm, out,
-                               ebtrk_path=args.ebtrk,
-                               bdeck_path=_project_bdeck(args.bdeck, project_dir, hurdat2, storm),
+                               ebtrk_path=args.ebtrk, bdeck_path=bdeck,
                                smooth_km=args.track_smooth_km)
     _print_tc_summary(tc, summary, out)
-    _record_manifest(project_dir, ["wtune", "post", "tc"] + run_dirs, out, run_dirs + [hurdat2])
+    _record_manifest(project_dir, ["wtune", "post", "tc"] + run_dirs, out,
+                     run_dirs + [hurdat2 or bdeck])
     return 0
 
 

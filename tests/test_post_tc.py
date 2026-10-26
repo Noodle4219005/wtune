@@ -144,3 +144,35 @@ def test_build_adeck_writes_atcf_from_chosen_track(tmp_path):
     assert len(second) == 3
     assert sorted(r["rad_kt"] for r in second) == [34, 50, 64]
     assert all(r["vmax_kt"] == 95 and r["radii"] == (0, 0, 0, 0) for r in second)
+
+
+def test_a_bdeck_alone_is_enough_for_the_tc_report(tmp_path, monkeypatch):
+    # Haitang WP122017 (2026-10-26): JMA best track as an ATCF b-deck, no HURDAT2 record exists
+    # outside the Atlantic/E. Pacific; tc still demanded --hurdat2
+    import argparse
+    from datetime import datetime
+    from wtune.post import atcf, cli, tc
+    bdeck = tmp_path / "bwp122017.dat"
+    rows = [dict(time=datetime(2017, 7, 31, h), tau_h=0, lat=24.0 + h / 10, lon=119.5,
+                 vmax_kt=45, mslp_hpa=985) for h in (0, 6, 6, 12)]
+    with open(bdeck, "w") as fh:
+        for r in rows:
+            fh.write(atcf.format_line("WP", "12", r["time"], "BEST", 0, r["lat"], r["lon"],
+                                      r["vmax_kt"], r["mslp_hpa"]) + "\n")
+    pts = tc.bdeck_points(str(bdeck))
+    assert [p["time"].hour for p in pts] == [0, 6, 12]
+    assert pts[0]["pmin_hpa"] == 985 and abs(pts[0]["vmax_ms"] - 45 * tc.KT_TO_MS) < 1e-9
+    assert pts[0]["rmw_km"] is None
+    seen = {}
+    monkeypatch.setattr(tc, "run_tc_report", lambda *a, **k: seen.update(a=a, k=k) or {})
+    monkeypatch.setattr(cli, "_print_tc_summary", lambda *a: None)
+    monkeypatch.setattr(cli, "_record_manifest", lambda *a, **k: None)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "wrfout_d01_2017-07-31_00:00:00").write_bytes(b"x")
+    base = dict(project=None, run_dirs=[str(run)], labels=None, out=str(tmp_path / "out"),
+                ebtrk=None, track_smooth_km=None, nc_cache=None)
+    assert cli.cmd_tc(argparse.Namespace(hurdat2=None, storm="WP122017", bdeck=str(bdeck), **base)) == 0
+    assert seen["k"]["bdeck_path"] == str(bdeck) and seen["a"][2] is None
+    with pytest.raises(SystemExit, match="--hurdat2 or --bdeck"):
+        cli.cmd_tc(argparse.Namespace(hurdat2=None, storm="WP122017", bdeck=None, **base))

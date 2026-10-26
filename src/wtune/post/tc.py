@@ -185,6 +185,31 @@ def parse_hurdat2_full(path, storm_id):
     return points
 
 
+def bdeck_points(path):
+    """parse_hurdat2_full's point list from an ATCF b-deck instead (one point per time: the
+    first BEST row of each time; wind radii and RMW are not carried over -> None). For storms
+    with a b-deck but no HURDAT2 record (every basin outside the Atlantic/E. Pacific, e.g.
+    Haitang WP122017 from JMA)."""
+    if not os.path.exists(path):
+        raise TCError("--bdeck file not found: %s" % path)
+    seen, points = set(), []
+    for r in atcf.parse_file(path):
+        if r["time"] in seen or r["lat"] is None or r["lon"] is None:
+            continue
+        seen.add(r["time"])
+        row = dict(time=r["time"], lat=r["lat"], lon=r["lon"],
+                   vmax_ms=None if r["vmax_kt"] is None else r["vmax_kt"] * KT_TO_MS,
+                   pmin_hpa=r["mslp_hpa"])
+        for name in ("r34", "r50", "r64"):
+            for qn in tm.QUADRANT_NAMES:
+                row["%s_%s_km" % (name, qn)] = None
+        row["rmw_km"] = None
+        points.append(row)
+    if not points:
+        raise TCError("--bdeck %s has no track points" % path)
+    return sorted(points, key=lambda p: p["time"])
+
+
 def parse_ebtrk_rmw(path, storm_id):
     """Extended Best Track RMW only (nmi -> km). Row layout (whitespace-separated):
     storm-id, name, MMDDHH, year, lat, lon, vmax, pmin, rmw, eye, poci, roci, ... -- R34
@@ -783,8 +808,13 @@ def run_tc_report(run_dirs, labels, hurdat2_path, storm_id, out_dir, ebtrk_path=
     os.makedirs(out_dir, exist_ok=True)
     storm_id = resolve_storm(hurdat2_path, storm_id)  # NAME[YEAR] -> ATCF id; ids unchanged
     basin, cy, year = storm_id_parts(storm_id)
-    hurdat2_points = parse_hurdat2_full(hurdat2_path, storm_id)
-    obs = build_obs(hurdat2_path, storm_id, ebtrk_path)
+    if hurdat2_path:
+        hurdat2_points = parse_hurdat2_full(hurdat2_path, storm_id)
+        obs = build_obs(hurdat2_path, storm_id, ebtrk_path)
+    else:                       # b-deck only (no HURDAT2 outside the Atlantic/E. Pacific)
+        hurdat2_points = bdeck_points(bdeck_path)
+        obs = dict(hurdat2=[dict(r, time=r["time"].strftime(WRF_TIME_FMT))
+                            for r in hurdat2_points], ebtrk_rmw=None, source="bdeck")
     with open(os.path.join(out_dir, "obs.json"), "w") as fh:
         json.dump(obs, fh, indent=2)
 

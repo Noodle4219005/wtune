@@ -265,11 +265,11 @@ def _args4(r: _RecipeRun) -> tuple:
 
 
 def _run_tc(handler, r: _RecipeRun) -> list:
-    has_track = bool(r.hurdat2_path and r.storm_id)
+    has_track = bool(r.storm_id and (r.hurdat2_path or r.bdeck_path))
     out = []
     if not has_track:
-        out.append(missing("tc_figure", "HURDAT2/--storm",
-                           "tc was detected but --hurdat2/--storm is required "
+        out.append(missing("tc_figure", "HURDAT2 or b-deck, and --storm",
+                           "tc was detected but --storm with --hurdat2 or --bdeck is required "
                            "to build the a-deck/b-deck comparison"))
     else:
         out += guarded("tc", handler, *_args4(r), r.hurdat2_path, r.storm_id, r.bdeck_path,

@@ -280,3 +280,12 @@ def test_bdeck_takes_submits_window_args_skips_a_current_file_and_needs_no_proje
                                           "--end", "2016093000", "--storm", "al142016"])
     assert bdeck.run(args) and bdeck.run(args) and len(calls) == 1    # second: sha matches
     assert not os.path.exists(tmp_path / "project.yaml")               # an id needs none
+
+
+def test_bdeck_storm_name_without_hurdat2_is_a_clear_error(tmp_path):
+    from wtune.post import tc
+    from wtune.post.fetch import bdeck
+    (tmp_path / "project.yaml").write_text("storm:\n  id: KATRINA\n")
+    assert bdeck.present(str(tmp_path)) is False
+    with pytest.raises(tc.TCError, match="hurdat2"):
+        bdeck._storm(str(tmp_path))

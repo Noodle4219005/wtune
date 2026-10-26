@@ -286,9 +286,9 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
         # one may resume from an older set than the newest (resume_point)
         is_bp = sweep.campaign_configs._import_wtune_bp().is_bp
         freed = drop_older_restarts(seg_dir, geo.max_dom, is_bp)
-        if att.resume and att.src_dir:          # the failed attempt this one resumed
-            freed += drop_older_restarts(att.src_dir, geo.max_dom, is_bp,
-                                         keep=_fmt(step_time(geo, att.a)))
+        for r in seg.attempts[:-1]:              # failed attempts a resume started from
+            if r.resume_time is not UNSET and r.resume_time:
+                freed += drop_older_restarts(r.dir, geo.max_dom, is_bp, keep=r.resume_time)
         if freed:
             run.log("older restart sets deleted (%s); the newest valid one is kept"
                     % _fmt_bytes(freed))

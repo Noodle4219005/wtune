@@ -207,7 +207,8 @@ below the minimum to land on output times.
 **`wtune run` converts its inputs on a compute node.** The netCDF -> BP conversion ran in the
 `wtune run` process, on the login node (tens of GB for dorian). When the BP cache is not current,
 `wtune run` now submits one conversion job (`<out>/nc2bp/`), waits for it, and stops with nothing
-submitted if it fails; a current cache submits nothing; `wtune stop` and Ctrl-C cancel it. Run
+submitted if it fails; a current cache submits nothing; `wtune stop`, Ctrl-C and an sacct that
+never answers cancel it. Run
 inside a Slurm job (`SLURM_JOB_ID` set, which an `salloc` shell also sets), it converts in place
 as before. The login node still reads the inputs to check the cache, and hashes one whose
 modification time changed.
@@ -218,7 +219,8 @@ cartopy for the Natural Earth coastline, which downloads a missing file (f1-arm 
 12 min). The map check now only looks on disk (`bin/fetch-natural-earth.sh` fetches);
 `wtune post fetch bdeck` puts the storm's b-deck in `<project>/input/obs/bdeck/`, which tc and
 the recipe read, and inside a Slurm job tc no longer downloads. `wtune submit` fetches it when
-`post.fetch` lists `bdeck`. The test suite, which runs on compute nodes, now fails a test that
+`post.fetch` lists `bdeck`; a storm of the current year is fetched again each time (NHC still
+revises it), an older one only when its file changed. The test suite, which runs on compute nodes, now fails a test that
 connects to a non-loopback address or looks up a host name, instead of letting it wait for a
 timeout.
 

@@ -196,7 +196,7 @@ def _conv_main(tmp_path, f, extra=(), **kw):
     rc = wr.main([str(tmp_path / "case"), "--nodes", "1", "--nx", "8", "--ny", "9",
                   "--segment-minutes", "360", "--out", str(out), "--poll-interval", "0"] + list(extra),
                  sbatch_runner=f.sbatch, sacct_runner=f.sacct, snapshot_fn=f.snapshot,
-                 sleep=lambda s: None, log=lines.append, **kw)
+                 sleep=lambda s: None, log=lines.append, scancel_runner=lambda j: None, **kw)
     return rc, out, lines
 
 
@@ -333,7 +333,7 @@ def _run_namelist_part(tmp_path, case, script):
     (W / "main").mkdir(parents=True)
     (W / "main" / "wrf.exe").write_text("x")
     env = dict(os.environ, CAMPAIGN=os.path.join(REPO, "campaign"), W=str(W),
-               PYBIN="/home/nk/devel/wtune/envs/wtune/.pixi/envs/default/bin/python")
+               PYBIN=sys.executable)
     r = subprocess.run(["bash", "-c", frag], cwd=str(run), env=env, capture_output=True, text=True)
     return run, r
 

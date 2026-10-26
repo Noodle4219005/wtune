@@ -1104,7 +1104,8 @@ def _convert_job_run(tmp_path, monkeypatch, fake_bp, job_converts=True, state="C
     rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "360",
                   "--out", str(out), "--poll-interval", "0"],
                  sbatch_runner=sbatch, sacct_runner=sacct, snapshot_fn=f.snapshot,
-                 sleep=lambda s: None, log=lines.append, convert_in_job=True)
+                 sleep=lambda s: None, log=lines.append, scancel_runner=lambda j: None,
+                 convert_in_job=True)
     return rc, out, f, jobs, lines
 
 
@@ -1138,6 +1139,18 @@ def test_wtune_stop_during_the_conversion_cancels_its_job(tmp_path, monkeypatch,
                  scancel_runner=cancelled.append, convert_in_job=True)
     assert rc == 130 and cancelled == ["900"] and fake_bp.calls == []
     assert not (out / "run.state.json").exists()
+    assert json.loads((out / "run_report.json").read_text())["status"] == "stopped"
+
+
+def test_a_conversion_job_sacct_never_reports_is_cancelled(tmp_path, fake_bp):
+    case = _make_case(tmp_path)
+    cancelled = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
+                  str(tmp_path / "out"), "--poll-interval", "0"],
+                 sbatch_runner=lambda c: "Submitted batch job 900\n", sacct_runner=lambda c: "",
+                 sleep=lambda s: None, log=lambda m: None, scancel_runner=cancelled.append,
+                 convert_in_job=True)
+    assert rc == 2 and cancelled == ["900"]     # UNKNOWN: it may still run, nobody would know
 
 
 def test_a_rejected_conversion_job_is_an_error_not_a_traceback(tmp_path, fake_bp, capsys):
@@ -1148,7 +1161,7 @@ def test_a_rejected_conversion_job_is_an_error_not_a_traceback(tmp_path, fake_bp
     rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
                   str(tmp_path / "out"), "--poll-interval", "0"], sbatch_runner=sbatch,
                  sacct_runner=lambda c: "", sleep=lambda s: None, log=lambda m: None,
-                 convert_in_job=True)
+                 scancel_runner=lambda j: None, convert_in_job=True)
     assert rc == 2 and "Invalid account" in capsys.readouterr().err and fake_bp.calls == []
 
 

@@ -74,9 +74,10 @@ def _no_network(monkeypatch):
     import ipaddress
     import socket
     real = {n: getattr(socket.socket, n) for n in ("connect", "connect_ex")}
-    real_gai = socket.getaddrinfo
 
     def local(host):
+        if isinstance(host, (bytes, bytearray)):
+            host = host.decode("ascii", "replace")
         host = str(host or "").split("%")[0]
         if host in ("", "localhost", "0.0.0.0", "::"):
             return True
@@ -94,13 +95,17 @@ def _no_network(monkeypatch):
             raise OSError("network access in a test: %r" % (address,))
         return call
 
-    def getaddrinfo(host, *a, **kw):      # a DNS lookup can hang as long as a connect
-        if host is None or local(host):
-            return real_gai(host, *a, **kw)
-        raise OSError("name lookup in a test: %r" % (host,))
+    def lookup(fn):                       # a DNS lookup can hang as long as a connect
+        def call(host, *a, **kw):
+            if host is None or local(host if not isinstance(host, tuple) else host[0]):
+                return fn(host, *a, **kw)
+            raise OSError("name lookup in a test: %r" % (host,))
+        return call
     for n in real:
         monkeypatch.setattr(socket.socket, n, guard(n))
-    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    for n in ("getaddrinfo", "gethostbyname", "gethostbyname_ex", "gethostbyaddr",
+              "getnameinfo"):
+        monkeypatch.setattr(socket, n, lookup(getattr(socket, n)))
 
 
 def swap_wtune_module(monkeypatch, name, module):

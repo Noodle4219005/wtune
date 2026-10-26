@@ -6,6 +6,7 @@ else it falls back to HURDAT2. File: <project>/input/obs/bdeck/b<basin><nn><year
 """
 from __future__ import annotations
 
+import datetime
 import os
 
 from wtune.post import atcf, sources
@@ -27,7 +28,13 @@ def _storm(project, storm=None):
         return storm.strip().upper()
     import wtune.project
     sid, hurdat2 = wtune.project.project_storm(wtune.project.load_project(project))
-    return tc.resolve_storm(hurdat2, storm or sid) if (storm or sid) else None
+    name = storm or sid
+    if not name:
+        return None
+    if not tc.ATCF_ID_RE.match(str(name).strip()) and not hurdat2:
+        raise tc.TCError("storm %r is a name: project.yaml storm.hurdat2 resolves it to an "
+                         "ATCF id, or pass --storm AL142016" % name)
+    return tc.resolve_storm(hurdat2, name)
 
 
 def local_path(project, storm_id):
@@ -65,7 +72,8 @@ def run(args):
     dest = os.path.join(sources.dataset_dir(args.project, NAME), name)
     url = atcf.NHC_BDECK_URL.format(year=year, basin=basin.lower(), cy=cy)
     known = (sources.read_provenance(args.project, NAME) or {}).get("files", {})
-    if os.path.isfile(dest) and known.get(name) == sources.sha256_file(dest):
+    final = year < datetime.datetime.utcnow().year    # this year's storm may still get fixes
+    if final and os.path.isfile(dest) and known.get(name) == sources.sha256_file(dest):
         return [dest]
     try:
         atcf.fetch_bdeck(year, basin, cy, dest)

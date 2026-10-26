@@ -35,69 +35,22 @@ def _bucket_mm(ds):
     return bucket if bucket > 0 and has else 0.0
 
 
-def _domain_edge_latlon(ds):
-    import numpy as np
-    lat = np.asarray(ds.variables["XLAT"][0])
-    lon = np.asarray(ds.variables["XLONG"][0])
-    top = list(zip(lon[0, :], lat[0, :]))
-    right = list(zip(lon[:, -1], lat[:, -1]))
-    bottom = list(zip(lon[-1, ::-1], lat[-1, ::-1]))
-    left = list(zip(lon[::-1, 0], lat[::-1, 0]))
-    ring = top + right + bottom + left
-    return [p[0] for p in ring], [p[1] for p in ring]
-
-
 def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None):
-    """d01 terrain (wrf.getvar 'terrain') filled with cartopy coastlines, every nest's own
-    grid-edge boundary overlaid. Returns the PNG path. Built directly (not through
-    post/recipes/mapfig.py's one-shot save_map()) because the nest-boundary overlay needs to
-    draw on the SAME still-open axes save_map would otherwise have already closed. frame_of(dom)
-    -> (valid time, path) or None: the file each domain is drawn from, default its first wrfout
-    frame (wtune post preview passes the wrfinput files)."""
-    import netCDF4
-    import numpy as np
-    import cartopy.crs as ccrs
-    wrf_mod = __import__("wrf")
-    from wtune.post.plotting import (_coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir)
-
+    """The domain/nest configuration map (post/domain_map.py): every domain's box in the model
+    projection, its own colour and 'dNN dx km nx x ny' label, d01's extent, d01 terrain shaded.
+    frame_of(dom) -> (valid time, path) or None: the file each domain is drawn from, default its
+    first wrfout frame (wtune post preview passes the wrfinput files). Returns the PNG path."""
+    from wtune.post import domain_map
     frame_of = frame_of or (lambda dom: (list_frames(run_dir, domain=dom) or [None])[0])
     if not frame_of(1):
         return None
-    time0, path0 = frame_of(1)
-    plt = _matplotlib()
-    out_path = os.path.join(out_dir, "common_domain_map.png")
-
-    with netCDF4.Dataset(path0) as ds:
-        terrain = wrf_mod.getvar(ds, "terrain", timeidx=0)
-        lats, lons = wrf_mod.latlon_coords(terrain, as_np=True)
-        crs = wrf_mod.get_cartopy(var=terrain)
-        terrain_np = np.asarray(terrain)
-
-        _set_cartopy_data_dir()
-        natural_earth_ok = _natural_earth_ready()
-        fig, ax = plt.subplots(figsize=(8, 6.4), subplot_kw={"projection": crs},
-                               layout="constrained")
-        cf = ax.contourf(lons, lats, terrain_np, levels=20, cmap="terrain",
-                         transform=ccrs.PlateCarree())
-        fig.colorbar(cf, ax=ax, label="terrain height (m)")
-        _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False, nest_rings=[])  # fill = terrain; rings drawn below
-
-        for dom in range(1, max_dom + 1):
-            frame = frame_of(dom)
-            if not frame:
-                continue
-            with netCDF4.Dataset(frame[1]) as dds:
-                edge_lon, edge_lat = _domain_edge_latlon(dds)
-            ax.plot(edge_lon, edge_lat, "-", linewidth=1.5, color="red" if dom > 1 else "black",
-                    transform=ccrs.PlateCarree(), label="d%02d" % dom)
-        # legend below the axes, outside the data area (it used to sit on the terrain corner)
-        fig.legend(*ax.get_legend_handles_labels(), loc="outside lower center", ncol=max_dom,
-                   fontsize=8, frameon=False)
-        ax.set_title("%s domain/nest configuration (%d domain(s))  valid %s"
-                     % (run_label, max_dom, time0), fontsize=10)
-        fig.savefig(out_path, dpi=figdpi.dpi())
-        plt.close(fig)
-    return out_path
+    time0 = frame_of(1)[0]
+    paths = {d: frame_of(d)[1] for d in range(1, max_dom + 1) if frame_of(d)}
+    crs, doms, terrain = domain_map.domains_from_files(paths)
+    return domain_map.draw(
+        crs, doms, os.path.join(out_dir, "common_domain_map.png"),
+        "%s: %d domain(s), terrain of d01, valid %s" % (run_label, len(doms), time0),
+        terrain=terrain)
 
 
 def plot_repro_envelope(run_dirs, labels, out_dir):

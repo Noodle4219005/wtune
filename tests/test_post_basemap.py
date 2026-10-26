@@ -127,7 +127,7 @@ def test_masked_barbs_none_when_all_masked():
 
 # every plan-view builder must go through the shared base map, never draw its own coastline
 PLAN_VIEW_FILES = ["post/plotting.py", "post/obs_figs.py", "post/tc.py",
-                   "post/recipes/mapfig.py", "post/recipes/common.py", "post/recipes/terrain.py",
+                   "post/recipes/mapfig.py", "post/domain_map.py", "post/recipes/terrain.py",
                    "post/recipes/moisture.py", "post/recipes/synoptic.py",
                    "post/recipes/ensemble.py", "post/recipes/climate.py"]
 

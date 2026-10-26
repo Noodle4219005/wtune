@@ -81,6 +81,53 @@ def _write_data(out, fig_path, title, source, grids, valid_time=None):
     return path
 
 
+def _geo_em_files(project_dir):
+    """{dom: geo_em.dNN.nc} of the project's `wtune prep wps` (input/prep/wps/), else {}."""
+    found = glob.glob(os.path.join(project_dir, "input", "prep", "wps", "geo_em.d[0-9][0-9].nc"))
+    return {int(os.path.basename(p)[8:10]): p for p in found}
+
+
+def _namelist_window(case_dir):
+    """(t_start, t_end) of d01 from case/namelist.input (start_* and run_* / end_*), else
+    (None, None)."""
+    from datetime import datetime, timedelta
+    from wtune import predict
+    try:
+        tc = predict.parse_namelist(os.path.join(case_dir, "namelist.input")).get("time_control", {})
+        first = lambda k: int((tc.get(k) or [0])[0])  # noqa: E731
+        t0 = datetime(first("start_year"), first("start_month"), first("start_day"),
+                      first("start_hour"), first("start_minute"), first("start_second"))
+        hours = first("run_days") * 24 + first("run_hours") + first("run_minutes") / 60.0
+        if hours <= 0:
+            t1 = datetime(first("end_year"), first("end_month"), first("end_day"),
+                          first("end_hour"), first("end_minute"), first("end_second"))
+        else:
+            t1 = t0 + timedelta(hours=hours)
+        return t0, t1
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, None
+
+
+def _domain_map_before_real(project_dir, case_dir, out):
+    """common_domain_map before wrfinput exists: from geo_em (terrain shaded) after `wtune prep
+    wps`, else from case/namelist.wps (domain boxes only)."""
+    from wtune.post import domain_map
+    path = os.path.join(out, "common_domain_map.png")
+    geo = _geo_em_files(project_dir)
+    if geo:
+        crs, doms, terrain = domain_map.domains_from_files(geo)
+        src = "geo_em（WPS geogrid）"
+    else:
+        nlw = os.path.join(case_dir, "namelist.wps")
+        if not os.path.exists(nlw):
+            raise FileNotFoundError("no wrfinput, geo_em or namelist.wps to draw the domains from")
+        crs, doms = domain_map.domains_from_namelist(nlw)
+        terrain, src = None, "namelist.wps"
+    domain_map.draw(crs, doms, path, "domain/nest configuration (%s)" % src.split("（")[0],
+                    terrain=terrain)
+    return fig("common_domain_map", path, "preview", domain=1, extra=dict(source=src))
+
+
 def _domain_map(case_dir, out):
     import netCDF4
     import numpy as np
@@ -204,23 +251,35 @@ def run_preview(project_dir, project_doc, out) -> dict:
     storm_id, hurdat2 = wtune.project.project_storm(project_doc)
     every = wtune.project.project_post_defaults(project_doc)["every"]
     os.makedirs(out, exist_ok=True)
-    info = caseinfo.detect_types([case_dir], hurdat2_path=hurdat2, storm_id=storm_id)
-    expected = expected_figures(info["types"], load_catalog(), every=every)
-    window = caseinfo._d01_bbox_and_window(case_dir)[4:]
-
-    steps = [("domain map", lambda: [_domain_map(case_dir, out)]),
-             ("t=0 SLP", lambda: [_slp_wind_t0(case_dir, out, window[0])]),
-             ("ERA5 z500", lambda: _era5_z500(project_dir, out, window))]
-    if "tc" in info["types"] and storm_id and hurdat2:
-        steps.append(("best track", lambda: [_best_track(out, storm_id, hurdat2, window)]))
-    steps.append(("Stage IV", lambda: [_stage4_total(project_dir, case_dir, out, window)]))
+    has_state = bool(caseinfo.initial_state(case_dir))
     figures, notes = [], []
+    if has_state:
+        info = caseinfo.detect_types([case_dir], hurdat2_path=hurdat2, storm_id=storm_id)
+        window = caseinfo._d01_bbox_and_window(case_dir)[4:]
+    else:                       # before `wtune prep real`: namelists (and geo_em) only
+        info = dict(types=["common"], evidence={}, run_length_h=0.0, domains=[])
+        window = _namelist_window(case_dir)
+        notes.append("no wrfinput yet (wtune prep real): figure types are not detected and the "
+                     "t=0 fields are not drawn; the domain map comes from %s"
+                     % ("geo_em" if _geo_em_files(project_dir) else "namelist.wps"))
+    expected = expected_figures(info["types"], load_catalog(), every=every)
+
+    steps = [("domain map", lambda: [_domain_map(case_dir, out) if has_state
+                                     else _domain_map_before_real(project_dir, case_dir, out)])]
+    if has_state:
+        steps.append(("t=0 SLP", lambda: [_slp_wind_t0(case_dir, out, window[0])]))
+    if window[0] is not None:
+        steps.append(("ERA5 z500", lambda: _era5_z500(project_dir, out, window)))
+        if "tc" in info["types"] and storm_id and hurdat2:
+            steps.append(("best track", lambda: [_best_track(out, storm_id, hurdat2, window)]))
+        if has_state:
+            steps.append(("Stage IV", lambda: [_stage4_total(project_dir, case_dir, out, window)]))
     for name, step in steps:
         try:
             figures += [f for f in step() if f and f["path"]]
         except Exception as e:                              # noqa: BLE001
             notes.append("%s skipped: %s: %s" % (name, type(e).__name__, e))
-    if not any(f["id"] == "precip_stage4_total" for f in figures):
+    if has_state and not any(f["id"] == "precip_stage4_total" for f in figures):
         notes.append("Stage IV: no fetched accumulation tiles %s - %s" % window)
 
     with open(os.path.join(out, "expected_figures.csv"), "w", newline="") as fh:
@@ -242,7 +301,12 @@ def run_preview(project_dir, project_doc, out) -> dict:
 def _write_html(out, info, window, expected, figures, summary, earlier, notes):
     from wtune.post.report import _embed_image
     e = html.escape
-    hours = (window[1] - window[0]).total_seconds() / 3600.0
+    if window[0] is not None and window[1] is not None:
+        span = "%s – %s（%.0f h）" % (window[0].strftime("%Y-%m-%d %HZ"),
+                                    window[1].strftime("%Y-%m-%d %HZ"),
+                                    (window[1] - window[0]).total_seconds() / 3600.0)
+    else:
+        span = "（namelist.input 讀不到時段）"
     rows = "".join("<tr><td>%s</td><td><code>%s</code></td><td>%s</td></tr>" % (e(t), e(f), e(q))
                    for t, f, q in expected)
     figs = "".join('<figure><img src="%s" style="max-width:100%%"><figcaption>%s：%s　數據：'
@@ -253,10 +317,9 @@ def _write_html(out, info, window, expected, figures, summary, earlier, notes):
     parts = [
         "<!doctype html><meta charset='utf-8'><title>preview</title>",
         "<h1>預分析（還沒跑 WRF）</h1>",
-        "<p>模擬時段 %s – %s（%.0f h）。偵測到的類型：%s。下面的圖都不是模式結果，而是初始場或"
+        "<p>模擬時段 %s。偵測到的類型：%s。下面的圖都不是模式結果，而是初始場或"
         "觀測；跑完後拿 <code>post/&lt;id&gt;/figures/</code> 的同名圖來比。</p>"
-        % (window[0].strftime("%Y-%m-%d %HZ"), window[1].strftime("%Y-%m-%d %HZ"), hours,
-           e(", ".join(info["types"]))),
+        % (span, e(", ".join(info["types"]))),
         "<h2>預估</h2><pre>%s</pre>" % e("\n".join(summary) or "（沒有 tune 報告）"),
         "<h2>跑完後會畫的圖（%d 種）</h2><table border=1 cellpadding=4>"
         "<tr><th>類型</th><th>圖</th><th>回答的問題</th></tr>%s</table>" % (len(expected), rows),

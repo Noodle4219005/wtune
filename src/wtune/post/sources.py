@@ -214,7 +214,7 @@ def write_provenance(project, name, provenance, urls, files, window=None, bbox=N
     """Writes/updates <dataset_dir>/provenance.json: `provenance` (the module's PROVENANCE dict)
     + `urls` (fetched) + `files` ({relative path: sha256}) + fetch time + requested window/bbox.
     An existing record is merged: urls/files accumulate, so a resumed or repeated fetch does not
-    forget what an earlier one downloaded. `fetched_utc` is the time of the newest download;
+    forget what an earlier one downloaded; a file no longer on disk is dropped. `fetched_utc` is the time of the newest download;
     a run that downloaded nothing keeps the old one."""
     d = dataset_dir(project, name)
     os.makedirs(d, exist_ok=True)
@@ -223,7 +223,7 @@ def write_provenance(project, name, provenance, urls, files, window=None, bbox=N
     rec["urls"] = sorted(set(old.get("urls", [])) | set(urls))
     merged = dict(old.get("files", {}))
     merged.update(files)
-    rec["files"] = merged
+    rec["files"] = {k: v for k, v in merged.items() if os.path.exists(os.path.join(d, k))}
     rec["fetched_utc"] = utc_now() if urls else old.get("fetched_utc", utc_now())
     rec["window"] = window if window is not None else old.get("window")
     rec["bbox"] = bbox if bbox is not None else old.get("bbox")

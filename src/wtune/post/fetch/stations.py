@@ -69,6 +69,20 @@ def station_id(r):
     return "%s-%s" % (r["usaf"], r["wban"])
 
 
+def _prune(project, base):
+    """stations.csv and provenance.json without the stations whose files an earlier fetch kept
+    and this one removed (an HTML page in place of the .gz)."""
+    cat = os.path.join(base, "stations.csv")
+    if not os.path.isfile(cat):
+        return
+    with open(cat, newline="") as fh:
+        rows = list(csv.reader(fh))
+    have = {n.rsplit("-", 1)[0] for n in os.listdir(base) if n.endswith(".gz")}
+    with open(cat, "w", newline="") as fh:
+        csv.writer(fh).writerows(rows[:1] + [r for r in rows[1:] if r and r[0] in have])
+    sources.write_provenance(project, NAME, PROVENANCE, [], {"stations.csv": sources.sha256_file(cat)})
+
+
 def _is_gzip(path):
     with open(path, "rb") as fh:
         return fh.read(2) == b"\x1f\x8b"
@@ -116,9 +130,13 @@ def run(args):
                 urls.append(url)
         if got:
             kept.append(r)
+        else:
+            print("stations: %s has no ISD-Lite file for %s -- skipped"
+                  % (station_id(r), ", ".join(str(y) for y in years)))
     if not kept:
         print("stations: %d catalogue stations in region but none has an ISD-Lite file for %s"
               % (len(chosen), ", ".join(str(y) for y in years)))
+        _prune(args.project, base)
         return []
     cat = os.path.join(base, "stations.csv")
     with open(cat, "w", newline="") as fh:

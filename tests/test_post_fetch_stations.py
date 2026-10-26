@@ -41,3 +41,26 @@ def test_html_in_place_of_isd_lite_is_not_kept(tmp_path, monkeypatch, capsys):
     assert "is not a gzip file" in capsys.readouterr().out
     assert set(json.loads((base / "provenance.json").read_text())["files"]) == {
         "724604-93076-2019.gz", "stations.csv"}
+
+
+def test_when_no_station_is_kept_the_listing_drops_the_removed_ones(tmp_path, monkeypatch, capsys):
+    """bb1f14f reproduction: with every station skipped, run() returned before rewriting
+    stations.csv / provenance.json, which still listed the HTML file it had just deleted."""
+    def download(url, dest, known_sha=None, **k):
+        with open(dest, "wb") as fh:
+            fh.write(PAGE)
+        return sources.sha256_file(dest), True
+    monkeypatch.setattr(sources, "http_get", lambda url, **k: HISTORY.encode())
+    monkeypatch.setattr(sources, "download", download)
+    base = tmp_path / "input" / "obs" / "stations"
+    base.mkdir(parents=True)
+    (base / "724604-93076-2019.gz").write_bytes(PAGE)
+    (base / "stations.csv").write_text("id,name,icao,lat,lon,elev_m\n724604-93076,GOOD,KAAA,37,-102.5,1200\n")
+    sources.write_provenance(str(tmp_path), "stations", stations.PROVENANCE, [],
+                             {"724604-93076-2019.gz": "x", "stations.csv": "y"})
+    args = argparse.Namespace(project=str(tmp_path), run_dir=None, start="2019-02-13_20",
+                              end="2019-02-13_22", bbox="36.5,37.6,-103.2,-101.9", max_stations=5)
+    assert stations.run(args) == []
+    assert (base / "stations.csv").read_text() == "id,name,icao,lat,lon,elev_m\n"
+    assert set(json.loads((base / "provenance.json").read_text())["files"]) == {"stations.csv"}
+    assert "724646-03028 has no ISD-Lite file" in capsys.readouterr().out

@@ -394,6 +394,12 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         raise SystemExit("wtune post fetch <name> --project P [--run-dir R] ... (or --list); "
                          "available: %s" % ", ".join(sorted(fetch.discover()[0])))
     from wtune.post import sources
+    if getattr(args, "run_dir", None) is None and getattr(args, "project", None):
+        import wtune.project
+        runs = wtune.project.discover_runs(os.path.abspath(args.project))
+        if runs:            # era5/igra/stations take the window and region from a run's wrfout
+            args.run_dir = runs[-1][1]
+            print("%s: --run-dir not given; using the project's %s" % (name, args.run_dir))
     try:
         paths = fetch.run_module(name, args)
     except sources.FetchIncomplete as e:

@@ -308,3 +308,20 @@ def test_bdeck_of_this_year_is_refetched_and_kept_when_the_refetch_fails(tmp_pat
     args = argparse.Namespace(project=str(tmp_path), storm="AL05%d" % year)
     first = bdeck.run(args)
     assert first and bdeck.run(args) == first and len(calls) == 2
+
+
+def test_fetch_without_run_dir_uses_the_projects_newest_run(tmp_path, monkeypatch, capsys):
+    # 2026-10-26: `wtune post fetch era5 --project P` fetched 0 files -- era5/igra/stations
+    # need the run's wrfout for the window and region, and --run-dir was not derived
+    import argparse
+    from wtune.post import cli, fetch
+    proj = tmp_path / "p"
+    for rid in ("20261026113729", "merged72h"):
+        (proj / "runs" / rid).mkdir(parents=True)
+        (proj / "runs" / rid / "wrfout_d01_2017-07-31_00:00:00").write_bytes(b"x")
+    seen = {}
+    monkeypatch.setattr(fetch, "run_module", lambda name, a: seen.setdefault("run_dir", a.run_dir) and [])
+    args = argparse.Namespace(fetch_name="era5", project=str(proj), run_dir=None, list=False)
+    assert cli.cmd_fetch(args) == 0
+    assert seen["run_dir"] == str(proj / "runs" / "merged72h")
+    assert "using the project's" in capsys.readouterr().out

@@ -11,8 +11,9 @@ right, every requested time is there, and the values agree with the reference:
   to 0.02 deg), and cells the reference marks out of radar range are NaN in at least half;
 - satellite_ir: at least 95 % of the reference cells valid, median |diff| <= 1 K;
 - stations_extra: at least 90 % of the reference (station, time, var) rows, values within 0.11;
-- rain_gauges: every reference gauge found (by id, else the nearest gauge within 3 km), and at
-  least 95 % of its reference hours present with |diff| <= 0.05 mm (hours keyed by end time).
+- rain_gauges: every reference gauge matched one to one (by id within 3 km, else the nearest
+  unused gauge within 3 km), every reference hour within 0.05 mm (keyed by end time), and any
+  longer row equal to the reference sum over its interval.
 """
 import argparse
 import csv
@@ -145,38 +146,59 @@ def _stations(task, folder, ref):
     return recall >= 0.9, notes
 
 
+def _gid(x):
+    x = x.strip().upper()
+    return (x.lstrip("0") or "0") if x.isdigit() else x
+
+
+def _km(a, b):
+    return 111.0 * np.hypot(a["lat"] - b["lat"], (a["lon"] - b["lon"]) * np.cos(np.radians(b["lat"])))
+
+
 def _gauges(task, folder, ref):
+    """Every reference gauge, matched one to one (by id within 3 km, else the nearest unused gauge
+    within 3 km), must have every reference hour within 0.05 mm; a row longer than an hour (the
+    figures use a gauge's longest period) must match the reference sum over its interval."""
     t0, t1 = (datetime.strptime(x, FMT) for x in task["window"])
 
-    def hourly(path):
+    def read(path):
         out = {}
         for r in agent_obs.read_gauges(path):
-            if t0 < r["end"] <= t1 and r["end"] - r["start"] == timedelta(hours=1):
-                g = out.setdefault(r["id"].upper(), dict(lat=r["lat"], lon=r["lon"], v={}))
-                g["v"][r["end"]] = r["precip_mm"]
+            if t0 < r["end"] <= t1 and r["start"] >= t0 and np.isfinite(r["precip_mm"]):
+                g = out.setdefault(_gid(r["id"]), dict(lat=r["lat"], lon=r["lon"], v={}))
+                g["v"][(r["start"], r["end"])] = r["precip_mm"]
         return out
     try:
-        cand = hourly(os.path.join(folder, agent_obs.GAUGE_FILE))
+        cand = read(os.path.join(folder, agent_obs.GAUGE_FILE))
     except (OSError, ValueError) as e:
         return False, ["unreadable: %s" % e]
-    refg = hourly(os.path.join(ref, agent_obs.GAUGE_FILE))
-    ok, notes = True, []
+    refg = read(os.path.join(ref, agent_obs.GAUGE_FILE))
+    if not refg:
+        return False, ["the reference has no hourly rows in the window"]
+    ok, notes, used = True, [], set()
     for gid, g in sorted(refg.items()):
-        c = cand.get(gid)
-        if c is None:                       # another id scheme: the nearest gauge within 3 km
-            near = [(np.hypot(x["lat"] - g["lat"], (x["lon"] - g["lon"]) * np.cos(np.radians(g["lat"]))), k)
-                    for k, x in cand.items()]
-            d, k = min(near) if near else (1.0, None)
-            c = cand[k] if k is not None and d * 111.0 <= 3.0 else None
-        if c is None:
+        k = gid if gid in cand and _km(cand[gid], g) <= 3.0 else None
+        if k is None:
+            near = sorted((_km(c, g), cid) for cid, c in cand.items() if cid not in used)
+            k = near[0][1] if near and near[0][0] <= 3.0 else None
+        if k is None or k in used:
             ok = False
             notes.append("%s: not found" % gid)
             continue
-        good = sum(1 for t, v in g["v"].items() if t in c["v"] and abs(c["v"][t] - v) <= 0.05)
-        frac = good / len(g["v"])
-        if frac < 0.95:
+        used.add(k)
+        c = cand[k]["v"]
+        hours = {e: v for (s0, e), v in g["v"].items() if e - s0 == timedelta(hours=1)}
+        cand_h = {e: v for (s0, e), v in c.items() if e - s0 == timedelta(hours=1)}
+        good = sum(1 for e, v in hours.items() if e in cand_h and abs(cand_h[e] - v) <= 0.05)
+        if good < len(hours):
             ok = False
-            notes.append("%s: %d/%d hours match" % (gid, good, len(g["v"])))
+            notes.append("%s: %d/%d hours match" % (gid, good, len(hours)))
+        for (s0, e), v in c.items():
+            span = [hours.get(s0 + timedelta(hours=h + 1)) for h in range(int((e - s0).total_seconds() // 3600))]
+            if len(span) > 1 and (None in span or abs(sum(span) - v) > 0.05 * len(span)):
+                ok = False
+                notes.append("%s: %s..%s total %.1f does not match" % (gid, s0, e, v))
+                break
     notes.append("%d reference gauges, %d in the run" % (len(refg), len(cand)))
     return ok, notes
 

@@ -80,7 +80,8 @@ def _prune(project, base):
     have = {n.rsplit("-", 1)[0] for n in os.listdir(base) if n.endswith(".gz")}
     with open(cat, "w", newline="") as fh:
         csv.writer(fh).writerows(rows[:1] + [r for r in rows[1:] if r and r[0] in have])
-    sources.write_provenance(project, NAME, PROVENANCE, [], {"stations.csv": sources.sha256_file(cat)})
+    sources.write_provenance(project, NAME, PROVENANCE, [], {"stations.csv": sources.sha256_file(cat)},
+                             prune_missing=True)
 
 
 def _is_gzip(path):
@@ -150,6 +151,6 @@ def run(args):
         urls.append(HISTORY)
     sources.write_provenance(args.project, NAME, PROVENANCE, urls, files,
                              window=sources.window_dict(start, end), bbox=list(bbox),
-                             extra={"n_stations": len(kept)})
+                             extra={"n_stations": len(kept)}, prune_missing=True)
     print("stations: %d station(s), %d file(s) under %s" % (len(kept), len(written), base))
     return written

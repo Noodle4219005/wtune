@@ -280,9 +280,9 @@ def summarize(work, times, out_dir, project_dir):
                               "model vs ISD-Lite stations, MET Point-Stat (bilinear, interior stations)",
                               series_png)
     panels = []
-    for mv in ("T2", "WSPD10", "MSLP"):
+    for mv in ("T2", "WSPD10", "MSLP", "TD2"):
         pts = [(s["lat"], s["lon"], float(np.mean(s["d"]))) for (sid, v), s in stn.items() if v == mv]
-        if pts:
+        if pts and (mv != "TD2" or not panels):     # Td2 only when nothing else paired
             b = np.array([p[2] for p in pts])
             panels.append(dict(lat=[p[0] for p in pts], lon=[p[1] for p in pts], bias=b,
                                cbar_label="mean bias, model - obs (%s)" % by_model[mv]["unit"],

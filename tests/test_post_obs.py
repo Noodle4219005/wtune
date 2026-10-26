@@ -196,3 +196,22 @@ def test_report_notes_sources_and_figure_note(tmp_path):
     assert "資料來源與授權" in html_text and "doi:10.7289" not in html_text and "Lin, Y." in html_text
     assert "missing: precip_diff" in html_text
     assert html_text.count("missing:") == 1               # notes are not counted as missing observations
+
+
+def test_station_map_has_a_panel_when_only_dew_point_paired(tmp_path, monkeypatch):
+    """bb1f14f review: the map drew T2 / WSPD10 / MSLP only; with dew point the only paired
+    variable, np.concatenate([]) raised and the whole station verification failed."""
+    from datetime import datetime
+    from wtune.post import met_pointstat, obs_figs
+    t = datetime(2019, 2, 13, 21)
+    d = tmp_path / ("ps_%s" % t.strftime(met_pointstat._TAG_FMT))
+    d.mkdir()
+    (d / "x_cnt.txt").write_text("FCST_VAR LINE_TYPE ME RMSE TOTAL\nTD2 CNT 5.8 5.8 1\n")
+    (d / "x_mpr.txt").write_text("FCST_VAR LINE_TYPE OBS_SID OBS_LAT OBS_LON FCST OBS\n"
+                                 "TD2 MPR 724646-03028 37.283 -102.614 262.0 256.2\n")
+    seen = {}
+    monkeypatch.setattr(obs_figs, "bias_rmse_series", lambda *a, **k: None)
+    monkeypatch.setattr(obs_figs, "station_bias_maps",
+                        lambda panels, title, out: seen.setdefault("panels", panels))
+    met_pointstat.summarize(str(tmp_path), [(t, None)], str(tmp_path), str(tmp_path))
+    assert [p["title"].split()[0] for p in seen["panels"]] == ["Td2"]

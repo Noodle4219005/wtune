@@ -42,3 +42,14 @@ def test_rain_gauges_scoring(tmp_path):
     assert score(REF + [("467530", 23.5, 120.8, "2009-08-07 00:00", "2009-08-07 04:00", 35.0)])
     assert not score(_hours("467530", 23.5, 120.8, [10, 20, 0, 5]) +
                      _hours("C0M530", 23.49, 120.7, [0, 0, 1, 0]))                    # dry gauge, shifted
+
+
+def test_rain_gauges_scoring_edges(tmp_path):
+    """a39fd27 review: a reference gauge with only longer rows passed against anything, and a
+    correct longer row failed when the reference lacked one of its hours."""
+    run = _write(str(tmp_path / "run"), REF)
+    daily = _write(str(tmp_path / "d"), [("467530", 23.5, 120.8, "2009-08-07 00:00", "2009-08-07 04:00", 300)])
+    assert not sf._gauges(TASK, run, daily)[0]
+    gap = _write(str(tmp_path / "g"), [r for r in REF if not (r[0] == "467530" and r[4].endswith("03:00"))])
+    assert sf._gauges(TASK, _write(str(tmp_path / "r2"), REF + [
+        ("467530", 23.5, 120.8, "2009-08-07 00:00", "2009-08-07 04:00", 35.0)]), gap)[0]

@@ -164,7 +164,8 @@ def _gauges(task, folder, ref):
     def read(path):
         out = {}
         for r in agent_obs.read_gauges(path):
-            if t0 < r["end"] <= t1 and r["start"] >= t0 and np.isfinite(r["precip_mm"]):
+            if t0 < r["end"] <= t1 and r["start"] >= t0 and np.isfinite(r["precip_mm"]) \
+                    and r["precip_mm"] >= 0:
                 g = out.setdefault(_gid(r["id"]), dict(lat=r["lat"], lon=r["lon"], v={}))
                 g["v"][(r["start"], r["end"])] = r["precip_mm"]
         return out
@@ -172,22 +173,29 @@ def _gauges(task, folder, ref):
         cand = read(os.path.join(folder, agent_obs.GAUGE_FILE))
     except (OSError, ValueError) as e:
         return False, ["unreadable: %s" % e]
-    refg = read(os.path.join(ref, agent_obs.GAUGE_FILE))
+    one = timedelta(hours=1)
+    refg = {gid: g for gid, g in read(os.path.join(ref, agent_obs.GAUGE_FILE)).items()
+            if any(e - s0 == one for s0, e in g["v"])}
     if not refg:
         return False, ["the reference has no hourly rows in the window"]
-    ok, notes, used = True, [], set()
+    ok, notes = True, []
+    match = {gid: gid for gid, g in refg.items() if gid in cand and _km(cand[gid], g) <= 3.0}
+    used = set(match.values())
+    for gid, g in sorted(refg.items()):         # ids first, then the nearest unused gauge
+        if gid in match:
+            continue
+        near = sorted((_km(c, g), cid) for cid, c in cand.items() if cid not in used)
+        if near and near[0][0] <= 3.0:
+            match[gid] = near[0][1]
+            used.add(near[0][1])
     for gid, g in sorted(refg.items()):
-        k = gid if gid in cand and _km(cand[gid], g) <= 3.0 else None
+        k = match.get(gid)
         if k is None:
-            near = sorted((_km(c, g), cid) for cid, c in cand.items() if cid not in used)
-            k = near[0][1] if near and near[0][0] <= 3.0 else None
-        if k is None or k in used:
             ok = False
             notes.append("%s: not found" % gid)
             continue
-        used.add(k)
         c = cand[k]["v"]
-        hours = {e: v for (s0, e), v in g["v"].items() if e - s0 == timedelta(hours=1)}
+        hours = {e: v for (s0, e), v in g["v"].items() if e - s0 == one}
         cand_h = {e: v for (s0, e), v in c.items() if e - s0 == timedelta(hours=1)}
         good = sum(1 for e, v in hours.items() if e in cand_h and abs(cand_h[e] - v) <= 0.05)
         if good < len(hours):
@@ -195,7 +203,7 @@ def _gauges(task, folder, ref):
             notes.append("%s: %d/%d hours match" % (gid, good, len(hours)))
         for (s0, e), v in c.items():
             span = [hours.get(s0 + timedelta(hours=h + 1)) for h in range(int((e - s0).total_seconds() // 3600))]
-            if len(span) > 1 and (None in span or abs(sum(span) - v) > 0.05 * len(span)):
+            if len(span) > 1 and None not in span and abs(sum(span) - v) > 0.05 * len(span):
                 ok = False
                 notes.append("%s: %s..%s total %.1f does not match" % (gid, s0, e, v))
                 break

@@ -289,3 +289,22 @@ def test_bdeck_storm_name_without_hurdat2_is_a_clear_error(tmp_path):
     assert bdeck.present(str(tmp_path)) is False
     with pytest.raises(tc.TCError, match="hurdat2"):
         bdeck._storm(str(tmp_path))
+
+
+def test_bdeck_of_this_year_is_refetched_and_kept_when_the_refetch_fails(tmp_path, monkeypatch):
+    from wtune.post import atcf
+    from wtune.post.fetch import bdeck
+    year = datetime.utcnow().year
+    calls = []
+
+    def fetch(y, basin, cy, dest, timeout=30):
+        calls.append(dest)
+        if len(calls) > 1:
+            raise atcf.ATCFError("NHC unreachable")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        open(dest, "w").write("AL, 05, %d090100,   , BEST,   0, 200N,  600W,  50, 1000\n" % year)
+        return dest
+    monkeypatch.setattr(atcf, "fetch_bdeck", fetch)
+    args = argparse.Namespace(project=str(tmp_path), storm="AL05%d" % year)
+    first = bdeck.run(args)
+    assert first and bdeck.run(args) == first and len(calls) == 2

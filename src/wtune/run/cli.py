@@ -624,7 +624,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     if not convert_in_job:                  # in this process: Ctrl-C interrupts it at once
         try:
             plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
-        except RunError as e:
+        except (RunError, RuntimeError, OSError) as e:
             return _fail(e)
     with wtune.stopping.stop_on_signal(state_file, "run", opts.poll_interval):
         if convert_in_job:

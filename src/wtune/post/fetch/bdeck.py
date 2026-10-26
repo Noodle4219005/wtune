@@ -72,14 +72,14 @@ def run(args):
     dest = os.path.join(sources.dataset_dir(args.project, NAME), name)
     url = atcf.NHC_BDECK_URL.format(year=year, basin=basin.lower(), cy=cy)
     known = (sources.read_provenance(args.project, NAME) or {}).get("files", {})
-    final = year < datetime.datetime.utcnow().year    # this year's storm may still get fixes
-    if final and os.path.isfile(dest) and known.get(name) == sources.sha256_file(dest):
+    have = os.path.isfile(dest) and known.get(name) == sources.sha256_file(dest)
+    if have and year < datetime.datetime.utcnow().year:   # this year's storm may still get fixes
         return [dest]
     try:
         atcf.fetch_bdeck(year, basin, cy, dest)
     except atcf.ATCFError as e:
-        print("bdeck: %s" % e)
-        return []
+        print("bdeck: %s%s" % (e, "; keeping the copy fetched before" if have else ""))
+        return [dest] if have else []
     sources.write_provenance(args.project, NAME, PROVENANCE, [url],
                              {name: sources.sha256_file(dest)})
     return [dest]

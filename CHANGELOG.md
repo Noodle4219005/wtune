@@ -220,7 +220,7 @@ cartopy for the Natural Earth coastline, which downloads a missing file (f1-arm 
 `wtune post fetch bdeck` puts the storm's b-deck in `<project>/input/obs/bdeck/`, which tc and
 the recipe read, and inside a Slurm job tc no longer downloads. `wtune submit` fetches it when
 `post.fetch` lists `bdeck`; a storm of the current year is fetched again each time (NHC still
-revises it), an older one only when its file changed. The test suite, which runs on compute nodes, now fails a test that
+revises it; a failed download keeps the copy it has), an older one only when its file changed. The test suite, which runs on compute nodes, now fails a test that
 connects to a non-loopback address or looks up a host name, instead of letting it wait for a
 timeout.
 

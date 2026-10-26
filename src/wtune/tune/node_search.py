@@ -259,6 +259,8 @@ def _anchor_results(ctx: Ctx, items: list[dict], jobs: dict, states: dict,
             state = states.get(j, ("UNKNOWN", ""))[0]
             skipped.append(dict(it["tag"], state=state,
                                 reason="no successful measurement (job %s, state %s)" % (j, state)))
+            print("node sweep: %s job %s: no successful measurement (state %s)"
+                  % (it["suffix"], j, state))
     return out
 
 
@@ -765,6 +767,9 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         on_sweep(rows, sw)
     print("node sweep: chose N=%d -- %s; finalists %s" % (chosen, note, finals))
     print_rows(tab)
+    if tab and tab[0]["nodes"] != 1:
+        print("node sweep: speedup and eff are relative to N=%d, the smallest N measured"
+              % tab[0]["nodes"])
 
     if core_options is None:
         core_options = wtune.nodes.default_core_options(ctx.cores_per_node)

@@ -39,6 +39,7 @@ from __future__ import annotations
 import csv
 import glob
 import json
+import math
 import os
 import re
 import shlex
@@ -275,10 +276,11 @@ def row_build_id(row):
 
 def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
                          fallback=None, build_id=None, extra_dirs=()):
-    """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
-    for `case` on `hardware_id`, scanning ledger_<case>_*.csv in ledger_dir and extra_dirs
-    -- ideal linear core-count scaling. With build_id, only that build's rows ('ledger'); when
-    it has none, the rows that carry no build id ('ledger_unknown_build'); another build's rows
+    """Median of (measured s_per_step_median * n_nodes_measured / nodes) over the ledger rows
+    for `case` on `hardware_id` at the node count nearest `nodes` (log scale; the larger on a
+    tie), scanning ledger_<case>_*.csv in ledger_dir and extra_dirs -- ideal linear scaling
+    only across that one gap (over all N it was 4x off: matthew 0.061 vs 0.016). With
+    build_id, only that build's rows ('ledger'); when it has none, the rows that carry no build id ('ledger_unknown_build'); another build's rows
     never (a tuned-flag build is not the vanilla one). `fallback` (source 'fallback_10s') when
     no matching row exists at all. Returns (s_est, source, n_rows_used).
 
@@ -306,13 +308,14 @@ def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
                     continue
                 b = row_build_id(r)
                 if not build_id or b == build_id:
-                    same.append(s * n / nodes)
+                    same.append((n, s))
                 elif not b:
-                    unknown.append(s * n / nodes)
-    if same:
-        return statistics.median(same), "ledger", len(same)
-    if unknown:
-        return statistics.median(unknown), "ledger_unknown_build", len(unknown)
+                    unknown.append((n, s))
+    for pool, source in ((same, "ledger"), (unknown, "ledger_unknown_build")):
+        if pool:
+            near = min({n for n, _s in pool}, key=lambda n: (abs(math.log(n / nodes)), -n))
+            vals = [s * n / nodes for n, s in pool if n == near]
+            return statistics.median(vals), source, len(vals)
     return fallback, "fallback_10s", 0
 
 

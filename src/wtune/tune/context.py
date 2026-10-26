@@ -217,6 +217,22 @@ def _total_steps(namelist_path: str) -> int | None:
         return None
 
 
+def adaptive_steps_warning(namelist_path: str) -> str | None:
+    """The whole-run times count run length / time_step d01 steps; with use_adaptive_time_step
+    WRF's own dt decides, so say how far off that can be."""
+    try:
+        nl = predict.parse_namelist(namelist_path)
+        steps_n, run_s, _dt, _note = predict.get_d01_steps(nl)
+        b = predict.adaptive_step_bounds(nl, run_s)
+    except Exception:
+        return None
+    if not b:
+        return None
+    return ("use_adaptive_time_step: WRF picks d01's dt between %g and %g s, so the run takes "
+            "%d-%d steps; the whole-run times below assume %d (time_step)"
+            % (b[2], b[3], b[0], b[1], steps_n))
+
+
 def cores_used(ctx: Ctx) -> int:
     """Cores per node the layouts may use: the finalist's core_budget, else all of them."""
     return ctx.core_budget or ctx.cores_per_node

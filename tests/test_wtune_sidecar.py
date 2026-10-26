@@ -436,3 +436,21 @@ def test_compress_history_keeps_only_the_newest_valid_restart(tmp_path, fake_bp)
     assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
     assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))
     assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [True, False]
+
+
+def test_without_compress_history_only_the_newest_valid_restart_stays(tmp_path, fake_bp):  # noqa: F811
+    # default --resume 1 writes a checkpoint every 1/8 of the run; without --compress-history
+    # all ~8 sets stayed on disk
+    from wtune.run.space import drop_older_restarts
+    seg = tmp_path / "seg_0"
+    seg.mkdir()
+    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
+    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
+    for h in (2, 4):
+        for d in (1, 2):
+            _real_bp(rst(d, h))
+    _real_bp(rst(1, 6))                                   # 06:00 not finished: not valid
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
+    assert drop_older_restarts(str(seg), 2, os.path.isdir) > 0
+    assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
+    assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))

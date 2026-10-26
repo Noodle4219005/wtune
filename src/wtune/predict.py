@@ -344,6 +344,22 @@ def get_d01_steps(nl: dict) -> tuple[int, float, float, str | None]:
     return steps, run_s, dt, note
 
 
+def adaptive_step_bounds(nl: dict, run_s: float) -> tuple[int, int, float, float] | None:
+    """use_adaptive_time_step: WRF picks d01's dt each step within [min_time_step,
+    max_time_step] (-1: 3*dx and 8*dx, dx in km), so the step count is only bounded ->
+    (fewest steps, most steps, min dt, max dt); None without adaptive dt."""
+    if not bool(g(nl, "domains", "use_adaptive_time_step", False)):
+        return None
+    dx_km = float(g(nl, "domains", "dx", 0) or 0) / 1000.0
+    lo_dt, hi_dt = (float(g_dom(nl, "domains", k, 0, -1) or -1)
+                    for k in ("min_time_step", "max_time_step"))
+    lo_dt = lo_dt if lo_dt > 0 else 3 * dx_km
+    hi_dt = hi_dt if hi_dt > 0 else 8 * dx_km
+    if lo_dt <= 0 or hi_dt < lo_dt:
+        return None
+    return math.ceil(run_s / hi_dt), math.ceil(run_s / lo_dt), lo_dt, hi_dt
+
+
 def parent_time_step_ratio(nl: dict, dom_index: int, default: int = 1) -> int:
     v = g_dom(nl, "domains", "parent_time_step_ratio", dom_index, default)
     return int(v) if v is not None else default
@@ -1653,6 +1669,19 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
                                 + drift_abs_s ** 2)
         low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
         range_source = None
+
+    bounds = adaptive_step_bounds(nl, run_s)
+    if bounds:
+        lo_n, hi_n, lo_dt, hi_dt = bounds
+        comp = compute["compute_total_s"]
+        low = min(low, low - comp + comp * lo_n / steps)
+        high = max(high, high - comp + comp * hi_n / steps)
+        steps_note = "; ".join(x for x in (steps_note, (
+            "use_adaptive_time_step: WRF picks d01's dt between %g and %g s, so %d-%d steps; "
+            "the total counts %d steps of time_step, the range covers both bounds"
+            % (lo_dt, hi_dt, lo_n, hi_n, steps))) if x)
+        range_source = "; ".join(x for x in (range_source, "widened to the adaptive-dt "
+                                             "step bounds") if x)
 
     params = build_param_table(config, nodes, io_form_history_effective, io_target,
                                cores_per_node(calibration))

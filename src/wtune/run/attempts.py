@@ -21,7 +21,8 @@ from .sbatch import render_segment_sbatch
 from .staging import (merge_adios2_xml, output_dir_names, precreate_output_dirs,
                       remove_empty_output_dirs, render_adios2_restart_xml, restart_files,
                       setup_segment_dir)
-from .space import _fmt_bytes, gzip_rsl, remove_computed_tables, shrunk_outputs
+from .space import (_fmt_bytes, drop_older_restarts, gzip_rsl, remove_computed_tables,
+                    shrunk_outputs)
 
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
 
@@ -265,6 +266,12 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
     if side:
         side.job_ended(seg_dir)
+    elif ctx.plan.restart.set_min is not None:     # restarts WTune asked for, not the case's
+        freed = drop_older_restarts(seg_dir, geo.max_dom,
+                                    sweep.campaign_configs._import_wtune_bp().is_bp)
+        if freed:
+            run.log("older restart sets deleted (%s); the newest valid one is kept"
+                    % _fmt_bytes(freed))
     snap = run.snapshot_fn(seg_dir)
     rec.state, rec.elapsed_s, rec.watch_status = state, elapsed, snap.get("status")
     rec.warnings = [w["code"] for w in snap.get("warnings", [])]

@@ -8,6 +8,8 @@ import os
 import re
 import subprocess
 
+import pytest
+
 from wtune.tools import coldstart_sample as cs
 from wtune.tools import scc_sweep as sweep
 from wtune.tune import cli as tune_cli
@@ -55,17 +57,28 @@ def test_probe_and_tune_compute_the_same_build_id(tmp_path):
     assert sweep.wrf_build_id(tree) != build
 
 
+def test_estimate_scales_only_from_the_nearest_measured_node_count(tmp_path):
+    # matthew on f1-arm: every N scaled linearly to N=1 gave 0.061 s/step, N=1 measured 0.016
+    d = str(tmp_path / "ledgers")
+    _ledger(d, "m", 1, [(1, 0.016, ""), (2, 0.012, ""), (4, 0.010, ""), (8, 0.0095, "")])
+    est = sweep.estimate_s_per_step
+    assert est("m", 1, d, "hw", fallback=9.0) == (0.016, "ledger", 1)
+    s, src, n = est("m", 3, d, "hw", fallback=9.0)               # log-nearest: 4, not 2
+    assert (src, n) == ("ledger", 1) and s == pytest.approx(0.010 * 4 / 3)
+    assert est("m", 16, d, "hw", fallback=9.0)[0] == pytest.approx(0.0095 / 2)
+
+
 def test_estimate_keeps_to_the_build(tmp_path):
     d = str(tmp_path / "ledgers")
     _ledger(d, "c", 1, [(1, 1.0, "config=a build=aaaa"), (2, 0.5, "config=b build=aaaa")])
     _ledger(d, "c", 2, [(1, 5.0, "config=a build=bbbb")])
     _ledger(d, "c", 3, [(1, 3.0, "config=a")])
     est = sweep.estimate_s_per_step
-    assert est("c", 1, d, "hw", fallback=9.0, build_id="aaaa") == (1.0, "ledger", 2)
+    assert est("c", 1, d, "hw", fallback=9.0, build_id="aaaa") == (1.0, "ledger", 1)
     assert est("c", 1, d, "hw", fallback=9.0, build_id="cccc") == (3.0, "ledger_unknown_build", 1)
-    assert est("c", 1, d, "hw", fallback=9.0) == (2.0, "ledger", 4)
+    assert est("c", 1, d, "hw", fallback=9.0) == (3.0, "ledger", 3)
     assert est("c", 1, str(tmp_path / "empty"), "hw", fallback=9.0, build_id="aaaa",
-               extra_dirs=[d]) == (1.0, "ledger", 2)
+               extra_dirs=[d]) == (1.0, "ledger", 1)
 
 
 def test_tune_ledger_dir_is_the_project_and_reaches_the_jobs(tmp_path, monkeypatch):

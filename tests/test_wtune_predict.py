@@ -611,6 +611,26 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
         % (pred["total_s"], ratio))
 
 
+def test_adaptive_time_step_widens_the_range_to_the_step_bounds(tmp_path):
+    # B1: with use_adaptive_time_step the step count was run length / time_step, silently
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    nl = CONUS25_NAMELIST.replace("&domains", "&domains\n use_adaptive_time_step = .true.,\n"
+                                  " min_time_step = 5,\n max_time_step = 30,", 1)
+    assert nl != CONUS25_NAMELIST
+    _write(str(case_dir / "namelist.input"), nl)
+    config = {"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config=config, ledger_paths=[], calibration_path=CALIBRATION,
+        io_form_override=None, io_target="nfs")
+    comp, steps = pred["compute"]["compute_total_s"], pred["steps"]
+    assert steps == pred["run_s"] / 15
+    assert pred["range_high_s"] >= pred["total_s"] + comp * (pred["run_s"] / 5 / steps - 1) - 1
+    assert pred["range_low_s"] <= pred["total_s"] - comp * (1 - pred["run_s"] / 30 / steps) + 1
+    assert "use_adaptive_time_step" in pred["steps_note"]
+
+
 # --------------------------------------------------------------------------
 # 7. PRE-REGISTERED held-out checks: maria1km and isc21.
 #    Geometry from campaign/cases.json (max_dom, e_we/e_sn/e_vert per domain,

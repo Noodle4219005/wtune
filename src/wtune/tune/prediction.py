@@ -589,7 +589,8 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
                 io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
                 case_name=ctx.case, rsl_paths=None, include_io=False)
             T = float(pred["total_s"])
-            return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune.predict cold start"
+            comp = float(pred["compute"]["compute_total_s"])   # T's init is predict's, not startup_s
+            return T, max(1e-6, comp / max(1, total_steps)), "wtune.predict cold start"
         except Exception:                                   # noqa: BLE001
             pass
     s_est, src, _k = ctx.estimate_s_per_step(nodes)

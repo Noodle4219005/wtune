@@ -258,7 +258,8 @@ def _pipeline_pre_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
                 "(%s)" % (_fmt_hms(T_cold), precision_min, len(pplan0["selected"]),
                           pplan0["source"]))
     pipe.T_cold_s = T_cold
-    pipe.T_cold_compute_s = (T_cold - ctx.startup_s) if T_cold else None
+    s_n0 = ce.est_info.get("s_per_step_n")
+    pipe.T_cold_compute_s = s_n0 * st.total_steps if T_cold and s_n0 else None
 
 
 def _phase0_submit_rebuild(st: PipelineRun, precision_min: float, info: RebuildInfo) -> str:
@@ -855,8 +856,9 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
         # the same fields as the -O1..3 predictions; T already holds the I/O, ranges stay symmetric
         p0 = pipe.prediction
         io_s = io_run["total_s"] if io_run else 0.0
-        p0.add_run_length_io(io_run, T - io_s - ctx.startup_s, ctx.startup_s, band,
-                             ctx.startup_source)
+        comp = s_n * total_steps
+        p0.add_run_length_io(io_run, comp, T - io_s - comp, band,
+                             ctx.startup_source if src.startswith("ledger") else src)
         p0.predicted_range_s = [T * (1 - band), T * (1 + band)]
     print("O0: no jobs -- nodes=%d (%s), layout %s, cold-start whole run %s ±%.0f%% (%s)"
           % (n0, note, {k: cfg.get(k) for k in ("ranks", "omp", "nx", "ny")},

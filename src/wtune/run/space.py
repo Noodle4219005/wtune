@@ -167,6 +167,32 @@ def gzip_rsl(seg_dir: str) -> tuple[int, int, int]:
 THOMPSON_TABLES = ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qg_mp38V1.dat", "qr_acr_qsV2.dat")
 
 
+def drop_older_restarts(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]) -> int:
+    """Keep only the newest valid restart set WRF wrote into seg_dir: wtune.resume starts from
+    it, the older ones only take space (Sidecar does the same with --compress-history). Bytes
+    freed."""
+    import wtune.resume
+    try:
+        times = wtune.resume.valid_restart_times(seg_dir, max_dom, is_bp)
+    except (OSError, ValueError):
+        return 0
+    freed = 0
+    for t in times[:-1]:
+        for d in range(1, max_dom + 1):
+            for p in glob.glob(os.path.join(seg_dir, "wrfrst_d%02d_%s*" % (d, glob.escape(t)))):
+                try:
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        freed += sum(os.path.getsize(os.path.join(r, f))
+                                     for r, _d, fs in os.walk(p) for f in fs)
+                        shutil.rmtree(p)
+                    else:
+                        freed += 0 if os.path.islink(p) else os.path.getsize(p)
+                        os.remove(p)
+                except OSError:
+                    pass                                    # disk only: never stops a run
+    return freed
+
+
 def remove_computed_tables(seg_dir: str) -> int:
     """Delete the Thompson tables WRF computed into the segment (357 MiB on f1-arm, every
     segment, without --thompson-cache); a case's own tables are links and stay. Bytes freed."""

@@ -1724,6 +1724,26 @@ def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
     assert {1, 2, 4} <= set(sw["measurements"])
 
 
+def test_node_sweep_says_when_an_n_measured_nothing_and_what_eff_is_relative_to(tmp_path,
+                                                                                   capsys):
+    # isc21 on scc: the N=1 probe timed out (rc=124); the log only said "submitted", and the
+    # table's speedup/eff silently started from N=2
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6, 4: 0.5})
+
+    def no_n1(case, job_ids):
+        return reader(case, [j for j in job_ids if job_nodes[j] != 1])
+
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=no_n1, budget_s=360000.0,
+               case_json=dict(e_we=20, e_sn=20, e_vert=45, prep_dir="/fake"),
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4], budget_frac=1.0)
+    assert sorted(sw["measurements"]) == [2, 4]
+    assert "nodes-n1 job" in capsys.readouterr().out
+    rows = wtune.nodes.summarize(sw["measurements"])
+    lines = wtune.tune.report._node_table_lines(dict(table=wtune.nodes.table(rows)))
+    assert any("relative to N=2" in ln for ln in lines)
+
+
 def test_node_sweep_skips_n_without_legal_decomposition(tmp_path):
     # 20x20 grid: r_max 4. N=1 (omp 18 -> 4 ranks), N=2 (omp 36), N=4 (omp 72) work; N=8 would
     # need 8 ranks at omp<=72 -> none legal.
@@ -3123,6 +3143,35 @@ def test_o0_runs_no_job_and_reports_the_cold_start_band(monkeypatch, tmp_path, c
         assert json.load(f)["pipeline"]["prediction_band"]["band"] == 0.25
 
 
+def test_o0_breakdown_uses_the_cold_starts_own_init_not_startup_s(monkeypatch, tmp_path):
+    # wtune.predict's whole run carries its own init (90 s here), shorter than startup_s (120 s):
+    # compute = T - startup_s went negative (sc26p2: "compute -20s")
+    case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
+    monkeypatch.setattr(wtune.tune.context, "resolve_case",
+                        lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
+                                           ALL_NODES_PROFILE))
+    monkeypatch.setattr(wtune.tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune.tune.prediction, "cold_start_prediction",
+                        lambda ctx, nodes, cfg, steps: (100.0, 0.01, "wtune.predict cold start"))
+    args = wtune.tune.build_arg_parser().parse_args(
+        ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
+         "--ledger-dir", str(tmp_path / "ledger")])
+    report = wtune.tune.run(args, sbatch_runner=None, preflight_runner=None, clock=FakeClock())
+    pred = report["pipeline"]["prediction"]
+    assert pred["compute_s"] == pytest.approx(10.0) and pred["init_s"] == pytest.approx(90.0)
+    assert pred["predicted_total_s"] == pytest.approx(100.0)
+
+
+def test_cold_start_s_per_step_is_predicts_compute_not_total_minus_startup(monkeypatch):
+    ctx = _types.SimpleNamespace(namelist_path="nl", case_json=dict(prep_dir="p"), case="c",
+                                prediction_cfg={}, startup_s=120.0)
+    monkeypatch.setattr(wtune.tune.prediction.predict, "build_prediction",
+                        lambda **kw: dict(total_s=100.0, compute=dict(compute_total_s=10.0)))
+    T, s, _src = wtune.tune.prediction.cold_start_prediction(
+        ctx, 1, dict(ranks=4, omp=1, nx=2, ny=2, numtiles=1), 1000)
+    assert T == 100.0 and s == pytest.approx(0.01)
+
+
 # --- 0.8.2: run-length I/O in the pipeline's whole-run prediction ---------------------------
 FAKE_IO = dict(total_s=600.0, history_s=400.0, boundary_s=100.0, aux_s=60.0, restart_s=40.0)
 
@@ -3634,3 +3683,13 @@ def test_confirm_includes_the_fastest_measured_config(monkeypatch):
     predicted["D1"] = dict(entry("D1", 0.10, 99.0), config=None)
     cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
     assert cids == ["B1", "B2", "B3", "C1", "ANCHOR"]           # dbbf82d review: C1 was dropped
+
+
+def test_tune_warns_that_adaptive_dt_makes_the_step_count_a_range(tmp_path):
+    nl = tmp_path / "namelist.input"
+    nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n dx = 10000,\n"
+                  " use_adaptive_time_step = .true.,\n/\n")
+    w = wtune.tune.context.adaptive_steps_warning(str(nl))
+    assert w and "45-120 steps" in w and "assume 60" in w         # 8*dx = 80 s, 3*dx = 30 s
+    nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n/\n")
+    assert wtune.tune.context.adaptive_steps_warning(str(nl)) is None

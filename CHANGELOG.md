@@ -179,6 +179,29 @@ full the gzip stops with a warning and the run goes on.
 observations were fetched; they now describe the ISD-Lite / MET Point-Stat figures and the lee
 station rule (30-100 km downstream of the crest, within 25 km of the section line).
 
+**`-O0` time breakdown.** The whole run from `wtune predict` carries predict's own init time, but
+the breakdown subtracted the 120 s startup constant from it, so a short case showed a negative
+compute (sc26p2: `compute -20s`). Compute is now predict's compute, and init the rest.
+
+**A node count that measured nothing is reported.** A probe that timed out or failed (isc21 on
+scc: N=1, rc=124) was only "submitted" in the log, and the table's speedup and efficiency then
+started from N=2 without saying so. The sweep now prints the failed job and its state, and the
+log and report say which N speedup and efficiency are relative to.
+
+**Older checkpoints are deleted without `--compress-history` too.** `--resume` (on by default)
+writes a restart every 1/8 of the run; only `--compress-history` deleted the older ones, so a
+one-segment run kept about 8 sets. After every job the restart sets WTune asked for are cut to
+the newest valid one, which is the one a resume reads. The case's own restarts are not touched.
+
+**`use_adaptive_time_step`.** The step count was run length / `time_step`, though WRF picks d01's
+dt each step. `wtune predict` now gives the bounds from `min_time_step` and `max_time_step` (-1:
+3 and 8 x dx in km), widens the range to them and says so; `wtune tune` prints the same warning.
+
+**Ledger estimates scale from the nearest node count only.** The s/step estimate scaled every
+ledger row linearly to the node count asked for; WRF does not scale linearly, and matthew at
+N=1 was estimated at 0.061 s/step against 0.016 measured. Only the rows at the nearest measured
+node count are used now.
+
 **Docs.** `-O3` is described as what it does: it measures the whole space, with no model rounds.
 The workflow, tune and post flowcharts have colour legends.
 

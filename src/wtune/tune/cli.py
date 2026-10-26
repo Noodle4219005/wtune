@@ -397,6 +397,9 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
+    adaptive = _context.adaptive_steps_warning(namelist_path)
+    if adaptive:
+        print("WARNING: " + adaptive)
     if node_search and node_objective == "cost" and total_steps is None:
         raise SystemExit("--node-objective cost needs the case's total step count (run length / "
                          "time_step from the namelist), which could not be determined")

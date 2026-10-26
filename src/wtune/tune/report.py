@@ -210,6 +210,9 @@ def _node_table_lines(ns: dict) -> list[str]:
                         "%.0f" % r["wall_s"] if r.get("wall_s") is not None else "-",
                         "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-",
                         _mb(r.get("maxrss_mb"))))
+    if ns.get("table") and ns["table"][0]["nodes"] != 1:
+        lines.append("NOTE: speedup and eff are relative to N=%d, the smallest N measured"
+                     % ns["table"][0]["nodes"])
     for obj, c in (ns.get("choices") or {}).items():
         lines.append("choice %-5s%s N=%s  %s" % (obj, "*" if obj == ns.get("objective") else " ",
                                                  c["nodes"], c["note"]))

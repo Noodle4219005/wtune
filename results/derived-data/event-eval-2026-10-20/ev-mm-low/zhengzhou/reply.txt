@@ -1,0 +1,7 @@
+已完成：`event.yaml` 已建立，`wtune event check event.yaml` 通過（0 error、0 warning），未抓取任何資料。
+
+我把這個個案理解為 2021 年 7 月河南鄭州極端暴雨（heavy_rain），要檢驗 24 小時累積雨量與逐時雨量的空間位置（以 CMA 測站雨量 `~/obs/cma_rain.csv` 作為 local_obs，kind 為 rain_gauges）以及地面風（wind10）。因為原文未指明風的觀測來源，我把它放進 verify 而沒有亂加 obs_requests，並在 questions 提出兩個確認點。
+
+問題：
+1. 地面風要跟哪一份觀測資料比較？是否另有地面測站風速檔，或需要我用公開的 CMA/國家站點資料？
+2. 24 小時累積與逐時雨量的比較時段，是從 2021-07-19 00Z 起算，還是以 7 月 20 日下午為中心？

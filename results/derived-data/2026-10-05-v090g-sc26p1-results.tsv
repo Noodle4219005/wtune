@@ -1,0 +1,6 @@
+case	stage	metric	v090g	v090	verdict	note
+sc26p1	prep	bp_cache_rename	sc26p1 -> sc26p1.prev2 at 2026-10-04T19:48:58.997Z	-	-	kept; contents untouched (no job ran)
+sc26p1	prep	old_cache_path_visibility	work2 still saw bp-cache/sc26p1 in 9 of 9 srun checks, t+1 s .. t+121 s (jobs 3065-3073); other 11 nodes never saw it	-	GAVE UP at 120 s	per corrected procedure: report and stop; tune not launched
+sc26p1	diag	work2_inode	19:51:27Z (t+148 s): on work2 old name and new name both resolve to inode 16680364942; readdir of bp-cache lists only sc26p1.prev2; no process cwd/fd inside bp-cache	-	-	stale positive name entry on one NFS client
+sc26p1	diag	cleared	19:51:45Z (t+166 s): work2 no longer sees the old path, 18 s after an ls of the parent dir on work2; srun check on 12 nodes prints nothing	-	-	work2 is the node that created this cache dir (nc2bp job 2924)
+sc26p1	T,D,R,PP	status	not started	-	NOT RUN	tune/v090g, runs/v090g, post/v090g do not exist for P1

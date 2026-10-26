@@ -1,0 +1,9 @@
+nproc_x,nproc_y,ranks,median_s_240step,median_s_60step_mean,vs_auto_60step_pct,note
+4,112,448,0.93198,0.815,6.7,coarse-X thin-flat patch penalty
+7,64,448,,0.765,0.1,near auto
+8,56,448,0.82230,0.740,-3.1,SWEET SPOT zero-code win (patch 188x21)
+14,32,448,,0.761,-0.4,near auto
+16,28,448,0.85478,0.764,0.0,AUTO DEFAULT (mpaspect near-square)
+28,16,448,0.92678,,,too fine-X
+56,8,448,1.12186,,,thin vertical strips
+112,4,448,1.54683,,,extreme thin-X

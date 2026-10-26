@@ -1,0 +1,3 @@
+I read the January 1998 Quebec/Ontario freezing-rain case as a `winter_storm` event and wrote `event.yaml` in the current directory; `wtune event check event.yaml` passes with 0 errors and 0 warnings. The file records the event and region (southern Quebec and eastern Ontario), two observation comparisons — 2 m temperature at stations (`t2`) and total precipitation (`precip_total`) — and one model-only figure, the warm-nose temperature profile, in `diagnose`. No storm entry, obs requests or local data were added, since the text names none of those.
+
+One question: for the warm-nose profile, would you prefer it compared against IGRA soundings (`verify: sounding`) rather than treated as a model-only figure?

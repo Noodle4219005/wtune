@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: b70526fbcf2973e4b11d325821059aea5c73c503059ba9a2d216a5cc00273c65
+event:
+  value: Hurricane Harvey stalled over southeast Texas, late August 2017
+  from: "Hurricane Harvey stalled over southeast Texas in late August 2017"
+types:
+  - {value: tropical_cyclone, from: "Hurricane Harvey"}
+  - {value: heavy_rain, from: "multi-day rainfall totals around Houston"}
+storms:
+  - {name: Harvey, year: 2017, from: "Hurricane Harvey stalled over southeast Texas in late August 2017"}
+region:
+  value: southeast Texas
+  from: "southeast Texas"
+verify:
+  - {value: precip_total, from: "the multi-day rainfall totals around Houston against Stage IV"}
+  - {value: track, from: "plus the track while it stalled"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions: []

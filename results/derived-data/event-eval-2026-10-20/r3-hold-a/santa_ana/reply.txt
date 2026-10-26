@@ -1,0 +1,3 @@
+我理解這個案例是 2018 年 11 月南加州的 Santa Ana 強風事件，Woolsey 野火在乾燥離岸風下迅速擴散。event.yaml 中 types 填了 `downslope_wind` 與 `fire_weather`，verify 放了測站陣風 (`gust`) 與相對濕度 (`rh2`)，diagnose 放了山口附近的下坡風剖面，沒有 storms、obs_requests 或 local_obs 項目。`wtune event check event.yaml` 已通過（0 error、0 warning），本次未抓取任何資料。
+
+問題：文字提到 Woolsey 野火，但只要求檢查風與濕度，是否還需要加入野火過火範圍或火險的觀測比對？

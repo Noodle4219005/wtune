@@ -1,0 +1,5 @@
+已完成 Part 1：`event.yaml`通過 `wtune event check`（0 error, 0 warning），未抓取任何資料。
+
+我理解的是：這是一個理想化的超大胞（supercell）模擬，用 Weisman-Klemp 探空搭配四分圓風切（em_quarter_ss）；想看的都是模型自身產出的圖——上升氣流螺旋度與回波的鉤狀結構，因此放在 `diagnose` 而非 `verify`，並標為 `idealized`與 `mesoscale_convection` 兩種 type，不設 storms／region／verify／obs_requests。
+
+問題：文字提到想「跟原始論文的圖比對」，但 WTune 的 obs kind 沒有涵蓋論文圖像的比對方式，所以只能先列為 question——是否改為與雷達回波觀測比對，或由你提供論文圖檔供人工對照？

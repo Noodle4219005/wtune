@@ -9,10 +9,12 @@ set -uo pipefail
 SEG='<TMP>/seg dir'
 SITE=scc
 CAMPAIGN=${CAMPAIGN:-/repo/campaign}
-source "$CAMPAIGN/sites/$SITE.sh"   # site_launch / site_hygiene / W
+source "$CAMPAIGN/sites/$SITE.sh"   # site_env / site_launch / site_hygiene / W
 source "$HOME/wtune-scc/env.sh"
-W=${WRF_TREE:-$W}
 ulimit -s unlimited
+export WTUNE_ENV_SOURCE="$HOME/wtune-scc/env.sh"
+site_env
+W=${WRF_TREE:-$W}
 ALLOC_NODES=${SLURM_JOB_NUM_NODES:-2}
 STATUS="$SEG/segment_status.txt"
 : > "$STATUS"
@@ -86,10 +88,12 @@ set -uo pipefail
 SEG='<TMP>/seg dir'
 SITE=scc
 CAMPAIGN=${CAMPAIGN:-<REPO>/campaign}
-source "$CAMPAIGN/sites/$SITE.sh"   # site_launch / site_hygiene / W
+source "$CAMPAIGN/sites/$SITE.sh"   # site_env / site_launch / site_hygiene / W
 source "/opt/env.sh"
-W=${WRF_TREE:-$W}
 ulimit -s unlimited
+export WTUNE_ENV_SOURCE="/opt/env.sh"
+site_env
+W=${WRF_TREE:-$W}
 ALLOC_NODES=${SLURM_JOB_NUM_NODES:-2}
 STATUS="$SEG/segment_status.txt"
 : > "$STATUS"

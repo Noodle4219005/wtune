@@ -1,0 +1,2 @@
+January 2023 atmospheric river series over California. Want IVT compared with ERA5, 24 h precipitation vs gauges/Stage IV,
+and the snow level in the Sierra Nevada.

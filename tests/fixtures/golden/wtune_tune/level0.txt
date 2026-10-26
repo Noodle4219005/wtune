@@ -9,5 +9,5 @@ level O0; time cap: none (no jobs)  whole run implied by the t0 anchor (info): -
 whole-run time ±25% = ±7.0 min (cold-start predict)
 suggested --time=00:38:00 (T rounded up to 15 min plus one band, >= 1.2x T)
 predicted whole run: 28:07 (range 21:05 - 35:08) at N=13 cores/node=72 {'ranks': 936, 'omp': 1, 'nx': 26, 'ny': 36, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:38:00
-  compute 1567s + init 120s = 1687s (run-length I/O NOT included)  [init: documented constant (scc_sweep.STARTUP_S)]
+  compute 50s + init 1637s = 1687s (run-length I/O NOT included)  [init: fake cold start]
 tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 28:07 (None)

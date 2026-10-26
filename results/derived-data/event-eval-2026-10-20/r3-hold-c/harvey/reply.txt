@@ -1,0 +1,5 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes with0 errors, 0 warnings.
+
+I read the case as Hurricane Harvey, which stalled over southeast Texas in late August 2017, with the focus on multi-day rainfall totals around Houston compared against Stage IV and on the storm's track while it was stalled. The file declares types `tropical_cyclone` and `heavy_rain`, one storm entry (Harvey, 2017, no id since none was given), region southeast Texas / Houston, and two verify items: `precip_total` and `track`. No `diagnose`, `obs_requests`, or `local_obs` items were added, since the text names no model-only figures, non-default data providers, or local files, and Stage IV is WTune's default.
+
+Questions: none — the event, its type, and the quantities to check were all explicit in the text.

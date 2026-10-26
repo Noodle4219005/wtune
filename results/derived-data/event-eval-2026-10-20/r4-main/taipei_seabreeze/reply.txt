@@ -1,0 +1,5 @@
+我理解這是台北夏季午後的熱對流案例：上午海風由淡水河口進入盆地、下午盆地內出現午後雷陣雨，重點檢查海風鋒面進來的時間、都市熱島與午後雨量分布，並以你提供的 CWA 局屬站 10 分鐘資料（/data/cwa_10min/）作為本地觀測。event.yaml 已建立並通過 `wtune event check`（0 errors, 0 warnings）。
+
+已填入：types = sea_breeze / mesoscale_convection / urban；verify = precip_1h（午後雨量分布）；diagnose = 海風鋒面進來的時間、都市熱島；local_obs = /data/cwa_10min/（kind: rain_gauges）。
+
+問題：都市熱島我目前放在 diagnose（模型自行診斷），若你希望改為與觀測站溫度（t2/t2_max）比對，我可以調整；另外該 CWA 資料包的實際檔案格式與覆蓋日期尚未確認，Part 2 時才能確認轉換方式。

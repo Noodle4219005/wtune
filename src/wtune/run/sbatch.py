@@ -1,6 +1,7 @@
 """The segment job script: exclusive nodes, the shared signal-trap + node-hygiene preamble
 (coldstart_sample, dispatched by campaign/sites/scc.sh), OMP env and mpirun binding as on scc,
-last line 'SEGMENT rc=<rc> wall=<s> ok=<SUCCESS COMPLETE WRF count>'."""
+the 'SEGMENT rc=<rc> wall=<s> ok=<SUCCESS COMPLETE WRF count>' record, then the Thompson table
+cache."""
 from __future__ import annotations
 
 import os
@@ -25,10 +26,14 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
             "SEG=%s" % shlex.quote(seg_dir),
             "SITE=%s" % wtune.machine.site(),
             "CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
-            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_launch / site_hygiene / W",
+            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene / W",
             "source \"%s\"" % env_source,
-            "W=${WRF_TREE:-$W}",
-            "ulimit -s unlimited"]
+            "ulimit -s unlimited",
+            # the probes' environment: on f1-arm site_env pins Open MPI's TCP to IPoIB; without
+            # it a 5-node c34 segment ran 6.4x slower than tune measured (2026-10-21)
+            "export WTUNE_ENV_SOURCE=\"%s\"" % env_source,
+            "site_env",
+            "W=${WRF_TREE:-$W}"]
 
 
 def _launch_lines(k: int, config: Config) -> list[str]:
@@ -48,7 +53,7 @@ def _launch_lines(k: int, config: Config) -> list[str]:
 
 def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str, job_name: str,
                           env_source: str | None = None,
-                          campaign_dir: str = _CAMPAIGN_DIR) -> str:
+                          campaign_dir: str = _CAMPAIGN_DIR, thompson_cache: bool = False) -> str:
     config = Config.coerce(config)
     lines = _header_lines(os.path.abspath(seg_dir), config.nodes, time_limit, job_name,
                           env_source or wtune.machine.env_source(), campaign_dir)
@@ -56,8 +61,17 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
         config.nodes, extra_lines_after_alloc_nodes=["STATUS=\"$SEG/segment_status.txt\"",
                                                      ": > \"$STATUS\""],
         record_label="SEGMENT")
-    lines += ["cd \"$SEG\"",
-              "for f in \"$W\"/run/*; do",
+    lines.append("cd \"$SEG\"")
+    if thompson_cache:
+        # --thompson-cache: Thompson computes its qr_acr_q*/freezeH2O tables at init when absent
+        # (~70 s on scc, under 1 s on f1-arm); they depend only on the build: the probes'
+        # per-build cache. nullglob drops only patterns, so freezeH2O.dat is checked: a link
+        # into an empty cache made WRF fail writing the table (f1-arm matthew 2026-10-25)
+        lines += [coldstart.table_cache_line("$W"),
+                  "shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; "
+                  "do [ -e \"$f\" ] || continue; [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; "
+                  "shopt -u nullglob"]
+    lines += ["for f in \"$W\"/run/*; do",
               "  b=$(basename \"$f\")",
               "  case \"$b\" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;",
               "    *) [ -e \"$b\" ] || ln -sf \"$f\" \"$b\" ;; esac",
@@ -66,4 +80,48 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
               "unset KMP_BLOCKTIME"]
     lines.append("export OMP_PLACES=cores OMP_PROC_BIND=close" if config.omp > 1
                  else "unset OMP_PLACES OMP_PROC_BIND")
-    return "\n".join(lines + _launch_lines(k, config)) + "\n"
+    # tables this segment computed go to the cache, only from a run that completed, via a
+    # temporary name so a concurrent segment never links a partial file
+    harvest = [] if not thompson_cache else ["if [ \"$rc\" -eq 0 ] && [ \"$ok\" -gt 0 ]; then",
+               "  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do",
+               "    [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
+               "cp -f \"$f\" \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" && "
+               "mv -f \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" \"$TBL_CACHE/$f\"; }",
+               "  done; shopt -u nullglob",
+               "fi"]
+    return "\n".join(lines + _launch_lines(k, config) + harvest) + "\n"
+
+
+def render_convert_sbatch(out_dir: str, job_name: str, namelist: str, case_dir: str,
+                          cache: str, env_source: str | None = None,
+                          campaign_dir: str = _CAMPAIGN_DIR, time_limit: str = "02:00:00") -> str:
+    """One job converting the run's netCDF inputs into the BP cache on a compute node: a login
+    node is no place for it (dorian's inputs are tens of GB). Same code path as the run used
+    in-process (configs.resolve_bp_inputs); nc2bp.sbatch's interpreter and node shape."""
+    return "\n".join([
+        "#!/usr/bin/env bash",
+        "#SBATCH --job-name=%s" % job_name,
+        ("#SBATCH -p %s -N 1 --exclusive --time=%s %s"
+         % (wtune.machine.partition(), time_limit, sweep.scheduler_args())).rstrip(),
+        "#SBATCH --no-requeue",
+        "#SBATCH --output=%s/nc2bp-%%j.out" % os.path.abspath(out_dir),
+        "set -uo pipefail",
+        "SITE=%s" % wtune.machine.site(),
+        # this checkout's converter, not one an inherited $CAMPAIGN names: the login node
+        # checks the cache against its own CONVERTER_VERSION afterwards
+        "export CAMPAIGN=%s" % shlex.quote(os.path.abspath(campaign_dir)),
+        "source \"$CAMPAIGN/sites/$SITE.sh\"",
+        "source \"%s\"" % (env_source or wtune.machine.env_source()),
+        "PYBIN=$(pixi run --manifest-path \"$PIXI_ENV/pixi.toml\" python -c "
+        "'import sys; print(sys.executable)' 2>/dev/null | tail -1)",
+        "[ -x \"$PYBIN\" ] || { echo \"FATAL: no python from PIXI_ENV=$PIXI_ENV\" >&2; exit 1; }",
+        # the converter finds an adios2 python on PATH (f1-arm job 15532), as calibrate does
+        "export PATH=\"$(dirname \"$PYBIN\"):$PATH\"",
+        "\"$PYBIN\" - %s %s %s <<'PY'" % tuple(shlex.quote(os.path.abspath(x))
+                                            for x in (namelist, case_dir, cache)),
+        "import os, sys",
+        "sys.path.insert(0, os.environ['CAMPAIGN'])",
+        "import configs",
+        "nl, src, cache = sys.argv[1:4]",
+        "configs.resolve_bp_inputs(open(nl).read(), src, cache, convert=True, log=print)",
+        "PY"]) + "\n"

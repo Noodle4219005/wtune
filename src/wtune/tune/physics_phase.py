@@ -12,7 +12,7 @@ from typing import Any
 
 from ._deps import sweep, physics_advice
 from .common import ANCHOR_END_ID, compute_slots
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded
 from .pipeline_state import NOT_RUN_BUDGET, MeasuredLayout, PipelineRun, _mark, _phase_record
 from .points import fit_stage2, pick_points
 from . import points as _points
@@ -136,7 +136,7 @@ def _phase3_not_run_reason(st: PipelineRun, layouts: list[dict]) -> str | None:
     if st.extension:
         return "not run (extension case: physics parameters are not tunable)"
     if st.cap_hit():
-        return "not run (max queue wait exceeded)"
+        return "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
     if st.rebuilt is None or not layouts:
         return "not run (no rebuilt points)" if st.rebuilt is None else "not run (no layout)"
     if ctx.elapsed() >= st.limit("physics"):

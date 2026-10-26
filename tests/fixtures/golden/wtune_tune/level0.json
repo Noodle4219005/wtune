@@ -58,8 +58,8 @@
     "predicted_real_s": 1687.0,
     "prediction": {
       "band": 0.25,
-      "breakdown": "compute 1567s + init 120s = 1687s (run-length I/O NOT included)",
-      "compute_s": 1567.0,
+      "breakdown": "compute 50s + init 1637s = 1687s (run-length I/O NOT included)",
+      "compute_s": 50.0,
       "config": {
         "dist": "block",
         "numtiles": 1,
@@ -71,8 +71,8 @@
       "cores_per_node": 72,
       "degraded": false,
       "error_min": 7.029166666666667,
-      "init_s": 120.0,
-      "init_source": "documented constant (scc_sweep.STARTUP_S)",
+      "init_s": 1637.0,
+      "init_source": "fake cold start",
       "io": null,
       "io_s": 0.0,
       "layout_id": "ANCHOR",

@@ -1,0 +1,5 @@
+已完成 `event.yaml`（位於 `/tmp/claude-1000/.../haiyan/event.yaml`），`wtune event check event.yaml` 通過（0 errors）。
+
+我理解的是：這是 2013 年 11 月海燕颱風（Haiyan）登陸菲律賓 Leyte 的個案，類型為 tropical_cyclone，區域為菲律賓 Leyte。要與觀測比對的是登陸前 24 小時的颱風路徑（track）以及最低氣壓與最大風速（intensity）；眼牆附近的徑向風剖面只有模型本身能畫，所以放在 `diagnose` 當作模型專屬圖。沒有指定額外的資料提供者或本機檔案，所以 `obs_requests` 與 `local_obs` 皆為空。
+
+問題：無。

@@ -1,0 +1,20 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 54b4314b8a8e7425eb47c4c17a01a9345a6014fe7fa912f3bc7c78f080e4e6e1
+event:
+  value: winter morning radiation fog in the Taipei Basin
+  from: "冬天台北盆地清晨的輻射霧"
+types:
+  - {value: fog_low_cloud, from: "冬天台北盆地清晨的輻射霧"}
+storms: []
+region:
+  value: Taipei Basin
+  from: "台北盆地"
+verify:
+  - {value: visibility, from: "比能見度"}
+  - {value: low_cloud, from: "低雲"}
+diagnose:
+  - {value: fog formation and dissipation timing, from: "模式有沒有抓到霧的生成和消散時間"}
+obs_requests: []
+local_obs: []
+questions: []

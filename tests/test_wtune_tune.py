@@ -10,6 +10,7 @@ injects one). Run with:
 import csv
 import json
 import math
+import getpass
 import os
 import atexit
 import re
@@ -1373,7 +1374,7 @@ def make_scaling_fakes(curve, start=7000, core_mult=None):
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
              total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
-             preflight_runner=None, pending_nodes=()):
+             preflight_runner=None, pending_nodes=(), on_sbatch=None):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
@@ -1386,7 +1387,7 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
             sbatch_calls.append(cmd_str)
             return _inner(cmd_str)
     states = {}                              # jobs at an N in pending_nodes never start
-    if pending_nodes:
+    if pending_nodes or on_sbatch:
         submit = sbatch
 
         def sbatch(cmd_str, _submit=submit):
@@ -1394,7 +1395,11 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
             j = out.split()[-1]
             if job_nodes[j] in pending_nodes:
                 states[j] = ("PENDING", "00:00:00")
+            if on_sbatch:
+                on_sbatch(cmd_str, job_nodes[j])
             return out
+        measured = reader
+        reader = lambda case, ids: measured(case, [j for j in ids if j not in states])  # noqa: E731
     scancel, scancel_calls = make_fake_scancel()
 
     def stop_proposer(state, batch_size, kappa=None):
@@ -1485,6 +1490,81 @@ def test_queue_cap_while_measuring_untried_n_keeps_the_sweep(monkeypatch, tmp_pa
     assert report["nodes_note"].endswith("queue cap reached -- ANCHOR config")
     assert [job_nodes[j] for c in cancelled for j in c] == [7]
     assert job_nodes[max(job_nodes, key=int)] == 7
+
+
+def test_ctrl_c_in_the_sweep_keeps_the_n_measured_and_writes_the_report(monkeypatch, tmp_path,
+                                                                        capsys):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # Ctrl-C right after the N=8 job is sent
+        if nodes == 8:
+            stop["reason"] = "stopped by Ctrl-C"
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+        pending_nodes={8}, on_sbatch=on_sbatch)
+    out = capsys.readouterr().out
+    assert report["nodes"] == 4 and report["stopped"] == "stopped by Ctrl-C"
+    assert report["nodes_note"].endswith("stopped by Ctrl-C -- ANCHOR config")
+    assert [job_nodes[j] for c in cancelled for j in c] == [8]
+    assert job_nodes[max(job_nodes, key=int)] == 8                # nothing sent after the stop
+    assert "tune_report.json holds the best of what was measured" in out
+    assert (tmp_path / "out" / "tune_report.json").exists()
+    assert not (tmp_path / "out" / "tune.state.json").exists()
+
+
+def test_a_stop_in_the_first_wave_keeps_its_finished_jobs(monkeypatch, tmp_path):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # N=4 sits in the queue when the stop comes
+        if nodes == 4:
+            stop["reason"] = "stopped by Ctrl-C"
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+        pending_nodes={4}, on_sbatch=on_sbatch)
+    assert report["nodes"] in (1, 2) and not report.get("pipeline_aborted")
+    assert [job_nodes[j] for c in cancelled for j in c] == [4]
+
+
+def test_latest_tune_report_skips_a_tune_stopped_before_any_result(tmp_path):
+    import json as _json
+    for name, doc in (("a", {"case": "c", "nodes": 4}),
+                      ("b", {"case": "c", "nodes": None, "pipeline_aborted": True,
+                             "stopped": "stopped by Ctrl-C"})):
+        (tmp_path / "tune" / name).mkdir(parents=True)
+        (tmp_path / "tune" / name / "tune_report.json").write_text(_json.dumps(doc))
+        os.utime(tmp_path / "tune" / name / "tune_report.json", (0, {"a": 100, "b": 200}[name]))
+    log = []
+    got = wtune.project.latest_tune_report(str(tmp_path), "c", log.append)
+    assert got == str(tmp_path / "tune" / "a" / "tune_report.json")
+    assert log == ["tune report skipped: %s has no result (stopped by Ctrl-C)"
+                   % (tmp_path / "tune" / "b" / "tune_report.json")]
+
+
+def test_a_stop_while_layouts_are_measured_keeps_the_layouts(monkeypatch, tmp_path, capsys):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # stop once round0's first wave is in
+        if "round0-topup" in cmd:
+            stop["reason"] = "stopped by wtune stop"
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path,
+                                ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                on_sbatch=on_sbatch)
+    assert "keeping the" in capsys.readouterr().out
+    assert report["stopped"] == "stopped by wtune stop"
+    assert report["best"]["id"] != "ANCHOR"        # a measured layout, not the sweep's ANCHOR
+
+
+def test_a_stop_request_cancels_the_jobs_in_flight_at_the_next_poll(monkeypatch):
+    monkeypatch.setitem(wtune.tune.context.STOP, "reason", "stopped by Ctrl-C")
+    ctx = _ctx(clock=FakeClock(), sacct_runner=make_pending_sacct(None), budget_s=100.0,
+               poll_interval=60.0)
+    ctx.budget_mode, ctx.shared_queue = "running", {"s": 0.0, "cap_hit": False}
+    with pytest.raises(wtune.tune.context.StopRequested, match="stopped by Ctrl-C"):
+        wtune.tune.wait_for_jobs(ctx, ["3"], "t")
+    assert ctx.shared_queue["cap_hit"] and ctx.cancelled_jobs == ["3"]
 
 
 def test_without_a_time_cap_the_untried_n_stay_untried(monkeypatch, tmp_path, capsys):
@@ -1642,6 +1722,26 @@ def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
     assert {s["nodes"] for s in sw["skipped"]} == {13}
     assert "no legal decomposition at any omp in {" in sw["skipped"][0]["reason"]
     assert {1, 2, 4} <= set(sw["measurements"])
+
+
+def test_node_sweep_says_when_an_n_measured_nothing_and_what_eff_is_relative_to(tmp_path,
+                                                                                   capsys):
+    # isc21 on scc: the N=1 probe timed out (rc=124); the log only said "submitted", and the
+    # table's speedup/eff silently started from N=2
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6, 4: 0.5})
+
+    def no_n1(case, job_ids):
+        return reader(case, [j for j in job_ids if job_nodes[j] != 1])
+
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=no_n1, budget_s=360000.0,
+               case_json=dict(e_we=20, e_sn=20, e_vert=45, prep_dir="/fake"),
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4], budget_frac=1.0)
+    assert sorted(sw["measurements"]) == [2, 4]
+    assert "N=1 no successful measurement (job" in capsys.readouterr().out
+    rows = wtune.nodes.summarize(sw["measurements"])
+    lines = wtune.tune.report._node_table_lines(dict(table=wtune.nodes.table(rows)))
+    assert any("relative to N=2" in ln for ln in lines)
 
 
 def test_node_sweep_skips_n_without_legal_decomposition(tmp_path):
@@ -2491,7 +2591,8 @@ def _clean_exclude_env(monkeypatch):
 
 
 def make_health_runner(states, bad=None, log=None):
-    """sinfo + srun fake. states {node: state}; bad {node: 'timeout' | stderr text (rc 3)}."""
+    """sinfo + srun + scancel fake. states {node: state}; bad {node: 'timeout' | 'srun: error:
+    ...' (rc 1, from srun) | stderr text (rc 3, from the probe script)}."""
     bad = bad or {}
     log = log if log is not None else []
 
@@ -2499,10 +2600,14 @@ def make_health_runner(states, bad=None, log=None):
         log.append(argv)
         if argv[0] == "sinfo":
             return 0, "\n".join("%s %s" % kv for kv in list(states.items()) + [("head", "idle")])
+        if argv[0] == "scancel":
+            return 0, ""
         n = argv[argv.index("-w") + 1]
         b = bad.get(n)
         if b == "timeout":
             raise subprocess.TimeoutExpired(argv, timeout)
+        if b and b.startswith("srun: error:"):
+            return 1, b
         return (3, b) if b else (0, "ok")
 
     return runner, log
@@ -2535,7 +2640,8 @@ def test_preflight_no_home_node_and_probe_command_shape():
                                        reason="probe failed rc=3: no $HOME")
     assert h["nodes"]["work5"]["ok"] and h["failed"] == ["work2"]
     srun = next(a for a in log if a[0] == "srun" and "work5" in a)
-    assert srun[:11] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+    assert srun[:13] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+                         "--immediate=30", "--job-name=wtune-preflight-%d-work5" % os.getpid(),
                          "--exclude=head", "bash"]
     script = srun[-1]
     for needle in ("$HOME", "/case", "/src", "/wrf/main/wrf.exe"):
@@ -2553,6 +2659,49 @@ def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
     for n in ("work3", "work4"):
         assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
     assert h["failed"] == ["work2"] and h["healthy"] == 2
+
+
+def test_preflight_keeps_nodes_the_scheduler_did_not_allocate_and_cancels_timed_out_probes():
+    """scc 2026-10-13: a reserved idle node and a probe over the per-user submit limit were
+    excluded as unhealthy, and a killed srun left its job PENDING (job 4921)."""
+    states = {"work2": "idle", "work3": "idle", "work4": "idle"}
+    runner, log = make_health_runner(states, bad={
+        "work2": "srun: error: Unable to allocate resources: Requested nodes are busy",
+        "work3": "srun: error: QOSMaxSubmitJobPerUserLimit", "work4": "timeout"})
+    h = _preflight(runner, requested=13)
+    for n in ("work2", "work3"):
+        assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
+        assert h["nodes"][n]["reason"].startswith("not allocated, not probed: srun: error:")
+    assert h["failed"] == ["work4"]
+    assert ["scancel", "--user=" + getpass.getuser(), "--name=wtune-preflight-%d-work4" % os.getpid()] in log
+    assert not any(a[0] == "scancel" and any("work2" in x for x in a) for a in log)
+
+
+def test_preflight_reports_a_configuration_error_as_such():
+    """dbbf82d review: 'Unable to allocate resources: Invalid account ...' is a configuration
+    error, not a busy node; failing the node instead excluded every node of a partition that a
+    later sbatch falls back to (5dac859 review)."""
+    runner, _log = make_health_runner({"work2": "idle"}, bad={
+        "work2": "srun: error: Unable to allocate resources: Invalid account or "
+                 "account/partition combination specified"})
+    h = _preflight(runner, requested=13)
+    w = h["nodes"]["work2"]
+    assert h["failed"] == [] and w["ok"] and w["probed"] is False
+    assert w["reason"].startswith("scheduler configuration error, not probed: srun: error:")
+
+
+def test_the_input_space_check_comes_before_the_node_preflight(monkeypatch, tmp_path):
+    """dbbf82d review: a tune that cannot convert its inputs probed every node first."""
+    calls = []
+
+    def runner(argv, timeout):
+        calls.append(argv)
+        raise AssertionError("preflight ran")
+    monkeypatch.setattr(wtune.tune.cli._jobs, "check_input_space",
+                        lambda case, **k: (_ for _ in ()).throw(SystemExit("no space")))
+    with pytest.raises(SystemExit, match="no space"):
+        _run_cli(monkeypatch, tmp_path, ["-O1"], preflight_runner=runner)
+    assert calls == []
 
 
 def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
@@ -2992,6 +3141,35 @@ def test_o0_runs_no_job_and_reports_the_cold_start_band(monkeypatch, tmp_path, c
     assert "O0: no jobs" in out and "±25%" in out and "whole-run time ±25%" in out
     with open(tmp_path / "out" / "tune_report.json") as f:
         assert json.load(f)["pipeline"]["prediction_band"]["band"] == 0.25
+
+
+def test_o0_breakdown_uses_the_cold_starts_own_init_not_startup_s(monkeypatch, tmp_path):
+    # wtune.predict's whole run carries its own init (90 s here), shorter than startup_s (120 s):
+    # compute = T - startup_s went negative (sc26p2: "compute -20s")
+    case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
+    monkeypatch.setattr(wtune.tune.context, "resolve_case",
+                        lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
+                                           ALL_NODES_PROFILE))
+    monkeypatch.setattr(wtune.tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune.tune.prediction, "cold_start_prediction",
+                        lambda ctx, nodes, cfg, steps: (100.0, 0.01, "wtune.predict cold start"))
+    args = wtune.tune.build_arg_parser().parse_args(
+        ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
+         "--ledger-dir", str(tmp_path / "ledger")])
+    report = wtune.tune.run(args, sbatch_runner=None, preflight_runner=None, clock=FakeClock())
+    pred = report["pipeline"]["prediction"]
+    assert pred["compute_s"] == pytest.approx(10.0) and pred["init_s"] == pytest.approx(90.0)
+    assert pred["predicted_total_s"] == pytest.approx(100.0)
+
+
+def test_cold_start_s_per_step_is_predicts_compute_not_total_minus_startup(monkeypatch):
+    ctx = _types.SimpleNamespace(namelist_path="nl", case_json=dict(prep_dir="p"), case="c",
+                                prediction_cfg={}, startup_s=120.0)
+    monkeypatch.setattr(wtune.tune.prediction.predict, "build_prediction",
+                        lambda **kw: dict(total_s=100.0, compute=dict(compute_total_s=10.0)))
+    T, s, _src = wtune.tune.prediction.cold_start_prediction(
+        ctx, 1, dict(ranks=4, omp=1, nx=2, ny=2, numtiles=1), 1000)
+    assert T == 100.0 and s == pytest.approx(0.01)
 
 
 # --- 0.8.2: run-length I/O in the pipeline's whole-run prediction ---------------------------
@@ -3482,3 +3660,36 @@ def test_a_tune_inside_a_project_keeps_its_bp_cache_in_the_project(monkeypatch, 
     monkeypatch.setenv("WTUNE_BP_CACHE", "/elsewhere")              # an explicit choice wins
     wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
     assert os.environ["WTUNE_BP_CACHE"] == "/elsewhere"
+
+
+def test_confirm_includes_the_fastest_measured_config(monkeypatch):
+    """f1-arm conus12 2026-10-14: the prediction ranked block layouts first and the measured
+    fastest (cyclic, 0.132 vs 0.187 s/step) was never confirmed."""
+    from wtune.tune import rounds
+
+    def entry(cid, median, pred):
+        return {"cid": cid, "median": median, "pred_total_s": pred, "config": {"id": cid}}
+
+    predicted = {e["cid"]: e for e in (entry("ANCHOR", 0.17, 100.0), entry("B1", 0.187, 90.0),
+                                       entry("B2", 0.19, 91.0), entry("B3", 0.20, 92.0),
+                                       entry("C1", 0.132, 95.0))}
+    monkeypatch.setattr(rounds, "predict_candidates", lambda ctx, n, res: predicted)
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["B1", "B2", "B3", "C1", "ANCHOR"]
+    predicted["C1"]["pred_total_s"] = 80.0                    # already in the top 3: no extra
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["C1", "B1", "B2", "ANCHOR"]
+    predicted["C1"]["pred_total_s"] = 95.0                    # the fastest has no config
+    predicted["D1"] = dict(entry("D1", 0.10, 99.0), config=None)
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["B1", "B2", "B3", "C1", "ANCHOR"]           # dbbf82d review: C1 was dropped
+
+
+def test_tune_warns_that_adaptive_dt_makes_the_step_count_a_range(tmp_path):
+    nl = tmp_path / "namelist.input"
+    nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n dx = 10000,\n"
+                  " use_adaptive_time_step = .true.,\n/\n")
+    w = wtune.tune.context.adaptive_steps_warning(str(nl))
+    assert w and "45-120 steps" in w and "assume 60" in w         # NINT(8*dx), NINT(3*dx) s
+    nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n/\n")
+    assert wtune.tune.context.adaptive_steps_warning(str(nl)) is None

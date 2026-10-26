@@ -1,0 +1,1 @@
+已建立 `event.yaml` 並通過 `wtune event check`（0 errors / 0 warnings）。我把事件理解為 2009 年 8 月莫拉克颱風在台灣南部造成的破紀錄降雨，類型為 tropical_cyclone、heavy_rain、orographic，storm 記為 Morakot（2009）。驗證項目為路徑、強度、累積雨量與雨量站比較；西南氣流的水氣通量作為模型診斷項目（無對應觀測比對）。questions: 無。

@@ -22,7 +22,7 @@
 
 CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-72}
 W=${WRF_TREE:-$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF}
-OUT=$HOME/wtune-runs/campaign
+OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wtune-runs/campaign}
 HARDWARE_ID=${WTUNE_HARDWARE_ID:-scc-gh200}
 OMP_RUNTIME=nvhpc        # no KMP_BLOCKTIME: threads are pinned with OMP_PLACES/OMP_PROC_BIND
 # pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").

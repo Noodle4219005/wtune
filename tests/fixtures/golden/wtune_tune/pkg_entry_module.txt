@@ -4,9 +4,9 @@ usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--no
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
                   [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
                   [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
-                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
-                  [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
-                  [--physics-advice] [--keep-frames]
+                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check] [--no-node-preflight]
+                  [-O0] [-O1] [-O2] [-O3] [--precision PRECISION] [--level {0,1,2,3}]
+                  [--stop-if-short] [--physics-advice] [--keep-frames]
                   [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
                   [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
                   [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
@@ -67,6 +67,8 @@ options:
                         --pipeline full: safety cap on the accumulated queue-only wait (hours,
                         default 6); queue wait is not charged to --minutes, but past this the run
                         stops and reports
+  --no-space-check      submit even when converting the inputs to BP does not fit the space
+                        writable at the BP cache (GPFS quota or free space)
   --no-node-preflight   skip the node health pre-flight (sinfo states + one 1-minute srun probe
                         per node checking $HOME, the case dir, wtune-src and wrf.exe); by default
                         failing nodes are excluded from every sbatch and max_nodes is capped at
@@ -132,5 +134,8 @@ options:
   --env-source ENV_SOURCE
   --sbatch-script SBATCH_SCRIPT
   --ledger-dir LEDGER_DIR
+                        where the probes write their ledger CSVs and run directories (default:
+                        <project>/probes in a project, else $WTUNE_CAMPAIGN_OUT or $HOME/wtune-
+                        runs/campaign)
   --sacct-cmd SACCT_CMD
   --poll-interval POLL_INTERVAL

@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 061061ebffdffc3739830befe5b7eeb186575b0cb2b8fd1a796dcccfdbda312c
+event:
+  value: Iowa derecho 10 August 2020
+  from: "2020 年 8 月 10 日愛荷華州的 derecho"
+types:
+  - {value: severe_wind, from: "derecho"}
+  - {value: mesoscale_convection, from: "颮線"}
+storms: []
+region:
+  value: Iowa
+  from: "愛荷華州"
+verify:
+  - {value: reflectivity, from: "比較模擬的雷達回波跟 NEXRAD"}
+  - {value: gust, from: "測站陣風"}
+  - {value: mslp, from: "氣壓躍升"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions: []

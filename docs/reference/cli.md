@@ -15,9 +15,11 @@ wtune <指令> --help
 | `wtune doctor` | 檢查機器與專案是否準備好 | 否 | [安裝](../tutorial/install.md) |
 | `wtune submit` | 調校 → 執行 → 後處理，一次做完 | 是 | [submit](../tutorial/quickstart.md) |
 | `wtune tune` | 實測找最快的配置 | 是 | [tune](../tutorial/tune.md) |
+| `wtune stop` | 讓正在跑的 tune 或 run 收尾：取消它自己的 job，寫出報告 | 否 | [tune](../tutorial/tune.md)、[run](../tutorial/run.md) |
 | `wtune run` | 分段執行，restart 交接，失敗續跑 | 是 | [run 與 watch](../tutorial/run.md) |
 | `wtune watch` | 唯讀監看一個執行目錄 | 否 | [run 與 watch](../tutorial/run.md) |
 | `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [post](../tutorial/post.md) |
+| `wtune event init\|vocab\|check\|plan` | 把 `event.txt` 的事件描述轉成檢查過的 `event.yaml`，列出要用的觀測資料 | 否 | [event](../tutorial/event.md) |
 
 ## 檢查與預測
 
@@ -44,6 +46,7 @@ wtune <指令> --help
 | `wtune convert nc2bp\|bp2nc\|inputs` | WRF netCDF 與 ADIOS2 BP 互轉 |
 | `wtune metdata find\|check\|fetch` | GRIB 驅動資料的來源、可用性、下載 |
 | `wtune prep geog ...` | 選用的高解析度地理資料與 DEM 匯入 |
+| `wtune prep wps`、`wtune prep real` | 用 WPS 與 real.exe 產生 `wrfinput`／`wrfbdy`（見 [project](../tutorial/project.md)） |
 | `wtune scenario list\|generate\|inspect` | 產生虛構日期的 WRF 驅動資料 |
 
 ## 機器校正

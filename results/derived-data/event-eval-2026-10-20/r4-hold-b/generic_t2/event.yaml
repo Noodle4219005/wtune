@@ -1,0 +1,19 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: d6a563aada1da283e187380084ef27047b71e14c8c2282439b6babd38b1722bb
+event:
+  value: 本次模擬的溫度準確度
+  from: 幫我看這次模擬的溫度準不準
+types: []
+storms: []
+region:
+  value: null
+  from: null
+verify:
+  - {value: t2, from: 模擬的溫度準不準}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - 這次模擬的是哪個天氣事件、哪個地區？text 只提到「模擬的溫度」，沒有指出事件類型或範圍。
+  - 要比對的是哪一種溫度：2 公尺溫度、每日最高溫、還是每日最低溫？

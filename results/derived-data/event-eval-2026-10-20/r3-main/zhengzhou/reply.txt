@@ -1,0 +1,5 @@
+已完成 Part 1：產生了 `event.yaml`（schema `wtune-event/1`），`wtune event check event.yaml` 通過（0 errors, 0 warnings），未抓取任何資料。
+
+我理解的是：2021 年 7 月河南鄭州的極端暴雨（heavy_rain，並標記 urban），要檢查 24 小時累積雨量（precip_24h）、逐時雨量（precip_1h）與地面風（wind10）的位置是否與觀測相符；使用者自有的 CMA 測站逐時雨量檔案 `~/obs/cma_rain.csv` 以 `local_obs`（kind: rain_gauges）記錄。這不是颱風案例，故 `storms` 留空；因使用者已提供本地檔案，沒有另加 `obs_requests`。
+
+問題：`也看地面風` 這句我理解為與地面觀測站比較（wind10）；若你其實只想看模式本身的近地面風（例如風場剖面或結構），我可將其改列為 `diagnose`。另外 20 日下午一小時 200 mm 的破紀錄數值未列為獨立驗證項（vocab 無對應量），需要時請告知。

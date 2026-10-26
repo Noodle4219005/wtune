@@ -100,10 +100,14 @@ def tune_candidates(report: dict, geo: Geometry, sample_points: Optional[list],
 
 def tune_report_layout(report: dict) -> Optional[TuneLayout]:
     """The winner of a tune_report.json: top-level 'winner', else node_selection.winner, else
-    the fastest node_selection.layouts row at the chosen node count (.final, else .chosen).
-    None when the report names none."""
+    the fastest node_selection.layouts row at the chosen node count (.final, else .chosen), else
+    the -O0 report's unmeasured 'best' at its 'nodes'. None when the report names none."""
     ns = report.get("node_selection") or {}
     w = next((x for x in (report.get("winner"), ns.get("winner")) if isinstance(x, dict)), None)
+    b = report.get("best")
+    if w is None and report.get("pipeline_only") and isinstance(b, dict):
+        w = dict(b, nodes=report.get("nodes"), nx=b.get("nproc_x"), ny=b.get("nproc_y"),
+                 cores_per_node=report.get("cores_used_per_node"), median=None, cid=b.get("id"))
     if w is None:
         n = ns.get("final", ns.get("chosen"))
         rows = [r for r in ns.get("layouts") or []

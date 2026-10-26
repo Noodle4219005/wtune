@@ -76,6 +76,27 @@ _md = None
 _gs = None
 
 
+
+def build_id_expr(tree: str) -> str:
+    """Shell expression for the WRF build id: the first 16 hex of the sha1 of the wrf.exe
+    contents under `tree` (a rebuild in place is a new build). The ledger's build= token and
+    the Thompson table cache key."""
+    return "$(sha1sum < \"$(readlink -f \"%s/main/wrf.exe\")\" | cut -c1-16)" % tree
+
+
+def table_cache_line(tree: str) -> str:
+    """TBL_CACHE=<the per-build Thompson table cache> for the wrf.exe under `tree`."""
+    return "TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/%s\"" % build_id_expr(tree)
+
+
+def _wps_launch(exe: str, ppn: int) -> str:
+    """mpirun only for a dmpar WPS build (it calls MPI_Init itself); a serial geogrid/metgrid
+    under mpirun runs ppn independent copies that all write the same file. Linking libmpi is no
+    evidence: a serial build gets it through a parallel netCDF/HDF5."""
+    return ("if nm -D --undefined-only ./%s 2>/dev/null | grep -qi mpi_init; then "
+            "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./%s; else ./%s; fi"
+            % (exe, ppn, ppn, exe, exe))
+
 def _metdata():
     global _md
     if _md is None:
@@ -2671,7 +2692,7 @@ def _sbatch_geogrid_lines(geo_em_expected, ppn):
     lines.append("  echo 'Successful completion of geogrid (cached)' > geogrid.log.cached; rc=0")
     lines.append("else")
     lines.append("echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (ppn, ppn))
+    lines.append(_wps_launch("geogrid.exe", ppn))
     lines.append("rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null")
     lines.append("fi")
     # geogrid.exe MPI_Abort()s with errorcode 0 on a missing GEOGRID.TBL (jobs 941/942,
@@ -2765,7 +2786,7 @@ def _run_window_wps_lines(ppn):
     lines.append("  fi")
     lines.append("")
     lines.append("  echo \"=== window $k: metgrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("  mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (ppn, ppn))
+    lines.append("  " + _wps_launch("metgrid.exe", ppn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null")
     # metgrid.exe also MPI_Abort()s with errorcode 0 on a missing METGRID.TBL -- require every
     # expected met_em.d0N.<time>.nc AND the log to say 'Successful completion' (jobs 941/942).
@@ -2853,9 +2874,10 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     lines.append("  [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
     # Thompson computes qr_acr_q*/freezeH2O tables at init when absent (job 1238: ~70 s of
     # the first step). They depend only on the WRF build: cache per build.
-    lines.append("  TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f \"$WRF_TREE/main/wrf.exe\" | sha1sum | cut -c1-16)\"")
+    lines.append("  " + table_cache_line("$WRF_TREE"))
     lines.append("  shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; do "
-                 "[ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob")
+                 "[ -e \"$f\" ] || continue; [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; "
+                 "shopt -u nullglob")
     lines.append("  python3 \"$TOOL\" fix-wrf-namelist --plan \"$PLAN\" --win \"$k\" "
                   "--nproc-x %d --nproc-y %d --numtiles %d || return 1" % (nx, ny, numtiles))
     # OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND for the ACTUAL timed run must match the
@@ -2884,8 +2906,9 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     lines.append("  pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
     lines.append("  [ $rc -ne 0 ] && return 1")
     lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")
-    lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
-                 "[ -e \"$TBL_CACHE/$f\" ] || cp -f \"$f\" \"$TBL_CACHE/\"; }; done")
+    lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { "
+                 "mkdir -p \"$TBL_CACHE\" && cp -f \"$f\" \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" && "
+                 "mv -f \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" \"$TBL_CACHE/$f\"; }; done")
     lines.append("  LAST_WRF_STATUS=\"ok\"")
     lines.append("  return 0")
     return lines

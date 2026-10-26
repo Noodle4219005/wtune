@@ -1,0 +1,60 @@
+// verif_point_stat_extra.conf.tmpl -- MET Point-Stat config for model surface gust and
+// visibility (post/surface_diag.py) against station gusts and visibility an agent fetched
+// (post/met_pointstat.py verify_extra). One valid time per call, +-30 min window, bilinear
+// interpolation, interior polygon. Obs names WGUST / VISIB are not GRIB names on purpose:
+// Point-Stat applies GRIB rules to a plain APCP point obs (see verify_gauges).
+// Only entries that differ from MET 12.1's PointStatConfig_default are set.
+
+model = "WRF";
+
+fcst = {
+  field = [
+    { name = "GUST_MODEL"; level = [ "(0,*,*)" ]; },
+    { name = "VIS_MODEL";  level = [ "(0,*,*)" ]; }
+  ];
+}
+obs = {
+  field = [
+    { name = "WGUST"; level = [ "L0" ]; },
+    { name = "VISIB"; level = [ "L0" ]; }
+  ];
+}
+
+message_type = [ "ADPSFC" ];
+obs_window   = { beg = -1800; end = 1800; }
+
+mask = {
+  grid = [];
+  poly = [ "${POLY_FILE}" ];
+  sid  = [];
+}
+
+interp = {
+  vld_thresh = 1.0;
+  type = { method = BILIN; width = 2; }
+}
+
+output_flag = {
+  fho    = NONE;
+  ctc    = NONE;
+  cts    = NONE;
+  mctc   = NONE;
+  mcts   = NONE;
+  cnt    = BOTH;
+  sl1l2  = NONE;
+  sal1l2 = NONE;
+  vl1l2  = NONE;
+  val1l2 = NONE;
+  vcnt   = NONE;
+  pct    = NONE;
+  pstd   = NONE;
+  pjc    = NONE;
+  prc    = NONE;
+  ecnt   = NONE;
+  orank  = NONE;
+  rps    = NONE;
+  eclv   = NONE;
+  mpr    = BOTH;
+}
+
+version = "V12.1.1";

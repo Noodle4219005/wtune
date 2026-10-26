@@ -20,6 +20,7 @@ from .estimate import history_wall, time_limit_s
 from .geometry import _step_fraction, step_of, step_time
 from .plan import Segment
 from .report import _save_report
+from .space import SHRUNK_FRAC
 from .staging import FRESH_BP_SUBDIR
 
 CFL_RESCUE_FACTOR = 0.75
@@ -155,6 +156,9 @@ def _failure_reason(ctx: RunContext, out: Outcome, cfl: bool, why: Optional[str]
                  ",".join(rec.warnings) or "none", ", CFL/NaN seen" if cfl else ""))
     if cfl and ctx.state.rescue_used:
         reason += " (CFL rescue already used once in this run)"
+    fatal = resume.rsl_fatal(out.dir)
+    if fatal:
+        reason += "; WRF FATAL in %s" % fatal
     if why:
         reason += "; not resumed: " + why
     return reason
@@ -167,6 +171,12 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
     if rec.stalled is not UNSET:
         rec.failure_class = "stalled"       # a full disk would only stall again: no resume
         raise RunError("segment %d (%s) stalled and was cancelled: %s" % (k, out.dir, rec.stalled))
+    if rec.shrunk is not UNSET:
+        rec.failure_class = "output"        # writes lost (full disk/quota): a rerun loses them too
+        raise RunError("segment %d (%s) ended SUCCESS but history outputs are under "
+                       "%d%% of their stream's largest (writes lost, e.g. a full disk or quota): "
+                       "%s" % (k, out.dir, 100 * SHRUNK_FRAC, ", ".join(rec.shrunk[:5])
+                               + (" ..." if len(rec.shrunk) > 5 else "")))
     codes = rec.warnings
     nan = any(w["code"] == "FAILED" and "NaN" in w["text"] for w in snap.get("warnings", []))
     # a cfl line alone is routine output: in an interrupted job it is not the failure
@@ -195,7 +205,7 @@ def run_controller(ctx: RunContext) -> int:
     try:
         _run_segments(ctx)
     except Exception:
-        if ctx.sidecar:                # a failed run's frames are converted and booked too
+        if ctx.sidecar:                # a failed or stopped run's frames are converted and booked too
             ctx.sidecar.finish()
         raise
     if ctx.sidecar:
@@ -209,6 +219,10 @@ def _delete_own_restarts(ctx: RunContext) -> None:
     """--compress-history after a run that succeeded: the restart files WTune itself asked for
     (not the case's) only served the segment hand-offs."""
     paths = sorted(glob.glob(os.path.join(ctx.plan.out, "seg_*", "wrfrst_d*")))
+    links = [p for p in paths if os.path.islink(p)]     # to the case's or the last segment's
+    for p in links:
+        os.remove(p)
+    paths = [p for p in paths if p not in links]
     size = 0
     for p in paths:
         if os.path.isdir(p):            # ADIOS2 restart: a BP directory
@@ -225,7 +239,7 @@ def _delete_own_restarts(ctx: RunContext) -> None:
 def _run_segments(ctx: RunContext) -> None:
     report, segs = ctx.report, ctx.segments
     report["segments"] = segs
-    prev_dir = None
+    prev_dir = ctx.plan.start_dir
     for k, seg in enumerate(segs):
         is_last = k == len(segs) - 1
         if "attempts" not in seg:

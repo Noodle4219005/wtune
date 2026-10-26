@@ -1,0 +1,11 @@
+case,domains,tune_level,tune_result,run_options,run_result,segments_ok,post_result,wtune_commit_at_run,notes
+sc26p2,1,O0,pass,--io netcdf (full 48 h),pass,1/1,pass,8394ce7,O0->run needed fix 8394ce7
+severe2023,2,O1,pass,--compress-history (full 24 h; 2 segments),pass,2/2,pass,f213cac,first try failed in restart cleanup -> fix f213cac
+matthew,1,O2,pass,full 48 h; 2 segments,pass,2/2,pass+preview,f213cac,
+marshall,2,O2 --minutes 45,pass,--stop-at +1 min (d02 1.8 GB/frame),pass,1/1,pass,f213cac,full run ~556 GB does not fit quota
+sc26p1,2,O1,pass,--stop-at +3 h (2 nodes),pass,1/1,pass,1760f49,case debug_level=50 filled quota earlier -> warning 0b144c5
+morakot2009,1,O1,pass,--stop-at +3 h (8 nodes),pass,1/1,pass+preview,1760f49,full 5 d run ~102 GB refused correctly by space check
+yagi,3,O2,pass,--stop-at +14 h; 6 h segments,pass,3/3,pass,1760f49,first tune died on full quota (environment)
+c34,2,O2 --minutes 30,pass,full 6 h; 3 h segments,model-stop,1/2,not run,1760f49,seg_0 0.247 s/step (tune 0.239) after site_env fix b9afa4b; seg_1 WRF-Fire FATAL at 02:44 (fire reached domain boundary)
+elevconv,3,O2 --minutes 45,pass,--stop-at +4 min,stopped,0/1,not run,1760f49,input conversion 7.9 GB pushed quota to 107 G -> fix 1647abf; now refused (21.9 GB vs 13.6 GB)
+conus25,1,not run,not run,not run,not run,0/0,not run,-,t0 frame 14.4 GB + 8 GB input cache exceed quota headroom

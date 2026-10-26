@@ -1,0 +1,3 @@
+我讀到的是 2020 年 8 月 10 日愛荷華州的一次 derecho（颮線東移，地面陣風超過 50 m/s），事件類型設為 severe_wind 與 mesoscale_convection，風暴只填了文字中出現的 derecho 與年份。驗證項目為雷達反射率（與 NEXRAD 比較）、測站陣風（stations_extra）與氣壓躍升（mslp，stations），觀測來源請求出 NEXRAD 雷達與測站資料。
+
+問題：文字提到「測站」但未指明是哪個機構的觀測網（ASOS/AWOS、MesoNET 或其他），資料取得階段是否以 NEXRAD 與Iowa 官方 ASOS/AWOS 為準？另外 event.txt 未給出風暴的正式編號，若之後需要 HURDAT2 ID 或事件範圍界定（起始/結束時間、模擬區域），請補充。

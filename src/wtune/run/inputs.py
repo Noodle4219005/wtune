@@ -1,5 +1,5 @@
 """ADIOS2 inputs of a run (--io adios2, the default since 2026-10-03): which streams switch
-to io_form 14, where their BP copies live (<project>/input/bp, else OUT/_bp_inputs), which
+to io_form 14, where their BP copies live (the project's tune cache, see bp_cache_dir), which
 are one BP per record (WRF 4.8's reader returns record 1 of a multi-record BP), and the
 conversion that happens once before segment 0 is submitted."""
 from __future__ import annotations
@@ -45,13 +45,28 @@ def find_project_dir(project: Optional[str] = None) -> Optional[str]:
         raise RunError(str(e))
 
 
-def bp_cache_dir(out: str, project: Optional[str] = None) -> str:
-    """BP input cache: <project>/input/bp/ when a project resolves (decision 0058), else
-    OUT/_bp_inputs/."""
+def bp_cache_dir(out: str, project: Optional[str] = None, case_dir: Optional[str] = None) -> str:
+    """BP input cache. In a project whose case id is known: the tune's cache of this case dir
+    (${WTUNE_BP_CACHE:-<project>/input/bp-cache}/<case>/<key>, as `wtune tune` sets it), so tune
+    and run convert the inputs once (f1-arm marshall 2026-10-21 held 3 GB twice); an older
+    project's <project>/input/bp/ is kept while it has a conversion and the tune's has none.
+    Otherwise <project>/input/bp/ (decision 0058), else OUT/_bp_inputs/."""
     project_dir = find_project_dir(project)
-    if project_dir:
-        return os.path.join(os.path.abspath(project_dir), "input", "bp")
-    return os.path.join(out, "_bp_inputs")
+    if not project_dir:
+        return os.path.join(out, "_bp_inputs")
+    import wtune.project
+    project_dir = os.path.abspath(project_dir)
+    legacy = os.path.join(project_dir, "input", "bp")
+    case_id = wtune.project.project_case_id(wtune.project.load_project(project_dir))
+    if not case_id or not case_dir:
+        return legacy
+    root = os.environ.get("WTUNE_BP_CACHE") or os.path.join(project_dir, "input", "bp-cache")
+    shared = sweep.campaign_configs.bp_cache_dir(case_id, case_dir, root=root)
+    manifest = "bp_manifest.json"                  # wtune.bp.MANIFEST_NAME
+    if os.path.exists(os.path.join(legacy, manifest)) \
+            and not os.path.exists(os.path.join(shared, manifest)):
+        return legacy
+    return shared
 
 
 def adios2_streams_or_raise(bp_plan: dict, case_dir: str, notes: list) -> list:
@@ -108,7 +123,7 @@ def plan_inputs(io: str, text: str, nl: dict, geo: Geometry, case_dir: str, out:
     if io != "adios2":
         return InputPlan()
     cc = sweep.campaign_configs
-    bp_cache = bp_cache_dir(out, project)
+    bp_cache = bp_cache_dir(out, project, case_dir)
     bp_plan = cc.resolve_bp_inputs(text, case_dir, bp_cache, convert=False)
     io_streams = adios2_streams_or_raise(bp_plan, case_dir, notes)
     per_record = _per_record_of(bp_plan, io_streams)
@@ -146,6 +161,52 @@ def convert_inputs(inputs: InputPlan, text: str, case_dir: str, segments: list,
                           "; missing at segment starts: " + ", ".join(
                               "seg %d %s" % m for m in miss[:6]) if miss else ""))
     return dataclasses.replace(inputs, bp_plan=bp_plan, bp_xml=bp_xml)
+
+
+def stale_inputs(inputs: InputPlan, text: str, case_dir: str) -> list[str]:
+    """The netCDF inputs whose BP in the cache is missing or out of date (read-only)."""
+    if inputs.io_streams is None:
+        return []
+    cc = sweep.campaign_configs
+    plan = cc.resolve_bp_inputs(text, case_dir, inputs.bp_cache, convert=False)
+    bp = cc._import_wtune_bp()
+    by_dir: dict = {}
+    for p in plan["convert"]:
+        by_dir.setdefault(os.path.dirname(p), []).append(os.path.basename(p))
+    return [os.path.join(d, n) for d, names in sorted(by_dir.items())
+            if bp.cached_inputs(d, inputs.bp_cache, names) is None for n in names]
+
+
+def convert_inputs_in_job(inputs: InputPlan, text: str, case_dir: str, out: str,
+                          submit: Callable[[str], str],
+                          wait: Callable[[str], str], log: Callable,
+                          env_source: Optional[str] = None,
+                          campaign_dir: Optional[str] = None) -> None:
+    """Convert the stale inputs in one compute-node job (render_convert_sbatch), waited for;
+    RunError unless it completed and left nothing stale -- the login node never converts."""
+    stale = stale_inputs(inputs, text, case_dir)
+    if not stale:
+        return
+    from .sbatch import render_convert_sbatch
+    d = os.path.join(out, "nc2bp")
+    os.makedirs(d, exist_ok=True)
+    nl = os.path.join(d, "namelist.input")
+    with open(nl, "w") as f:
+        f.write(text)
+    script = os.path.join(d, "nc2bp.sbatch")
+    with open(script, "w") as f:
+        f.write(render_convert_sbatch(d, "wtrun-%s-nc2bp" % os.path.basename(case_dir), nl,
+                                      case_dir, inputs.bp_cache, env_source=env_source,
+                                      **({"campaign_dir": campaign_dir} if campaign_dir else {})))
+    job = submit(script)
+    log("ADIOS2 inputs: converting %d netCDF file(s) in job %s (log %s/nc2bp-%s.out)"
+        % (len(stale), job, d, job))
+    state = wait(job)
+    left = stale_inputs(inputs, text, case_dir)
+    if state != "COMPLETED" or left:
+        raise RunError("BP input conversion job %s ended %s; not converted: %s -- nothing "
+                       "submitted (log %s/nc2bp-%s.out)"
+                       % (job, state, " ".join(os.path.basename(x) for x in left) or "-", d, job))
 
 
 def _logging_copier(log: Callable) -> Callable:

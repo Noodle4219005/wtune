@@ -1,0 +1,4 @@
+rep,hygiene_reap_census_s,mpirun_start_to_rsl_s,rsl_to_namelist_output_s,namelist_output_to_abort_s,wrf_rc,steps_completed
+1,2.306,18.274,0.105,6.436,1,0
+2,2.205,48.775,0.105,12.200,1,0
+3,2.305,33.092,0.105,37.212,1,0

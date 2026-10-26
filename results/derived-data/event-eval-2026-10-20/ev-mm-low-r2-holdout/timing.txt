@@ -1,0 +1,8 @@
+beijing_721 rc=0 31s
+generic_t2 rc=0 16s
+haiyan rc=0 20s
+harvey rc=0 20s
+kerala rc=0 25s
+med_heat rc=0 20s
+quebec_ice rc=0 16s
+santa_ana rc=0 14s

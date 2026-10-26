@@ -1,0 +1,20 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 8706698b28cf7c1336a448c3fd8285808b0fdb1a28d41aa81d1b543ac07d793b
+event:
+  value: 颱風案例模擬
+  from: 跑一個颱風看看
+types:
+  - value: tropical_cyclone
+    from: 颱風
+storms: []
+region:
+  value: null
+  from: null
+verify: []
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - 要跑的是哪一個颱風？請給颱風名稱（或年份、區域），好讓我對到最佳路徑資料。
+  - 「準不準」具體要比較哪些量：路徑（track）、強度（intensity），還是降雨（precip_24h／precip_total）？

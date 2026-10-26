@@ -57,6 +57,8 @@ flowchart TD
 |---|---|---|
 | 節點故障、逾時、被搶佔 | 從最近一個有效的 restart 自動續跑 | `--resume N`（預設 1，0 關閉） |
 | 個案自己沒寫 restart | 自動補上檢查點 | `--checkpoint-minutes M`（預設 `auto`） |
+| 送出前估的輸出量（history 幀數 × 每幀大小＋restart）放不進可寫空間；在 GPFS 上用的是你的配額剩餘量，不是 `df` 的空間 | 不送出，說明估計值與剩餘量。可加大 `history_interval`、用 `--stop-at` 截短，或確定要跑時加旗標 | `--no-space-check` |
+| 一段印了 `SUCCESS COMPLETE WRF`，但某些 history 幀不到同一 stream 最大幀的 10%（配額寫滿時 ADIOS2 會丟掉寫入而不報錯） | 該段標為失敗，不重送 | — |
 | 執行中卡住：`rsl.error.0000` 很久沒有新內容（例如磁碟或配額寫滿時 WRF＋ADIOS2 會停住而不是報錯） | 取消該段 job、標為 `stalled` 並停下來，不重送 | `--stall-minutes M`（預設 20，0 關閉） |
 | CFL 或 NaN | **停下來**，寫出建議的 `time_step` 與 `segment.advice.namelist.input`，不重送 | — |
 | CFL 或 NaN，且你事先授權 | 同一段以約 0.75 倍的 `time_step` 重跑一次，之後的段回到原本的值 | `--cfl-rescue` |
@@ -67,9 +69,11 @@ flowchart TD
 
 `runs/<id>/run_report.json` 在每一段結束後都會重寫，記錄每次嘗試的結果。
 
+Thompson 微物理（`mp_physics=8`）每段開始時會算 `qr_acr_q*.dat` 與 `freezeH2O.dat` 查表。加 `--thompson-cache` 時，段會從 `~/wtune-runs/thompson_tables/<build>/` 連結已算好的查表，跑完再把新算的放進去。在 scc 上每段可省約 70 秒；在 f1-arm 上查表不到 1 秒就算完，量不到差別，所以預設不開；這時 WRF 在每段自己算出的查表（約 357 MiB）會在該段的 job 結束後刪掉（被中斷的段也一樣），不會一段段累積。
+
 ## I/O 格式
 
-預設所有 I/O 都走 ADIOS2（`io_form 14`）：歷史輸出、restart、輸入、邊界條件，以及個案自己開的 `auxhistN` 輸出（例如 isc21 的驗證輸出：scc 上 18 張從 162.5 秒降到 3.37 秒）。個案原本的 netCDF 輸入會轉換一次，放在 `<project>/input/bp/` 重複使用。
+預設所有 I/O 都走 ADIOS2（`io_form 14`）：歷史輸出、restart、輸入、邊界條件，以及個案自己開的 `auxhistN` 輸出（例如 isc21 的驗證輸出：scc 上 18 張從 162.5 秒降到 3.37 秒）。個案原本的 netCDF 輸入會轉換一次，放在 `<project>/input/bp-cache/` 重複使用；這和 `wtune tune` 用的是同一份，先 tune 再 run 不會再轉一次。需要轉換時，`wtune run` 先送一個單節點的轉檔 job（腳本與紀錄在 `<out>/nc2bp/`），等它完成才送第一段；轉檔失敗就停下，什麼都不送。登入節點本身不轉檔。
 
 ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc <BP 目錄> --out <資料夾>` 轉回；數值與 WRF 直接寫的 netCDF 逐位元相同，只有字串屬性前後的空白會被去掉（例如 `MemoryOrder` 的 `'XY '` 變成 `'XY'`）。
 
@@ -78,6 +82,23 @@ ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc 
 `--sidecar`：job 執行期間，用 WRF 沒用到的核心驗證每組 restart，並把寫完的歷史輸出轉成 netCDF 放進後處理的快取。
 
 `--compress-history`：在 `--sidecar` 之上，每張轉好的 netCDF（zlib，約小 4 倍，無損）先和原本的 BP 逐變數比對，相同才放到 BP 的位置並刪掉 BP；後處理直接讀它，不再另存一份快取。WRF 用滿所有核心時，轉檔共用最後一顆核心、優先度最低。WTune 自己加的 restart，執行中每個資料夾只留最新一組驗證過的（續跑只用最新那組），整個 run 成功後全部刪掉；個案自己要的 restart 不動。WRF 本身的 ADIOS2 壓縮一律關閉（原版 WRF 4.8 在那條路徑上有緩衝區溢位）。
+
+## 從 restart 起跑
+
+namelist 是 `restart = .true.` 時，第一段從個案自己的 `wrfrst_d<NN>_<start>` 起跑，不需要 `wrfinput`。`io_form_restart` 依 restart 檔的格式自動選：netCDF 檔用 2，BP 目錄用 14，因為 WRF 讀寫 restart 用同一個設定。整理方式見 [project](project.md) 的「只有 restart 檔的個案」。
+
+## 中途停止
+
+`wtune run` 在前景跑時按 **Ctrl-C**，在背景跑時在專案裡下 **`wtune stop`**。它在下一次輪詢時（`--poll-interval`，預設 60 秒）依序：
+
+1. 取消正在跑的那一段 job，之後的段不再送出。
+2. `run_report.json` 的 `status` 寫成 `stopped`，`error` 寫明是哪一段、哪個 job 被取消。
+3. 以結束碼 130 結束。
+
+已經跑完的段留在 `runs/<id>/seg_*/`。再按一次 Ctrl-C 會立刻結束、不取消 job，這時下 `wtune stop` 取消它留下的 job。
+
+!!! warning "`wtune stop` 停的是整個專案"
+    不帶參數時，`wtune stop` 會停掉目前目錄所屬專案裡所有在跑的 tune 和 run。只想停其中一個，把它的目錄當參數，例如 `wtune stop runs/<id>` 或 `wtune stop tune/<id>`。在別的專案目錄下指令，不會碰到這個專案。
 
 ## watch
 

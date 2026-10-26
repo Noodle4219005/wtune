@@ -8,22 +8,25 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import shlex
 import sys
 import time
 from typing import Callable, Optional
 
 import wtune.extensions
 import wtune.machine
+import wtune.stopping
 import wtune.watch
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
-from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
+from .common import WRF_FMT, RunError, RunStopped, _fmt, _hms, parse_hms
 from .context import RunContext, RunOptions, RunPlan, Runners, default_scancel
 from .controller import _make_sidecar, run_controller
 from .estimate import (FALLBACK_RADIATION_FACTOR, Overheads, constant_compute_fn,
                        fallback_overheads, fallback_s_per_step, model_from_prediction)
 from .geometry import Geometry, case_geometry, domain_start, resolve_end_step, step_time
-from .inputs import (InputPlan, _logging_copier, convert_inputs, find_project_dir, io_plan_line,
-                     plan_inputs)
+from .attempts import wait_for_job
+from .inputs import (InputPlan, _logging_copier, convert_inputs, convert_inputs_in_job,
+                     find_project_dir, io_plan_line, plan_inputs)
 from .layout import (Candidate, Config, Layout, TuneLayout, make_config, rank_mapping_notes,
                      resolve_layout, tune_candidates, tune_report_layout)
 from .namelist import _aux_outputs, namelist_diff_summary, render_segment_namelist
@@ -31,7 +34,8 @@ from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
 from .report import _write_report, new_report
-from .staging import _missing_namelist_files
+from .space import estimate_output_bytes, input_bytes, writable_bytes
+from .staging import _missing_namelist_files, restart_files
 
 DESCRIPTION = "wtune run -- segmented WRF executor with restart hand-offs (`wtune run`)."
 
@@ -58,7 +62,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--io", choices=("adios2", "netcdf"), default="adios2",
                     help="adios2 (default, 2026-10-03 decision): every stream -- history, "
                          "restart, input, boundary, aux inputs -- is ADIOS2 (io_form 14); "
-                         "netCDF inputs are converted once into <project>/input/bp/ (no "
+                         "netCDF inputs are converted once into the project's tune cache "
+                         "<project>/input/bp-cache/<case>/<key>/ (shared with wtune tune; no "
                          "project: OUT/_bp_inputs/) and linked as <name>.bp. netcdf: LEGACY "
                          "escape hatch -- the case's own io_form_* are kept (restart still per "
                          "--restart-io-form)")
@@ -104,6 +109,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--stall-minutes", type=float, default=20.0, metavar="M",
                     help="cancel a running segment job whose rsl.error.0000 has not changed "
                          "for M minutes and stop the run (0 disables; default 20)")
+    ap.add_argument("--thompson-cache", action="store_true",
+                    help="link the Thompson qr_acr_q*/freezeH2O tables from the per-build cache "
+                         "and add the ones a completed segment computed (saves ~70 s per "
+                         "segment on scc, nothing measurable on f1-arm); without it a segment "
+                         "deletes the tables WRF computed (~357 MiB)")
+    ap.add_argument("--no-space-check", action="store_true",
+                    help="submit even when the estimated output does not fit the free space "
+                         "(GPFS quota headroom when the run dir is on GPFS)")
     return ap
 
 
@@ -176,6 +189,25 @@ def _resolve_out(opts: RunOptions) -> str:
     return wtune.project.default_out_dir(project_dir, "runs")
 
 
+def case_restarts(nl: dict) -> bool:
+    """restart = .true.: segment 0 starts from the case's own wrfrst_dNN_<start>."""
+    return wp.g(nl, "time_control", "restart", False) is True
+
+
+def restart_io_form_of_case(opts: RunOptions, case_dir: str, log: Callable) -> RunOptions:
+    """A restart case: io_form_restart is the format of its wrfrst (a BP directory: 14, else
+    2), since WRF reads and writes restarts with the one io_form."""
+    nl = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+    if not case_restarts(nl):
+        return opts
+    found = restart_files(case_dir, _fmt(case_geometry(nl).start), 1)[1]
+    form = 14 if found and os.path.isdir(found[0]) else 2
+    if form != opts.restart_io_form:
+        log("restart case: io_form_restart %d (the format of %s)" % (form, found[0] if found
+                                                                      else "its wrfrst"))
+    return dataclasses.replace(opts, restart_io_form=form)
+
+
 def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
     """Read the case and refuse what segments cannot handle."""
     if os.path.commonpath([out, case_dir]) == case_dir:
@@ -186,8 +218,6 @@ def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
     with open(nml) as f:
         text = f.read()
     nl = wp.parse_namelist(nml)
-    if wp.g(nl, "time_control", "restart", False) is True:
-        raise RunError("the case itself is a restart run (restart=.true.): not supported")
     for key in ("rst_outname", "rst_inname"):
         if coldstart.count_key(text, key):
             raise RunError("%s is set: segments assume the default wrfrst_d<domain>_<date> "
@@ -198,6 +228,11 @@ def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
         if ds is not None and ds != geo.start:
             raise RunError("d%02d starts at %s, not with d01 (%s): staggered nest starts are "
                            "not supported" % (d + 1, _fmt(ds), _fmt(geo.start)))
+    if case_restarts(nl):
+        found = restart_files(case_dir, _fmt(geo.start), geo.max_dom)
+        missing = ["wrfrst_d%02d_%s" % (d, _fmt(geo.start)) for d, p in found.items() if not p]
+        if missing:
+            raise RunError("restart = .true. but %s not in %s" % (", ".join(missing), case_dir))
     return Case(case_dir, text, nl, geo, resolve_end_step(geo, opts.stop_at))
 
 
@@ -242,6 +277,9 @@ def _tune_report_candidates(case: Case, choice: LayoutChoice, sample_points, can
     """--tune-report: add its ranking rows' candidates; a -O report without ranking points
     gives the winner's median s/step as a constant rate instead -> True (rate only)."""
     rep, winner = choice.report, choice.winner
+    if rep.get("pipeline_only"):
+        notes.append("-O0 tune report: its layout is used, it measured nothing")
+        return False
     if any(r.get("points") for r in rep.get("ranking") or []) or not (winner and winner.median):
         cal = wp.load_calibration(wp.calibration_path())
         found = tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)
@@ -334,6 +372,13 @@ def _plan_notes(opts: RunOptions, case: Case, L: Optional[int], segs: list,
                      "(it would re-anchor the history alarms at each segment start)")
     if segs and geo.hist[0] is None:
         notes.append("d01 writes no history")
+    debug = coldstart.get_first(text, "debug_level", "0").rstrip(",").strip()
+    if debug.lstrip("-").isdigit() and int(debug) > 0:
+        notes.append("WARNING: case sets debug_level=%s: every rank writes per-step lines to "
+                     "rsl.out.* (sc26p1, debug_level=50: ~31 MB per rank per 6 model hours), "
+                     "which the output estimate does not count and which slows the run; ranks "
+                     "> 0 are gzipped after each segment that succeeds, so --segment-minutes "
+                     "bounds the peak; set 0 unless you are debugging" % debug)
     if coldstart.get_first(text, "write_hist_at_0h_rst", ".false.").lower().startswith(".t"):
         notes.append("case sets write_hist_at_0h_rst=.true.: every resumed segment repeats "
                      "its start history frame")
@@ -363,6 +408,7 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
         import wtune.sidecar
         nc_root = wtune.sidecar.post_cache_root(out, find_project_dir(opts.project))
     return RunPlan(case_dir=case_dir, out=out, text=case.text, geo=case.geo, n_end=case.n_end,
+                   start_dir=case_dir if case_restarts(case.nl) else None,
                    wall_limit_s=wall_limit_s, over=over, replan=replan, inputs=inputs, L=L,
                    segments=segs, restart=rst, notes=notes, nc_root=nc_root)
 
@@ -391,6 +437,44 @@ def print_plan(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
             "kept, restart io_form %d" % opts.restart_io_form)
     log(io_plan_line(opts.io, inputs.io_streams, opts.restart_io_form, inputs.bp_plan,
                      inputs.bp_cache, plan.case_dir, tuple(_aux_outputs(plan.text))))
+
+
+def check_space(opts: RunOptions, plan: RunPlan, log: Callable, runner=None) -> None:
+    """Estimated history + restart output against the space writable at --out's filesystem:
+    a line when it takes half of it or more, RunError when it does not fit (unless
+    --no-space-check or --dry-run)."""
+    span_s = plan.n_end * plan.geo.dt
+    n_rst = max(0, len(plan.segments) - 1) + (1 if plan.restart.cadence_s else 0)
+    need, detail = estimate_output_bytes(plan.geo, span_s, n_rst)
+    if opts.compress_history:
+        need /= 2.0
+    conv, fresh = input_bytes(plan.inputs.bp_plan, plan.inputs.bp_cache,
+                              sweep.campaign_configs._import_wtune_bp())
+    if conv or fresh:
+        need += conv + fresh
+        detail = ", ".join(x for x in (detail, "inputs to BP %s" % _gb(conv) if conv else "",
+                                       "per-segment input copy %s" % _gb(fresh) if fresh else "")
+                           if x)
+    if need <= 0:
+        return
+    where = plan.out
+    while not os.path.exists(where):
+        where = os.path.dirname(where)
+    free, src = writable_bytes(where, runner)
+    if need < 0.5 * free:
+        return
+    log("output estimate %s (%s%s, %d restart set(s)); %s %s"
+        % (_gb(need), detail or "no history", ", halved for --compress-history"
+           if opts.compress_history else "", n_rst, src, _gb(free)))
+    if need > free and not (opts.no_space_check or opts.dry_run):
+        raise RunError("the run would write ~%s but only %s is writable (%s): WRF+ADIOS2 does "
+                       "not fail on a full disk, it hangs or writes empty frames. Raise "
+                       "history_interval, shorten with --stop-at, free space, or pass "
+                       "--no-space-check" % (_gb(need), _gb(free), src))
+
+
+def _gb(n: float) -> str:
+    return "%.1f GB" % (n / 1e9)
 
 
 def print_dry_run(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
@@ -431,14 +515,21 @@ def execute(ctx: RunContext) -> int:
     try:
         rc = run_controller(ctx)
         report["status"] = "completed"
+    except RunStopped as e:
+        report["status"], report["error"] = "stopped", str(e)
+        report["finished_utc"] = dt.datetime.utcnow().isoformat()
+        _write_report(path, report)
+        log("wtune run: %s; report %s (the segments done so far are in %s)"
+            % (e, path, ctx.plan.out))
+        return 130
     except (RunError, RuntimeError, OSError, coldstart.ColdstartError) as e:
         report["status"] = "failed"
         report["error"] = str(e)
         _write_report(path, report)
         print("error: %s" % e, file=sys.stderr)
         return 1
-    except BaseException as e:         # Ctrl-C, a bug: never leave the report at "running"
-        report["status"] = "failed"
+    except BaseException as e:         # a second Ctrl-C, a bug: never leave the report "running"
+        report["status"] = "stopped" if isinstance(e, KeyboardInterrupt) else "failed"
         report["error"] = "%s: %s" % (type(e).__name__, e)
         _write_report(path, report)
         raise
@@ -450,6 +541,37 @@ def execute(ctx: RunContext) -> int:
     return rc
 
 
+def _convert_in_job(opts: RunOptions, plan: RunPlan, case_dir: str, out: str,
+                    runners: Runners, state_file: str) -> None:
+    """inputs.convert_inputs_in_job through the run's sbatch/sacct; its job goes into
+    run.state.json, and Ctrl-C / `wtune stop` cancel it at the next poll (RunStopped)."""
+    jobs: list = []
+
+    def submit(script):
+        jobs.append(sweep.submit_job("sbatch %s" % shlex.quote(script),
+                                     sbatch_runner=runners.sbatch_runner))
+        wtune.stopping.write_state(state_file, "run", jobs)
+        return jobs[-1]
+
+    def wait(job):
+        def on_poll(_state):
+            if wtune.stopping.STOP["reason"]:
+                raise RunStopped("%s; conversion job %s cancelled"
+                                 % (wtune.stopping.STOP["reason"], job))
+        return wait_for_job(job, runners.sacct_runner, opts.sacct_cmd, opts.poll_interval,
+                            runners.sleep, runners.log, on_poll=on_poll)[0]
+    try:
+        convert_inputs_in_job(plan.inputs, plan.text, case_dir, out, submit, wait, runners.log,
+                              env_source=opts.env_source, campaign_dir=opts.campaign_dir)
+    except BaseException:       # stop, a second Ctrl-C, sacct never answering (UNKNOWN), errors
+        for j in jobs:
+            try:
+                runners.scancel_runner(j)
+            except Exception as e:          # noqa: BLE001 -- the error that got here matters more
+                runners.log("WARNING: could not cancel conversion job %s: %s" % (j, e))
+        raise
+
+
 def _fail(e) -> int:
     print("error: %s" % e, file=sys.stderr)
     return 2
@@ -459,7 +581,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
          sacct_runner: Optional[Callable] = None, snapshot_fn: Optional[Callable] = None,
          sleep: Optional[Callable] = None, log: Callable = print,
          sidecar_runner: Optional[Callable] = None, scancel_runner: Optional[Callable] = None,
-         clock: Optional[Callable] = None) -> int:
+         clock: Optional[Callable] = None, convert_in_job: Optional[bool] = None) -> int:
     opts = parse_options(argv)
     try:
         opts = apply_project_defaults(opts, log)
@@ -473,11 +595,16 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     for note in wtune.extensions.run_notes(case_dir):
         log("EXTENSION: %s" % note)
     try:
+        opts = restart_io_form_of_case(opts, case_dir, log)
         out = _resolve_out(opts)
         plan = build_plan(opts, case_dir, out, log)
     except (RunError, OSError, ValueError, wp.PredictError, coldstart.ColdstartError) as e:
         return _fail(e)
     print_plan(opts, plan, log)
+    try:
+        check_space(opts, plan, log)
+    except RunError as e:
+        return _fail(e)
     if opts.dry_run:
         try:
             print_dry_run(opts, plan, log)
@@ -485,14 +612,34 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
             return _fail(e)
         return 0
     os.makedirs(out, exist_ok=True)
-    try:
-        plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
-    except RunError as e:
-        return _fail(e)
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
                       snapshot_fn=snapshot_fn or wtune.watch.snapshot,
                       sleep=sleep or time.sleep, log=log,
                       scancel_runner=scancel_runner or default_scancel,
                       clock=clock or time.monotonic)
-    return execute(_run_context(opts, plan, runners, sidecar_runner))
+    state_file = os.path.join(out, "run.state.json")
+    if convert_in_job is None:              # real submission from a login node
+        convert_in_job = sbatch_runner is None and not os.environ.get("SLURM_JOB_ID")
+    if not convert_in_job:                  # in this process: Ctrl-C interrupts it at once
+        try:
+            plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
+        except (RunError, RuntimeError, OSError) as e:
+            return _fail(e)
+    with wtune.stopping.stop_on_signal(state_file, "run", opts.poll_interval):
+        if convert_in_job:
+            try:
+                _convert_in_job(opts, plan, case_dir, out, runners, state_file)
+                plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments,
+                                             log)
+            except RunStopped as e:
+                _write_report(os.path.join(out, "run_report.json"), dict(
+                    new_report(opts, plan), status="stopped", error=str(e),
+                    finished_utc=dt.datetime.utcnow().isoformat()))
+                log("wtune run: %s; nothing else submitted" % e)
+                return 130
+            except (RunError, RuntimeError, OSError) as e:
+                return _fail(e)
+        ctx = _run_context(opts, plan, runners, sidecar_runner)
+        ctx.state_file = state_file
+        return execute(ctx)

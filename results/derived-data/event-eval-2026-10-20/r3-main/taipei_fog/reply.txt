@@ -1,0 +1,3 @@
+我讀到的事件是：冬天台北盆地清晨的輻射霧，能見度降到 200 m 以下並持續到早上九點，目標是確認模式是否抓到霧的生成與消散時間。因此我設定了 type 為 fog_low_cloud、region 為台北盆地，把能見度與低雲列為 verify 項目，而霧的生成/消散時間只放在 diagnose（純模式診斷），沒有加入任何颱風、日期或資料集。`wtune event check event.yaml` 已通過（0 errors, 0 warnings）。
+
+Questions: 需要指定的資料來源嗎（例如中央氣象署的能見度觀測或地面測站）？若無特別指定，我會依 WTune 預設（ISD 測站與衛星 IR）來擬定觀測計畫。

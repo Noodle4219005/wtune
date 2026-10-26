@@ -1,0 +1,3 @@
+我理解這是台北盆地冬季清晨的輻射霧案例，重點是模式是否抓到霧的生成與消散時間，因此列為 `fog_low_cloud` 類型，並以觀測的能見度（stations_extra）與低雲（satellite_ir）作比對，另將生成/消散時間列為 diagnose。區域設為台北盆地，無颱風、無需額外 obs_requests 與 local_obs，check 已通過（0 error、0 warning）。
+
+questions: 事件日期/時段未在 event.txt 中指定（WTune 會從 run 讀取），若要限定某個冬季早晨再告訴我。

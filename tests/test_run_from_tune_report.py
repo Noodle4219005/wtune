@@ -44,6 +44,11 @@ def test_layout_sources_in_order():
     lay = wr.tune_report_layout({"node_selection": {"chosen": 1, "final": 2, "layouts": rows}})
     assert lay["nodes"] == 2
     assert wr.tune_report_layout({"ranking": []}) is None
+    o0 = {"pipeline_only": True, "nodes": 1, "cores_used_per_node": 144,
+          "best": {"id": "ANCHOR", "ranks": 144, "omp": 1, "numtiles": 1, "dist": "block",
+                   "nproc_x": 12, "nproc_y": 12}}
+    lay = wr.tune_report_layout(o0)
+    assert (lay.nodes, lay.nx, lay.ny, lay.median, lay.cid) == (1, 12, 12, None, "ANCHOR")
 
 
 def test_dry_run_takes_layout_and_rate_from_winner(tmp_path):
@@ -56,6 +61,18 @@ def test_dry_run_takes_layout_and_rate_from_winner(tmp_path):
     assert "8x9 t2 omp1" in seg
     assert any("median 0.5000 s/step as the rate" in ln for ln in lines)
     assert not any("WARNING" in ln for ln in lines)
+
+
+def test_dry_run_after_o0_takes_its_unmeasured_layout(tmp_path):
+    rep = _report(tmp_path, winner=None, node_selection=None, pipeline_only=True,
+                  cores_used_per_node=72,
+                  best={"id": "ANCHOR", "ranks": 72, "omp": 1, "numtiles": 1, "dist": "block",
+                        "nproc_x": 8, "nproc_y": 9})
+    rc, lines = _main(tmp_path, ["--tune-report", rep, "--dry-run"])
+    assert rc == 0
+    assert "layout from tune report: N=1 8x9 tiles 1 omp 1 (cores/node 72, ? s/step)" in lines
+    assert any("-O0 tune report: its layout is used" in ln for ln in lines)
+    assert any("s/step fallback (cell-step model" in ln for ln in lines)
 
 
 def test_cli_flags_override_report(tmp_path):

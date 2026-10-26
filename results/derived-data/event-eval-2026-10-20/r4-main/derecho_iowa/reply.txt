@@ -1,0 +1,5 @@
+已產生 `event.yaml` 並通過 `wtune event check`（0 errors）。
+
+我的理解：這是 2020 年 8 月 10 日美國愛荷華州（Iowa）的 derecho 事件，性質為 severe_wind 與 mesoscale_convection（颮線）。要驗證的量有：模擬雷達回波對比 NEXRAD（reflectivity）、測站陣風（gust）、以及氣壓躍升（mslp）；NEXRAD 與測站都是 WTune 預設來源，所以放在 `verify` 而非 `obs_requests`。
+
+問題：無（若你想另外指定某個特定的陣風觀測來源，例如特定網路，我可以再調整）。

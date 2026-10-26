@@ -1,0 +1,18 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 85db43ad1bc2947aeecb086fab916bf3fa5607d11b9485f7d4066682bf1cfb31
+event: {value: January 2023 California atmospheric river series, from: "January 2023 atmospheric river series over California"}
+types:
+  - {value: atmospheric_river, from: "atmospheric river series"}
+  - {value: heavy_rain, from: "24 h precipitation"}
+storms: []
+region: {value: California, Sierra Nevada, from: "over California"}
+verify:
+  - {value: ivt, from: "IVT compared with ERA5"}
+  - {value: precip_24h, from: "24 h precipitation vs gauges/Stage IV"}
+  - {value: precip_gauge, from: "24 h precipitation vs gauges"}
+diagnose:
+  - {value: snow level in the Sierra Nevada, from: "the snow level in the Sierra Nevada"}
+obs_requests: []
+local_obs: []
+questions: []

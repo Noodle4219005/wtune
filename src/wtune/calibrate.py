@@ -219,14 +219,13 @@ done
 # every calibration run's own timed window, it inflated every measured startup by however long
 # that run's table computation took, contaminating jobs 1090-1099's whole calibration fit (see
 # campaign/strict_campaign.sbatch's THOMPSON_TABLE_NAMES/link_thompson_tables/OUT for the
-# identical production pattern this mirrors -- $OUT is site.sh's own campaign run-output dir,
-# already exported by site_env above; $OUT/thompson_tables is where prior campaign runs on
-# THIS site already cached them). A brand-new site with nothing cached yet just falls through
-# ([ -f ... ] guard) and WRF computes fresh, same as before this fix -- no worse, not harvested
-# back into the cache by this script (only linked, never written).
+# identical production pattern this mirrors: the per-build cache the campaign probes fill).
+# A build with nothing cached yet just falls through ([ -f ... ] guard) and WRF computes
+# fresh; a completed run adds what it computed (below).
+TBL_CACHE="${{WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")" | cut -c1-16)"
 for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
   [ -e "$tbl" ] && continue
-  [ -f "$OUT/thompson_tables/$tbl" ] && ln -sf "$OUT/thompson_tables/$tbl" "$tbl"
+  [ -f "$TBL_CACHE/$tbl" ] && ln -sf "$TBL_CACHE/$tbl" "$tbl"
 done
 
 cp {case_dir}/namelist.input ./namelist.input.orig
@@ -264,6 +263,9 @@ done
   --history-mode {history_mode} --set restart=.false. --ranks {ranks}
 rm -f ./namelist.input.orig
 ln -sf "$W/main/wrf.exe" ./wrf.exe
+# files the namelist names (iofields_filename, wrflowinp, wrffdda, tslist, ...), as the probes
+# do: WRF 4.8 hangs at input_input without the iofields file
+"$PYBIN" "$CAMPAIGN/configs.py" link-namelist-files ./namelist.input . {case_dir} || true
 
 export OMP_NUM_THREADS=1 OMP_STACKSIZE=1G OMP_PLACES=cores OMP_PROC_BIND=close
 
@@ -291,6 +293,14 @@ T1=$(date +%s.%N)
 OK=0
 if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then
   OK=1
+fi
+# a table this completed run computed goes to the cache for the next rank count
+if [ "$OK" = 1 ]; then
+  for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
+    [ -f "$tbl" ] && [ ! -L "$tbl" ] && [ ! -e "$TBL_CACHE/$tbl" ] && mkdir -p "$TBL_CACHE" && \
+      cp -f "$tbl" "$TBL_CACHE/.$tbl.${{SLURM_JOB_ID:-0}}.$$" && \
+      mv -f "$TBL_CACHE/.$tbl.${{SLURM_JOB_ID:-0}}.$$" "$TBL_CACHE/$tbl"
+  done
 fi
 
 {{

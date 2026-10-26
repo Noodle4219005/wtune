@@ -1,0 +1,5 @@
+`event.yaml` is written in `/tmp/claude-1000/-home-nk-my-llm-wiki/57772c5c-ebf2-4092-86db-17ee7bd9a78d/scratchpad/ev-mm-low/lake_effect/event.yaml` and `wtune event check event.yaml` passes with 0 errors and 0 warnings. I read the case as the 17–20 November 2022 Buffalo lake-effect snow band (type `winter_storm`, region south of Buffalo/Lake Erie), with radar reflectivity and snowfall totals as the observation comparisons, and the lake–air temperature difference as a model-only diagnostic cross-section; obs requests are `radar` and `snow`.
+
+Questions:
+- Which radar product/network do you want for the band position comparison (e.g. NEXRAD base reflectivity from NOAA)?
+- Should the lake–air temperature difference also be checked against observations (e.g. station T2 / lake SST), or is the model cross-section sufficient?

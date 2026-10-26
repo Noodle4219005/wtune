@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes with 0 errors.
+
+I read the case as the July 2023 Southern Europe heat wave (Sicily and Sardinia above 45 °C, lasting nearly two weeks), typed as `heat_wave`, with region covering Southern Europe/Sicily/Sardinia. Verification is limited to daily maximum temperature against station observations (`t2_max`), while the 500 hPa high-pressure ridge is treated as a model-only figure under `diagnose` rather than an observation comparison, since the text doesn't say to compare it with anything. No storm, no special data provider, and no local files were named.
+
+Questions: none blocking — but if you intended the 500 hPa ridge to be checked against ERA5 rather than just plotted from the model, I can move it to `verify` as `z500`.

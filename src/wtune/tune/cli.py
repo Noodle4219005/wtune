@@ -3,6 +3,7 @@ default), the run context, the mode dispatch and main()."""
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import os
 import sys
@@ -12,6 +13,7 @@ import wtune.config
 import wtune.extensions
 import wtune.machine
 import wtune.nodes
+import wtune.stopping
 from ._deps import _HERE, sweep
 from .context import (CONFIRM_REPS, DEFAULT_KAPPA,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
@@ -23,7 +25,9 @@ from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
 from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
 from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
+from .context import STOP, StopRequested
 from . import context as _context
+from . import jobs as _jobs
 from . import node_search as _node_search
 from . import pipeline as _pipeline
 from . import report as _report
@@ -87,16 +91,19 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     the node count, build the Ctx and run the mode -- -O0, -O1..3, --nodes search or
     a fixed node count -- then print the report and write <out>/tune_report.json. Returns the
     report; SystemExit for invalid options. The runners and clock default to the real ones."""
+    STOP["reason"] = None
     o = _resolve_run_options(args)
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
 
+    _use_project_bp_cache(args)                     # the cache the space check looks at
+    if o.level != 0 and not getattr(args, "no_space_check", False):
+        _jobs.check_input_space(o.case)             # before the node preflight's probes too
     max_nodes = min(int(o.max_nodes_requested), wtune.machine.max_nodes())
     node_health, preflight, max_nodes = _run_node_preflight(args, o.level, case_json, max_nodes,
                                                             preflight_runner)
     ns = _resolve_node_choice(args, o, profile, max_nodes, namelist_path)
     out_dir = _run_out_dir(args, o.case)
-    _use_project_bp_cache(args)
     ctx = _build_ctx(args, o, ns, case_json, namelist_path, is_fire, steps, ranking_start_note,
                      max_nodes, out_dir, sbatch_runner, sacct_runner, scancel_runner,
                      ledger_reader, proposer, clock)
@@ -107,11 +114,36 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
           % (o.case, "search" if ns.node_search else ns.nodes, ns.nodes_note,
              ("%.1f min" % o.minutes) if o.minutes is not None else "none", max_nodes, out_dir))
 
-    s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                 ctx.hardware_id)
+    s_est, _src, _n = ctx.estimate_s_per_step()
 
+    ctx.state_file = os.path.join(out_dir, "tune.state.json")
+    with _campaign_out(ctx.ledger_dir), _stop_on_signal(ctx):
+        try:
+            report = _run_mode(ctx, profile, args, o, ns, ext_notes, preflight, s_est)
+        except StopRequested as e:
+            os.remove(ctx.state_file)
+            raise SystemExit("wtune tune: %s before anything was measured -- no report" % e) \
+                from None
+    if STOP["reason"]:
+        report["stopped"] = STOP["reason"]
+    _emit_report(report, out_dir, node_health)
+    if STOP["reason"]:
+        print("wtune tune: %s -- %s/tune_report.json holds the best of what was measured; "
+              "`wtune run` uses it" % (STOP["reason"], out_dir))
+    return report
+
+
+def _stop_on_signal(ctx: Ctx):
+    """Ctrl-C (SIGINT) or `wtune stop` (SIGTERM): stop at the next poll -- cancel this tune's
+    jobs, keep what was measured, write the report (wtune.stopping)."""
+    return wtune.stopping.stop_on_signal(ctx.state_file, "tune", ctx.poll_interval)
+
+
+def _run_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice,
+              ext_notes: list, preflight: Any, s_est: float) -> dict:
+    """The report of the chosen mode: -O0, the pipeline, --nodes search or a fixed node count."""
     if o.level == 0:                       # no jobs: nothing to cancel
-        report = _pipeline.run_level0(ctx, profile, ns.total_steps, o.nodes_policy)
+        return _pipeline.run_level0(ctx, profile, ns.total_steps, o.nodes_policy)
     elif ns.pipeline == "full":
         report = _run_pipeline_mode(ctx, profile, args, o, ns, ext_notes, preflight)
         _final_cancel_safety_net(ctx)
@@ -132,7 +164,6 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
         _final_cancel_safety_net(ctx)
         report = _report.build_report(ctx, ns.nodes, ns.nodes_note, all_results, confirm_results,
                                       anchor_cid)
-    _emit_report(report, out_dir, node_health)
     return report
 
 
@@ -146,7 +177,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     sacct_runner = sacct_runner or sweep.default_sacct_runner
     scancel_runner = scancel_runner or default_scancel_runner
     clock = clock or RealClock()
-    ledger_dir = sweep._expand(args.ledger_dir)
+    ledger_dir = _ledger_dir(args)
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
     extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
@@ -160,6 +191,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
+               build_id=_build_id(args),
+               history_dirs=sweep.history_ledger_dirs(ledger_dir),
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
                omp_cap=wtune.machine.omp_cap(extension_omp_cap),
                extension_omp_cap=extension_omp_cap,
@@ -364,6 +397,9 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
+    adaptive = _context.adaptive_steps_warning(namelist_path)
+    if adaptive:
+        print("WARNING: " + adaptive)
     if node_search and node_objective == "cost" and total_steps is None:
         raise SystemExit("--node-objective cost needs the case's total step count (run length / "
                          "time_step from the namelist), which could not be determined")
@@ -396,6 +432,43 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
                    else sweep._expand("$HOME/wtune-runs/tune/%s" % case))
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
+
+
+def _ledger_dir(args: argparse.Namespace) -> str:
+    """--ledger-dir, else <project>/probes inside a project, else sweep.default_ledger_dir()."""
+    import wtune.project
+    ledger_dir = args.ledger_dir
+    if not ledger_dir:
+        project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
+        ledger_dir = (os.path.join(project_dir, "probes") if project_dir
+                      else sweep.default_ledger_dir())
+    return sweep._expand(ledger_dir)
+
+
+def _build_id(args: argparse.Namespace) -> str:
+    """The WRF build the probe jobs will run (sweep.wrf_build_id of the tree they resolve); ''
+    when there is no wrf.exe there, and the ledger estimates then use every build's rows."""
+    tree = (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
+            or wtune.machine.wrf_tree())
+    build_id = sweep.wrf_build_id(tree)
+    print("build %s (%s/main/wrf.exe)" % (build_id, tree) if build_id else
+          "wtune tune: no wrf.exe under %s -- the ledger estimates use every build's rows" % tree)
+    return build_id
+
+
+@contextlib.contextmanager
+def _campaign_out(ledger_dir: str):
+    """WTUNE_CAMPAIGN_OUT=ledger_dir while the tune runs, so its probe jobs (sbatch --export=ALL)
+    write where it reads (the site files' $OUT follows it); restored afterwards."""
+    old = os.environ.get(sweep.CAMPAIGN_OUT_ENV)
+    os.environ[sweep.CAMPAIGN_OUT_ENV] = ledger_dir
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop(sweep.CAMPAIGN_OUT_ENV, None)
+        else:
+            os.environ[sweep.CAMPAIGN_OUT_ENV] = old
 
 
 def _use_project_bp_cache(args: argparse.Namespace) -> None:
@@ -487,6 +560,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="--pipeline full: safety cap on the accumulated queue-only wait (hours, "
                          "default %g); queue wait is not charged to --minutes, but past this the "
                          "run stops and reports" % PIPELINE_MAX_QUEUE_HOURS)
+    p.add_argument("--no-space-check", action="store_true", dest="no_space_check",
+                    help="submit even when converting the inputs to BP does not fit the space "
+                         "writable at the BP cache (GPFS quota or free space)")
     p.add_argument("--no-node-preflight", action="store_true", dest="no_node_preflight",
                     help="skip the node health pre-flight (sinfo states + one 1-minute srun probe "
                          "per node checking $HOME, the case dir, wtune-src and wrf.exe); by "
@@ -557,7 +633,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--hardware-id", default=wtune.machine.hardware_id(), dest="hardware_id")
     p.add_argument("--env-source", default=wtune.machine.env_source(), dest="env_source")
     p.add_argument("--sbatch-script", default=sweep.DEFAULT_SBATCH_SCRIPT, dest="sbatch_script")
-    p.add_argument("--ledger-dir", default=sweep.DEFAULT_LEDGER_DIR, dest="ledger_dir")
+    p.add_argument("--ledger-dir", default=None, dest="ledger_dir",
+                   help="where the probes write their ledger CSVs and run directories (default: "
+                        "<project>/probes in a project, else $WTUNE_CAMPAIGN_OUT or %s)"
+                        % sweep.DEFAULT_LEDGER_DIR)
     p.add_argument("--sacct-cmd", default="sacct", dest="sacct_cmd")
     p.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL_S,
                     dest="poll_interval")

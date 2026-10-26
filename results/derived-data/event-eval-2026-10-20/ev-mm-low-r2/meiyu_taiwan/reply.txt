@@ -1,0 +1,7 @@
+已產生 `event.yaml`，`wtune event check event.yaml` 通過（0 errors, 0 warnings）。我理解的是：2023 年 6 月初梅雨鋒面滯留台灣北部、雪山山脈迎風面有豪雨，事件類型為 frontal / heavy_rain / orographic，區域為台灣北部與雪山山脈。
+
+比對項目為雷達回波（reflectivity，看鋒面對流帶位置）與自動雨量站雨量（precip_gauge）；另因使用者指名中央氣象署的雷達回波整合資料與自動雨量站（非 WTune 預設來源），我把它們列為 `obs_requests`（kind: radar / rain_gauges）。
+
+questions:
+1. 雷達比對要用哪一種回波產品（全反射率或僅回波強度 > 某門檻的組合回波）？若無特別指定，我會用全反射率 composite。
+2. 雨量比對的時間範圍與統計方式（例如整場事件累積雨量，或每小時雨量）需由 WTune 從 run 讀取，若你想指定特定時段請告知。

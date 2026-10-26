@@ -1,0 +1,23 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: a6a22ae3a66c4fd75ccf0d46c90fa1f919134ddebb211d8c8cfa00bf357bb0b0
+event:
+  value: 2023 年 6 月初的梅雨鋒面滯留在台灣北部
+  from: "2023 年 6 月初的梅雨鋒面，滯留在台灣北部"
+types:
+  - {value: frontal, from: "梅雨鋒面"}
+  - {value: orographic, from: "雪山山脈迎風面雨量很大"}
+  - {value: heavy_rain, from: "雨量很大"}
+storms: []
+region:
+  value: 台灣北部與雪山山脈
+  from: "滯留在台灣北部，雪山山脈迎風面"
+verify:
+  - {value: reflectivity, from: "跟中央氣象署的雷達回波整合資料比對，看鋒面上的對流帶位置"}
+  - {value: precip_gauge, from: "雨量用氣象署自動雨量站"}
+diagnose: []
+obs_requests:
+  - {value: 中央氣象署雷達回波整合資料, kind: radar, from: "跟中央氣象署的雷達回波整合資料比對"}
+  - {value: 氣象署自動雨量站, kind: rain_gauges, from: "雨量用氣象署自動雨量站"}
+local_obs: []
+questions: []

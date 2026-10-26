@@ -1,0 +1,24 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 8706698b28cf7c1336a448c3fd8285808b0fdb1a28d41aa81d1b543ac07d793b
+event:
+  value: typhoon case
+  from: "跑一個颱風"
+types:
+  - {value: tropical_cyclone, from: "颱風"}
+storms: []
+region:
+  value: null
+  from: null
+verify:
+  - {value: track, from: "想知道模擬得準不準"}
+  - {value: intensity, from: "想知道模擬得準不準"}
+diagnose: []
+obs_requests:
+  - {kind: best_track, from: "跑一個颱風"}
+local_obs: []
+questions:
+  - "要模擬哪一個颱風（名稱／年份）？event.txt 只寫了「跑一個颱風」，沒有指定個案。"
+  - "颱風發生在哪個區域／哪片海域？目前 region 是空的。"
+  - "「準不準」想比對哪些項目？目前先放track 與 intensity，若要看降雨或氣壓等請補充。"
+  - "要比較的觀測資料來源有指定嗎（例如中央氣象署最佳路徑、CWB 雨量站）？"

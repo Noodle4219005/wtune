@@ -1,0 +1,4 @@
+我理解的是：2021 年 6 月底太平洋西北的熱浪（heat dome），波特蘭達 46.7°C，重點在於以測站觀測比對 2 m 最高溫，另外要看 500 hPa 高壓脊的強度與土壤乾燥對升溫的貢獻。event.yaml 已建立並通過 `wtune event check`（0 error、0 warning），verify 只有 `t2_max`，兩項純模型量（高壓脊強度、土壤乾燥貢獻）放在 diagnose，類型為 heat_wave 與 land_atmosphere。無需 obs_requests 或 local_obs，因為使用者未指名 WTune 預設之外的資料來源。
+
+questions:
+- 500 hPa 高壓脊強度是否也要與 ERA5（reanalysis, z500）比對？目前我依規則視為模型端診斷項。

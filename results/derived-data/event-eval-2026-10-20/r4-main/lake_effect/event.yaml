@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 48478ec6f92a3bb550e8b098e747c5aca9c608e8995ac2b89c7eef976be5129a
+event:
+  value: Buffalo lake-effect snow band, 17-20 November 2022
+  from: "Buffalo lake-effect snow, 17-20 November 2022"
+types:
+  - {value: winter_storm, from: "lake-effect snow"}
+storms: []
+region:
+  value: Buffalo, Lake Erie (south of Buffalo)
+  from: "south of Buffalo"
+verify:
+  - {value: reflectivity, from: "the band position vs radar"}
+  - {value: snowfall, from: "snowfall totals vs observations"}
+  - {value: t2, from: "the lake-air temperature difference"}
+  - {value: sst, from: "the lake-air temperature difference"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions: []

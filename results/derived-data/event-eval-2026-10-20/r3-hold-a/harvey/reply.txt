@@ -1,0 +1,3 @@
+I read event.txt as: Hurricane Harvey (2017) stalling over southeast Texas, with focus on multi-day rainfall totals around Houston compared against Stage IV, and on the storm's track while it was nearly stationary. I encoded it as a `tropical_cyclone` + `heavy_rain` case with storm name Harvey (year 2017), region southeast Texas/Houston, and two verification items: `precip_total` and `track` — Stage IV and best track are both WTune defaults, so no obs_requests or local_obs were needed. `wtune event check event.yaml` now passes with 0 errors and 0 warnings, and no data was fetched.
+
+questions: none — if you'd like the total-rainfall comparison also done at individual gauges (`precip_gauge`), or the storm's intensity/wind radii checked too, let me know and I'll add them.

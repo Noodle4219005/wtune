@@ -13,7 +13,7 @@
 
 CORES_PER_NODE=112
 W=$HOME/wrf-stack/wrf/intel-adios2-dmsm/WRF
-OUT=$HOME/wrf-bench/wscore/campaign
+OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wrf-bench/wscore/campaign}
 # derived from the node pool (icpnq = ct448 SNC 8x14, icpnp = cf448 2 NUMA) so ledgers from
 # different pools never share a hardware_id
 HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')

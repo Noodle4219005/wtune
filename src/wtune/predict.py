@@ -62,8 +62,11 @@ def calibration_path() -> str:
 
 
 def cores_per_node(calibration=None):
-    """Cores per node of the machine the calibration describes; the machine setting when the
-    file does not say."""
+    """Cores per node of this machine: its machine setting when one is set, else the
+    calibration's, else the built-in default. (f1-arm, 144 cores, has no calibration of its own
+    and was sized by scc.json's 72.)"""
+    if os.environ.get(wtune.machine.ENV["cores_per_node"], "").strip():
+        return wtune.machine.cores_per_node()
     v = (calibration or {}).get("cores_per_node")
     return int(v) if v else wtune.machine.cores_per_node()
 SEGMENT_HOURS = 6.0   # long-run compute display chunking
@@ -339,6 +342,28 @@ def get_d01_steps(nl: dict) -> tuple[int, float, float, str | None]:
         note = ("run length (%.3fs) is not an exact multiple of time_step "
                  "(%.3fs); rounded %.4f steps to %d" % (run_s, dt, exact, steps))
     return steps, run_s, dt, note
+
+
+def adaptive_step_bounds(nl: dict, run_s: float) -> tuple[int, int, float, float] | None:
+    """use_adaptive_time_step: WRF picks d01's dt each step within about [min_time_step,
+    max_time_step] (dyn_em/start_em.F: -1 is NINT(3 or 8 * min(dx,dy)/1000) s; *_den divides;
+    step_to_output_time may cut below the minimum), so the step count is only bounded ->
+    (fewest steps, most steps, min dt, max dt); None without adaptive dt."""
+    if not bool(g(nl, "domains", "use_adaptive_time_step", False)):
+        return None
+    dx = float(g(nl, "domains", "dx", 0) or 0)
+    d_km = min(dx, float(g(nl, "domains", "dy", dx) or dx)) / 1000.0
+
+    def bound(key, k):
+        v = float(g_dom(nl, "domains", key, 0, -1) or -1)
+        if v <= 0:
+            v = float(math.floor(k * d_km + 0.5))            # Fortran NINT, not half-to-even
+        den = float(g_dom(nl, "domains", key + "_den", 0, 0) or 0)   # adapt_timestep_em.F
+        return v / den if den > 0 else v
+    lo_dt, hi_dt = bound("min_time_step", 3), bound("max_time_step", 8)
+    if lo_dt <= 0 or hi_dt < lo_dt:
+        return None
+    return math.ceil(run_s / hi_dt), math.ceil(run_s / lo_dt), lo_dt, hi_dt
 
 
 def parent_time_step_ratio(nl: dict, dom_index: int, default: int = 1) -> int:
@@ -1498,17 +1523,15 @@ def build_param_table(config: dict, nodes: int, io_form: int, io_target: str,
         warnings.append("%d ranks/node x omp %d = %d cores exceeds %d cores/node"
                         % (tpn, omp, tpn * omp, cores_per_node))
 
-    # Matches campaign/sites/scc.sh site_launch() exactly: --rank-by node reproduces
-    # WRF's cyclic across-node rank order for dist=cyclic; block is OMPI5's own
-    # default rank-by, so the block case adds no extra flag. dist=UNKNOWN adds
-    # neither -- the line is INCOMPLETE, not equivalent to block, hence the note.
-    launch = ("mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core"
-              % (ranks, tpn if tpn else 0, omp))
-    if dist == "cyclic":
-        launch += " --rank-by node"
-    elif dist is None:
-        warnings.append("dist not provided; launch line incomplete (cannot tell whether "
-                         "--rank-by node is needed -- see campaign/sites/scc.sh site_launch())")
+    # The launch line this machine's site file builds (campaign/sites/<site>.sh site_launch).
+    # dist=UNKNOWN is shown as block, which may differ from what the run uses, hence the note.
+    launch = (wtune.machine.site_launch_line(ranks, tpn or 0, omp, dist or "block", nodes or 1)
+              or "site_launch %d %d %d %s (campaign/sites/%s.sh)"
+              % (ranks, tpn or 0, omp, dist or "block", wtune.machine.site()))
+    if dist is None:
+        warnings.append("dist not provided; launch line shown for block (a cyclic layout "
+                        "launches differently -- campaign/sites/%s.sh site_launch)"
+                        % wtune.machine.site())
 
     env = {"OMP_NUM_THREADS": str(omp), "OMP_STACKSIZE": "1G",
            "OMP_PLACES": "cores", "OMP_PROC_BIND": "close", "ulimit -s": "unlimited"}
@@ -1652,6 +1675,19 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
                                 + drift_abs_s ** 2)
         low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
         range_source = None
+
+    bounds = adaptive_step_bounds(nl, run_s)
+    if bounds:
+        lo_n, hi_n, lo_dt, hi_dt = bounds
+        rest = total_s - compute["compute_total_s"]       # init (+ I/O): not per step
+        low = min(low, max(0.0, low - rest) * lo_n / steps + rest)
+        high = max(high, (high - rest) * hi_n / steps + rest)
+        steps_note = "; ".join(x for x in (steps_note, (
+            "use_adaptive_time_step: WRF picks d01's dt between about %g and %g s, so about "
+            "%d-%d steps; the total counts %d steps of time_step, the range covers both"
+            % (lo_dt, hi_dt, lo_n, hi_n, steps))) if x)
+        range_source = "; ".join(x for x in (range_source, "widened to the adaptive-dt "
+                                             "step bounds") if x)
 
     params = build_param_table(config, nodes, io_form_history_effective, io_target,
                                cores_per_node(calibration))

@@ -120,11 +120,14 @@ def write_rebuilt_case_entry(case: str, case_entry: dict, index: int, point: Any
     txt = coldstart.build_wrf_window_namelist_text(real_text, T, win_steps, dt, anchor["nx"],
                                                    anchor["ny"], anchor.get("numtiles", 1))
     txt = coldstart.set_list(txt, "run_seconds", 0, 1)
+    restart_case = bool(case_entry.get("restart"))
+    if restart_case:                   # the point starts from its own real.exe output
+        txt = coldstart.set_list(txt, "restart", ".false.", 1)
     template = os.path.join(plan_dir, "namelist.template.input")
     with open(template, "w") as f:
         f.write(txt)
     orig_prep = sweep._expand(case_entry.get("prep_dir") or "")
-    for name in case_entry.get("input_files") or []:
+    for name in [] if restart_case else case_entry.get("input_files") or []:
         dst = os.path.join(real_dir, name)
         if not os.path.lexists(dst) and orig_prep:
             os.symlink(os.path.join(orig_prep, name), dst)
@@ -136,6 +139,9 @@ def write_rebuilt_case_entry(case: str, case_entry: dict, index: int, point: Any
                  steps=int(steps if steps is not None else rebuilt_steps(stepra)), enabled=True,
                  rebuilt_from=case, rebuilt_point_at=point.at.isoformat(),
                  rebuilt_start=T.strftime("%Y-%m-%d_%H:%M:%S"), rebuilt_spinup_min=spinup_min)
+    if restart_case:
+        entry.update(restart=False, input_files=[])
+        entry.pop("restart_time", None)
     return case_id, entry
 
 
@@ -190,9 +196,10 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
                if campaign_dir else "sbatch %s" % sbatch_path)
+        _jobs.stop_before_submit()
         job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
         with owned_lock:       # owned at once: another point failing must not orphan this job
-            ctx.owned_jobs.append(job_id)
+            _jobs.record_job(ctx, job_id)
         print("rebuilt point %d: real_only job %s (%s)" % (i, job_id, sbatch_path), flush=True)
         return plan, pdir, job_id
 
@@ -354,8 +361,9 @@ def _submit_point_jobs(ctx: Ctx, wrapped: list[dict], runs: list[dict], rebuilt_
             sbatch_script=ctx.sbatch_script, campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
             extra_export=ranking_export(ranking, {"timeout_s": cand_to}) + point_export(mode)
             + fresh)
+        _jobs.stop_before_submit()
         jid = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
-        ctx.owned_jobs.append(jid)
+        _jobs.record_job(ctx, jid)
         print("%s point %d (%s, case %s): job %s, %d runs, TIMEOUT_S=%d SPINUP_TIMEOUT_S=%d "
               "--time=%s (expected %s)" % (name_prefix, rp["index"], rp["point"].at.isoformat(),
                                            rp["case_id"], jid, len(runs), cand_to, spin_to,

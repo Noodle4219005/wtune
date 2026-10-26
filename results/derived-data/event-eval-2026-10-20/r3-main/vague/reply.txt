@@ -1,0 +1,7 @@
+已完成 Part 1，`event.yaml` 通過 `wtune event check`（0 errors, 0 warnings）。
+
+**摘要**：我把 event.txt 理解為「跑一個颱風個案，評估 WRF 模擬準不準」，因此 `types` 設為 `tropical_cyclone`，`verify` 放 `track`（路徑）與 `intensity`（強度）兩項與觀測比對的量；原文未提及任何日期、區域、颱風名稱或資料集，所以 `storms`、`region`、`obs_requests`、`local_obs` 都留空，也沒有加任何模型診斷圖。由於檢查要求颱風個案必須有颱風名稱，我在 `questions` 中詢問要模擬哪一個颱風（含年份）。
+
+**問題**：
+1. 這次要模擬哪一個颱風？（需要 best-track 名稱與年份，例如「莫拉克 Morakot 2013」）
+2. 「準不準」除了路徑與強度之外，是否也要比降雨量（`precip_1h`/`precip_24h`）或其他量？

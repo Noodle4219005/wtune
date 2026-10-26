@@ -275,4 +275,4 @@ def test_interrupt_finalizes_the_report(tmp_path):
     with pytest.raises(KeyboardInterrupt):
         _main(tmp_path, LAYOUT, sbatch_runner=sbatch)
     rep = json.loads((tmp_path / "out" / "run_report.json").read_text())
-    assert rep["status"] == "failed" and "KeyboardInterrupt" in rep["error"]
+    assert rep["status"] == "stopped" and "KeyboardInterrupt" in rep["error"]  # a user stop

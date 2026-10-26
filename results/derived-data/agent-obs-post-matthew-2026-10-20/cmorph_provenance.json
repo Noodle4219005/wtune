@@ -1,0 +1,42 @@
+{
+ "format": "wtune-obs/1",
+ "kind": "gridded_precip",
+ "dataset": "NOAA CDR CMORPH v1.0 bias-corrected, hourly 0.25 deg",
+ "provider": "NOAA NCEI / NOAA CPC",
+ "url": "https://www.ncei.noaa.gov/data/cmorph-high-resolution-global-precipitation-estimates/access/hourly/0.25deg/",
+ "license": "NOAA Climate Data Record, US Government work, no restriction on use",
+ "citation": "Xie, P., et al. (2017), Reprocessed, Bias-Corrected CMORPH Global High-Resolution Precipitation Estimates from 1998, J. Hydrometeorol., 18, 1617-1641, doi:10.1175/JHM-D-16-0168.1",
+ "fetched_utc": "2026-10-20T15:21:50Z",
+ "box": [
+  0.0,
+  55.0,
+  -110.0,
+  -40.0
+ ],
+ "files": {
+  "precip_2016100613_01h.nc": "01064f67aa449d8b9f0bb2f2cd49320fb7ca4cec27a373edcb7eceb8a916ae12",
+  "precip_2016100614_01h.nc": "47a4e3f80fb0bcb8e61f286f12db5e6d89382909f06becfcc1881521f8aeca35",
+  "precip_2016100615_01h.nc": "cb7d849526d58ab6db4224f4cb646aae84f7949144d3fe8fb8db1abefcf69863",
+  "precip_2016100616_01h.nc": "500aefbb35f562a65854446a6c1263ab9fc85dc34a6a8283cdaba7363ef8dd6e",
+  "precip_2016100617_01h.nc": "3a29183c310412d722e5bdcb160a1daea45a4d9b80f6e28716c63d72d3f60c73",
+  "precip_2016100618_01h.nc": "a29e80d0cb7ea07e9cfa5fd1e091c55792d3e2a75eee4825ec375f5161419cc8",
+  "precip_2016100619_01h.nc": "87e967889e80ea6bf10aa4fd2dc9d95e65cbc02581cdfe18b92a7ab50ee25b40",
+  "precip_2016100620_01h.nc": "4f9a8a712e0ec1ffec775291b08e3b21701db1af0209c8cb497919f70f4ad65a",
+  "precip_2016100621_01h.nc": "390836cf715322c85df9d42bfe8dfbb619e6fe7687eb7a6eb2cee63e4cb44a25",
+  "precip_2016100622_01h.nc": "8db5edb3c1444295166ea5c5b27406d4514f6fdfc8ea2c79b08a8016578ff253",
+  "precip_2016100623_01h.nc": "2b83c899a0203d3eef8251a4f4ac96616b7c53716542754bae029e985678495d",
+  "precip_2016100700_01h.nc": "c6567bf4ab8d82d4e537ae2798b450ac366d06fb00f9f9b99cf72f0060f19a67",
+  "precip_2016100701_01h.nc": "eaf1b79a5d1e94fa7ce19510865a0b8cf1d38db026e7dafbaaefe02a362ea1a8",
+  "precip_2016100702_01h.nc": "e0cb9412ec4dd5a9b4754aac68761583f6eb66f221f6e99924971e6cf0cb6ba2",
+  "precip_2016100703_01h.nc": "38f00fd6ec85c21a97ff164d9bf78ccff14175ea12cb527005f7404242216168",
+  "precip_2016100704_01h.nc": "a01b6a6025d89f15f88ebb8046f0d83a0d687998b5dced9e45926a45cd302912",
+  "precip_2016100705_01h.nc": "5e9cc4d522588179715ccf30e013dcf0d613e1dc1b6309f35485957d33d14b71",
+  "precip_2016100706_01h.nc": "08c80a21355f79725031b67cf1ba7eb720cbcbf83b4e9775693b2f5f8921eba7",
+  "precip_2016100707_01h.nc": "293eeed54f36c7bca34091da13e8359b8aaa965248db0a2c579e9e0e269af435",
+  "precip_2016100708_01h.nc": "87cc4c5b757e000fd246d792d942a903ef71bbefb0adb00a19937384780c2446",
+  "precip_2016100709_01h.nc": "7126a386dbc76ff8840e2640e080891b2940765a419fd649b2da045c957f2955",
+  "precip_2016100710_01h.nc": "6b2784b4f2dcc63322fde55264037d644c54e6bdf57b61ff816da408e38b390b",
+  "precip_2016100711_01h.nc": "354496558a1ed1eb7857f8ae8fd7c8ab67c18c47537c9b44828edee02eb150ae",
+  "precip_2016100712_01h.nc": "8f5a29c768b9422b21c9c550dee65df402090e6c503528efb28ca595287e6c32"
+ }
+}

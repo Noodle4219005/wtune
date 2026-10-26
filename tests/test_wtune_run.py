@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import re
+import shlex
 import subprocess
 
 import sys
@@ -20,6 +21,7 @@ _CONFIGS_BEFORE = sys.modules.get("configs")
 
 from wtune import predict as wp
 from wtune import run as wr
+import wtune.run.inputs
 import wtune.watch
 
 if _SITE_BEFORE is None:
@@ -70,6 +72,9 @@ class FakeBP:
         m.convert_inputs = self.convert_inputs
         m.adios2_xml = lambda engine_by_stream=None: self.XML
         m.is_bp = os.path.isdir
+        m.cached_inputs = lambda d, cache, names, engine="BP4": (
+            {n: os.path.join(cache, n) for n in names}
+            if all(os.path.exists(os.path.join(cache, n)) for n in names) else None)
         for name in ("PER_RECORD_NAME_RE", "is_per_record_dir", "record_files",
                      "bp_input_links", "per_record_namelist_edits"):
             setattr(m, name, getattr(REAL_BP, name))
@@ -535,8 +540,9 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
     assert "run_hygiene reap+census" in text and "site_hygiene" in text
     assert 'source "$HOME/wtune-scc/env.sh"' in text
     assert "CAMPAIGN=${CAMPAIGN:-/repo/campaign}" in text
-    last = text.strip().splitlines()[-1]
-    assert last.startswith('echo "SEGMENT rc=$rc wall=$wall ok=$ok"')
+    lines = text.strip().splitlines()
+    rec = lines.index('echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"')
+    assert rec > 0 and "TBL_CACHE" not in text      # no table cache without --thompson-cache
     assert "SUCCESS COMPLETE WRF" in text
     assert subprocess.run(["bash", "-n"], input=text, text=True).returncode == 0
 
@@ -1062,6 +1068,119 @@ def test_run_io_netcdf_is_the_legacy_escape(tmp_path, fake_bp):
     assert rep["io"] == {"mode": "netcdf"}
 
 
+def _convert_job_run(tmp_path, monkeypatch, fake_bp, job_converts=True, state="COMPLETED"):
+    """_run with convert_in_job: the nc2bp job converts (in this process, flagged) when
+    job_converts; outside it the converter may only find what is cached (wtune.bp's manifest
+    hit), never convert."""
+    case = tmp_path / "case" if (tmp_path / "case").exists() else _make_case(tmp_path)
+    out = tmp_path / "out"
+    f, jobs, in_job = Fakes(), [], {"on": False}
+    real_convert = fake_bp.convert_inputs
+
+    def convert(case_dir, cache_dir, names=None, engine="BP4"):
+        assert in_job["on"] or all(os.path.isdir(os.path.join(cache_dir, n)) for n in names), \
+            "converted outside the nc2bp job"
+        return real_convert(case_dir, cache_dir, names, engine)
+    fake_bp.convert_inputs = convert
+    swap = fake_bp.module()
+    swap_wtune_module(monkeypatch, "bp", swap)
+
+    def sbatch(cmd):
+        if "nc2bp.sbatch" not in cmd:
+            return f.sbatch(cmd)
+        script = cmd.split()[-1].strip("'")
+        jobs.append(open(script).read())
+        if job_converts:
+            in_job["on"] = True
+            nl, src, cache = shlex.split(re.search(r'"\$PYBIN" - (.*) <<', jobs[-1]).group(1))
+            wtune.run.inputs.sweep.campaign_configs.resolve_bp_inputs(
+                open(nl).read(), src, cache, convert=True, bp=swap)
+            in_job["on"] = False
+        return "Submitted batch job 900\n"
+
+    def sacct(cmd):
+        return "900|%s|00:01:00\n" % state if "900" in cmd else f.sacct(cmd)
+    lines = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "360",
+                  "--out", str(out), "--poll-interval", "0"],
+                 sbatch_runner=sbatch, sacct_runner=sacct, snapshot_fn=f.snapshot,
+                 sleep=lambda s: None, log=lines.append, scancel_runner=lambda j: None,
+                 convert_in_job=True)
+    return rc, out, f, jobs, lines
+
+
+def test_run_converts_its_inputs_in_a_compute_node_job(tmp_path, monkeypatch, fake_bp):
+    rc, out, f, jobs, lines = _convert_job_run(tmp_path, monkeypatch, fake_bp)
+    assert rc == 0 and len(jobs) == 1
+    assert "#SBATCH -p" in jobs[0] and "resolve_bp_inputs" in jobs[0]
+    assert str(out / "_bp_inputs") in jobs[0]
+    assert [os.path.basename(s) for s, _ in f.submitted] == ["seg_0", "seg_1"]
+    assert any("in job 900" in ln for ln in lines)
+
+
+def test_wtune_stop_during_the_conversion_cancels_its_job(tmp_path, monkeypatch, fake_bp):
+    case = _make_case(tmp_path)
+    out = tmp_path / "out"
+    cancelled, f = [], Fakes()
+    monkeypatch.setitem(wtune.stopping.STOP, "reason", None)     # restored after the test
+
+    def sbatch(cmd):
+        assert "nc2bp.sbatch" in cmd, "nothing after the conversion job"
+        state = json.loads((out / "run.state.json").read_text())
+        assert state["jobs"] == []
+        return "Submitted batch job 900\n"
+
+    def sacct(cmd):
+        wtune.stopping.STOP["reason"] = "stopped by wtune stop"   # SIGTERM arrives meanwhile
+        return "900|RUNNING|00:01:00\n"
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out", str(out),
+                  "--poll-interval", "0"], sbatch_runner=sbatch, sacct_runner=sacct,
+                 snapshot_fn=f.snapshot, sleep=lambda s: None, log=lambda m: None,
+                 scancel_runner=cancelled.append, convert_in_job=True)
+    assert rc == 130 and cancelled == ["900"] and fake_bp.calls == []
+    assert not (out / "run.state.json").exists()
+    assert json.loads((out / "run_report.json").read_text())["status"] == "stopped"
+
+
+def test_a_conversion_job_sacct_never_reports_is_cancelled(tmp_path, fake_bp):
+    case = _make_case(tmp_path)
+    cancelled = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
+                  str(tmp_path / "out"), "--poll-interval", "0"],
+                 sbatch_runner=lambda c: "Submitted batch job 900\n", sacct_runner=lambda c: "",
+                 sleep=lambda s: None, log=lambda m: None, scancel_runner=cancelled.append,
+                 convert_in_job=True)
+    assert rc == 2 and cancelled == ["900"]     # UNKNOWN: it may still run, nobody would know
+
+
+def test_a_rejected_conversion_job_is_an_error_not_a_traceback(tmp_path, fake_bp, capsys):
+    case = _make_case(tmp_path)
+
+    def sbatch(cmd):
+        raise RuntimeError("sbatch: error: Invalid account or account/partition combination")
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
+                  str(tmp_path / "out"), "--poll-interval", "0"], sbatch_runner=sbatch,
+                 sacct_runner=lambda c: "", sleep=lambda s: None, log=lambda m: None,
+                 scancel_runner=lambda j: None, convert_in_job=True)
+    assert rc == 2 and "Invalid account" in capsys.readouterr().err and fake_bp.calls == []
+
+
+def test_no_conversion_job_when_the_cache_is_current(monkeypatch):
+    monkeypatch.setattr(wtune.run.inputs, "stale_inputs", lambda *a: [])
+
+    def submit(script):
+        raise AssertionError("nothing to convert: no job")
+    wtune.run.inputs.convert_inputs_in_job(None, "", "/case", "/out", submit, submit, print)
+
+
+def test_a_failed_conversion_job_submits_nothing_and_never_converts_on_the_login_node(
+        tmp_path, monkeypatch, fake_bp, capsys):
+    rc, _out, f, jobs, _lines = _convert_job_run(tmp_path, monkeypatch, fake_bp,
+                                                 job_converts=False, state="FAILED")
+    assert rc != 0 and len(jobs) == 1 and fake_bp.calls == [] and f.submitted == []
+    assert "conversion job 900 ended FAILED" in capsys.readouterr().err
+
+
 def test_run_converter_failure_stops_before_any_submission(tmp_path, fake_bp, capsys):
     fake_bp.fail = "no Python that can `import adios2`"
     f = Fakes()
@@ -1079,6 +1198,31 @@ def test_bp_cache_under_project_input_bp(tmp_path, monkeypatch):
     monkeypatch.delenv("WTUNE_PROJECT")
     monkeypatch.chdir(tmp_path)
     assert wr.bp_cache_dir(str(tmp_path / "out")) == str(tmp_path / "out" / "_bp_inputs")
+
+
+def test_bp_cache_is_the_tunes_in_a_project_with_a_case_id(tmp_path, monkeypatch):
+    """f1-arm marshall 2026-10-21: tune's input/bp-cache and run's input/bp each held the same
+    3 GB conversion."""
+    import hashlib
+    proj, case = tmp_path / "proj", tmp_path / "proj" / "case"
+    case.mkdir(parents=True)
+    (proj / "project.yaml").write_text("name: p\ncase:\n  id: marshall\n")
+    monkeypatch.setenv("WTUNE_PROJECT", str(proj))
+    monkeypatch.delenv("WTUNE_BP_CACHE", raising=False)
+    key = hashlib.sha1(os.path.realpath(str(case)).encode()).hexdigest()[:12]
+    shared = proj / "input" / "bp-cache" / "marshall" / key
+    out = str(tmp_path / "out")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(shared)
+    monkeypatch.setenv("WTUNE_BP_CACHE", str(tmp_path / "env"))    # as `wtune tune` honours it
+    assert wr.bp_cache_dir(out, None, str(case)) == str(tmp_path / "env" / "marshall" / key)
+    monkeypatch.delenv("WTUNE_BP_CACHE")
+    legacy = proj / "input" / "bp"
+    legacy.mkdir(parents=True)
+    (legacy / "bp_manifest.json").write_text("{}")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(legacy)    # an older project's run
+    shared.mkdir(parents=True)
+    (shared / "bp_manifest.json").write_text("{}")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(shared)
 
 
 def test_merge_adios2_xml_dedupes_io_names():
@@ -1280,7 +1424,8 @@ T0 = datetime.datetime(2020, 6, 1, 0)
 
 
 def test_output_dir_names_two_domains_different_intervals(tmp_path):
-    nl = _nl(tmp_path, history_interval="180, 60, 60", restart_interval="360")
+    nl = _nl(tmp_path, history_interval="180, 60, 60", restart_interval="360",
+             io_form_history="14", io_form_restart="14")
     got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 2)
     assert [n for n in got if n.startswith("wrfout_d01")] == [
         "wrfout_d01_2020-06-01_%02d:00:00" % h for h in (0, 3, 6)]
@@ -1289,8 +1434,19 @@ def test_output_dir_names_two_domains_different_intervals(tmp_path):
         "wrfrst_d01_2020-06-01_06:00:00", "wrfrst_d02_2020-06-01_06:00:00"]
 
 
+def test_output_dir_names_skip_netcdf_streams(tmp_path):
+    # a netCDF restart over a pre-created directory is lost without an error (job 27260)
+    nl = _nl(tmp_path, restart_interval="360", io_form_history="14", io_form_restart="2")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1)
+    assert got and not [n for n in got if n.startswith("wrfrst")]
+    nl = _nl(tmp_path, restart_interval="360", io_form_history="2", io_form_restart="14")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1)
+    assert got == ["wrfrst_d01_2020-06-01_06:00:00"]
+
+
 def test_output_dir_names_frames_per_outfile_and_restart_start_excluded(tmp_path):
-    nl = _nl(tmp_path, frames_per_outfile="3, 3, 3", restart_interval="120")
+    nl = _nl(tmp_path, frames_per_outfile="3, 3, 3", restart_interval="120",
+             io_form_history="14", io_form_restart="14")
     t1 = T0 + datetime.timedelta(hours=6)
     got = wr.output_dir_names(nl, t1, t1 + datetime.timedelta(hours=6), 1)
     assert [n for n in got if n.startswith("wrfout")] == [
@@ -1427,7 +1583,8 @@ def test_stall_watch_restarts_its_clock_on_every_rsl_change(tmp_path):
     w, rsl, clock, cancelled = _stall(tmp_path)
     for t in range(0, 3000, 300):
         clock[0] = t
-        rsl.write_text("step %d\n" % t)
+        with rsl.open("a") as fh:          # rsl only grows; equal-size rewrites can share an mtime tick
+            fh.write("step %d\n" % t)
         w("RUNNING")
     assert cancelled == [] and w.why is None
 
@@ -1470,3 +1627,115 @@ def test_compress_history_deletes_only_the_restart_files_of_the_run(tmp_path, mo
     assert ctx.report["restarts_deleted"] == {"files": 2, "bytes": 200}
     assert not list(tmp_path.glob("seg_*/wrfrst_*"))
     assert len(list(tmp_path.glob("seg_*/wrfout_*"))) == 2
+
+
+def test_compress_history_cleanup_with_a_restart_link_between_segments(tmp_path, monkeypatch):
+    """seg_1 starts from a link to seg_0's restart (f1-arm severe2023 2026-10-21: the removed
+    link was then sized as a file -> FileNotFoundError after a run whose segments all passed)."""
+    import types
+    real = tmp_path / "seg_0" / "wrfrst_d01_2020-06-01_06:00:00"
+    real.mkdir(parents=True)
+    (real / "data.0").write_bytes(b"x" * 100)
+    (tmp_path / "seg_1").mkdir()
+    (tmp_path / "seg_1" / "wrfrst_d01_2020-06-01_06:00:00").symlink_to(real)
+    ctx = types.SimpleNamespace(plan=types.SimpleNamespace(out=str(tmp_path)), report={},
+                                log=lambda s: None)
+    monkeypatch.setattr(wr.controller, "_save_report", lambda c: None)
+    wr.controller._delete_own_restarts(ctx)
+    assert ctx.report["restarts_deleted"] == {"files": 1, "bytes": 100}
+    assert not list(tmp_path.glob("seg_*/wrfrst_*"))
+
+
+def test_ctrl_c_during_a_segment_cancels_it_and_marks_the_run_stopped(tmp_path, monkeypatch):
+    import wtune.stopping
+    stop = wtune.stopping.STOP
+    monkeypatch.setitem(stop, "reason", None)
+    f, cancelled, lines = Fakes(), [], []
+
+    def sacct(cmd):                                  # the segment never finishes on its own
+        return "%s|RUNNING|00:01:00\n" % cmd[cmd.index("-j") + 1]
+
+    def sleep(_s):                                   # Ctrl-C while waiting on the first segment
+        stop["reason"] = "stopped by Ctrl-C"
+    case, out = _make_case(tmp_path), tmp_path / "out"
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "360",
+                  "--out", str(out), "--poll-interval", "0"],
+                 sbatch_runner=f.sbatch, sacct_runner=sacct, snapshot_fn=f.snapshot, sleep=sleep,
+                 log=lines.append, scancel_runner=cancelled.append)
+    report = json.loads((out / "run_report.json").read_text())
+    assert rc == 130 and report["status"] == "stopped" and "stopped by Ctrl-C" in report["error"]
+    assert cancelled == ["1001"] and len(f.submitted) == 1        # no second segment sent
+    assert not (out / "run.state.json").exists()
+
+
+def test_a_restart_case_starts_segment_0_from_its_own_wrfrst(tmp_path):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(NAMELIST_3DOM.replace(".false.,", ".true.,", 1))
+    for name in ["wrfbdy_d01"] + ["wrfrst_d%02d_2020-06-01_00:00:00" % d for d in (1, 2, 3)]:
+        (case / name).write_text("x")
+    f = Fakes()
+    rc, out, rep, lines = _run(tmp_path, f, ["--restart-io-form", "14"])
+    assert rc == 0 and rep["status"] == "completed"
+    seg0 = out / "seg_0"
+    assert os.path.realpath(seg0 / "wrfrst_d02_2020-06-01_00:00:00") == str(
+        case / "wrfrst_d02_2020-06-01_00:00:00")
+    tc = wp.parse_namelist(str(seg0 / "namelist.input"))["time_control"]
+    assert tc["restart"] == [True] and tc["io_form_restart"] == [2]   # netCDF wrfrst: io_form 2
+    assert any("io_form_restart 2" in l for l in lines)
+
+
+def test_a_restart_case_without_its_wrfrst_is_refused(tmp_path):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(NAMELIST_3DOM.replace(".false.,", ".true.,", 1))
+    (case / "wrfbdy_d01").write_text("x")
+    (case / "wrfrst_d01_2020-06-01_00:00:00").write_text("x")
+    rc, _out, _rep, lines = _run(tmp_path, Fakes())
+    assert rc != 0
+
+
+def test_segment_uses_the_thompson_cache_only_when_asked(tmp_path):
+    """f1-arm 2026-10-25: the cache saved nothing measurable (20 s vs 21 s) and held 373 MB."""
+    cfg = wr.make_config(1, 2, 2, 1, 1)
+    plain = wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j")
+    assert "TBL_CACHE" not in plain and "SEGMENT rc=" in plain
+
+    assert "TBL_CACHE=" in wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j",
+                                                    thompson_cache=True)
+
+
+def test_segment_links_and_caches_the_thompson_tables(tmp_path):
+    """2026-10-12 todo: every run segment recomputed Thompson's tables (~70 s at init on scc)
+    while the coldstart probes already cached them per WRF build."""
+    text = wr.render_segment_sbatch(str(tmp_path), 0, wr.make_config(1, 2, 2, 1, 1), "00:20:00", "j",
+                                    thompson_cache=True)
+    lines = text.splitlines()
+    link = [ln for ln in lines if ln.startswith("TBL_CACHE=") or "$TBL_CACHE\"/qr_acr_q" in ln]
+    harvest = lines[lines.index('if [ "$rc" -eq 0 ] && [ "$ok" -gt 0 ]; then'):]
+    tree, seg1, seg2 = tmp_path / "W", tmp_path / "s1", tmp_path / "s2"
+    (tree / "main").mkdir(parents=True)
+    (tree / "main" / "wrf.exe").write_text("x")
+    seg1.mkdir(), seg2.mkdir()
+    env = dict(PATH=os.environ["PATH"], HOME=str(tmp_path), W=str(tree))
+
+    def sh(seg, body):
+        return subprocess.run(["bash", "-c", "cd %s; %s" % (seg, body)], env=env, check=True)
+
+    sh(seg1, "\n".join(link))                  # empty cache: no link, WRF computes and writes them
+    assert os.listdir(seg1) == []
+    (seg1 / "qr_acr_qg_V4.dat").write_text("table")
+    (seg1 / "freezeH2O.dat").write_text("table")
+    sh(seg1, "rc=0; ok=1\n" + "\n".join(link[:1] + harvest))
+    cache = next((tmp_path / "wtune-runs" / "thompson_tables").iterdir())
+    assert sorted(os.listdir(cache)) == ["freezeH2O.dat", "qr_acr_qg_V4.dat"]
+    sh(seg2, "\n".join(link))
+    assert os.path.islink(seg2 / "qr_acr_qg_V4.dat") and (seg2 / "freezeH2O.dat").read_text() == "table"
+    (seg2 / "qr_acr_qsV2.dat").write_text("new")
+    sh(seg2, "\n".join(link) + "\nrc=1; ok=0\n" + "\n".join(harvest))     # a failed run: no harvest
+    assert not (cache / "qr_acr_qsV2.dat").exists()
+    (tree / "main" / "wrf.exe").write_text("rebuilt in place")    # same path, another build
+    seg3 = tmp_path / "s3"
+    seg3.mkdir()
+    sh(seg3, "\n".join(link))
+    assert os.listdir(seg3) == []

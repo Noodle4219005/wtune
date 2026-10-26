@@ -1,0 +1,3 @@
+我理解這是一個 2018 年 8 月印度喀拉拉邦（Kerala）季風豪雨個案，重點在西高止山迎風面連續多天大雨引發洪水。event.yaml 已建立並通過 `wtune event check`（0 error、0 warning），`types` 標為 heavy_rain / orographic / monsoon，`verify` 包含逐日雨量（precip_24h）、累積雨量空間分布（precip_total）以及 850 hPa 西南季風強度（upper_air，與再分析比對），並無颱風或指定資料來源。依指示僅完成 Part 1，未抓取任何資料。
+
+questions: 「850 hPa 西南季風的強度」要與哪一種觀測比對（ERA5 壓力層風場或風暴徑），以及是否也要用雨量站資料（precip_gauge）做站點比對？

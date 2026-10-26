@@ -1,0 +1,3 @@
+I read the January 1998 Quebec–Ontario freezing-rain/ice-storm case and encoded it as a `winter_storm` event over southern Quebec and eastern Ontario, with no tropical storm involved. Verification covers 2 m temperature at stations (`t2`), storm-total precipitation (`precip_total`), and the vertical temperature profile against soundings (`sounding`), while the warm-nose temperature profile is also listed as a model-only diagnostic figure. No extra observation providers or local files were requested since the text names none, and `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+Questions: should "total precipitation" be compared as storm-total (`precip_total`, gridded) or as point gauge totals (`precip_gauge`)?

@@ -178,11 +178,12 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         # startup window (qr_acr_qg alone: 32.3s at 1 rank), contaminating the whole fit.
         # $W/run/namelist.input is skipped (a real file, would corrupt edit-namelist's write-
         # through) but every other file is linked with no name/extension filter, and the three
-        # Thompson tables are linked from $OUT/thompson_tables when cached there.
+        # Thompson tables are linked from the per-build cache when cached there.
         assert '[ "$b" = "namelist.input" ] && continue' in text
         for tbl in ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"):
             assert tbl in text
-        assert "$OUT/thompson_tables" in text
+        assert '[ -f "$TBL_CACHE/$tbl" ] && ln -sf "$TBL_CACHE/$tbl" "$tbl"' in text
+        assert 'thompson_tables}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")"' in text
         assert "wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*" not in text  # the old blanket blacklist is gone
 
     mprof = out_dir / "machine_profile.sbatch"
@@ -575,3 +576,26 @@ def test_dir_bytes_counts_the_files_of_a_bp_directory(tmp_path):
     (tmp_path / "wrfinput_d01.bp").symlink_to(bp)
     assert wc._dir_bytes(tmp_path, ["wrfout_d01_*"])[0] == 3200
     assert wc._dir_bytes(tmp_path, ["wrfinput_d*"])[0] == 3200
+
+
+def test_plan_job_links_the_files_the_namelist_names(tmp_path):
+    # an iofields case hung at input_input in calibrate: only $W/run and the inputs were linked
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    nl = SEVERE_LIKE_NAMELIST.replace("&time_control", "&time_control\n iofields_filename = "
+                                      "'my_iofields.txt',", 1)
+    assert nl != SEVERE_LIKE_NAMELIST
+    _write(str(case_dir / "namelist.input"), nl)
+    (case_dir / "my_iofields.txt").write_text("+:h:0:T2\n")
+    out_dir = tmp_path / "plan_out"
+    assert wc.plan_cmd(_plan_args(case_dir, out_dir)) == 0
+    text = (out_dir / "plan_1.sbatch").read_text()
+    line = [ln for ln in text.splitlines() if "link-namelist-files" in ln]
+    assert len(line) == 1 and text.index("edit-namelist") < text.index(line[0])
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "namelist.input").write_text(nl)
+    env = dict(os.environ, PYBIN=sys.executable,
+               CAMPAIGN=os.path.join(os.path.dirname(os.path.dirname(__file__)), "campaign"))
+    subprocess.run(["bash", "-c", line[0]], cwd=str(run), env=env, check=True)
+    assert os.readlink(run / "my_iofields.txt") == str(case_dir / "my_iofields.txt")

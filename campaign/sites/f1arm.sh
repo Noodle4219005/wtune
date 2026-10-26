@@ -10,7 +10,7 @@
 CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-144}
 NUMA_PER_NODE=${WTUNE_NUMA_PER_NODE:-2}
 W=${WRF_TREE:-$HOME/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF}
-OUT=$HOME/wtune-runs/campaign
+OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wtune-runs/campaign}
 HARDWARE_ID=${WTUNE_HARDWARE_ID:-f1-grace}
 OMP_RUNTIME=nvhpc
 QUOTA_FS=home2           # mmlsquota filesystem: writes stop at the 100 G soft limit

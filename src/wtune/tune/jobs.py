@@ -7,12 +7,14 @@ import os
 import re
 import shutil
 import sys
+from typing import Callable
 
 import wtune.machine
+import wtune.stopping
 from ._deps import sweep
 from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded, StopRequested
 
 PROGRESS_BAR_WIDTH = 24                # characters of the progress bar
 ANCHOR_DRIFT_MAX = wtune.machine.MEASURED["anchor_drift_max"]   # |s(ANCHOREND)/s(ANCHOR) - 1|
@@ -40,10 +42,33 @@ def cancel_jobs(ctx: Ctx, job_ids: list) -> None:
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return
-    print("budget deadline reached: cancelling %d in-flight job(s) owned by this run: %s"
-          % (len(job_ids), ",".join(job_ids)))
+    print("cancelling %d in-flight job(s) owned by this run: %s" % (len(job_ids), ",".join(job_ids)))
     ctx.scancel_runner(job_ids)
     ctx.cancelled_jobs.extend(job_ids)
+
+
+def record_job(ctx: Ctx, job_id: str) -> None:
+    """An owned job; with ctx.state_file also on disk (pid + every owned job) for `wtune stop`."""
+    ctx.owned_jobs.append(job_id)
+    if ctx.state_file:
+        wtune.stopping.write_state(ctx.state_file, "tune", ctx.owned_jobs)
+
+
+def stop_before_submit() -> None:
+    """Nothing is submitted once the user stopped the tune."""
+    if STOP["reason"]:
+        raise StopRequested("%s; nothing more submitted" % STOP["reason"])
+
+
+def _stop_if_requested(ctx: Ctx, in_flight: list) -> None:
+    """Ctrl-C / wtune stop: cancel `in_flight` and raise StopRequested; the later pipeline
+    phases see it as cap_hit and do not run."""
+    if STOP["reason"]:
+        if ctx.shared_queue is not None:
+            ctx.shared_queue["cap_hit"] = True
+        cancel_jobs(ctx, [j for j in in_flight if j not in ctx.cancelled_jobs])
+        raise StopRequested("%s; in-flight job(s) %s cancelled" % (STOP["reason"],
+                                                                  ",".join(in_flight)))
 
 
 def _in_flight(job_ids: list, states: dict, misses: dict, stage: str) -> list:
@@ -95,6 +120,7 @@ def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
         print_progress(stage, elapsed, ctx.budget_s, note)
         if not in_flight:
             return states
+        _stop_if_requested(ctx, in_flight)
         if elapsed >= ctx.budget_s:
             cancel_jobs(ctx, in_flight)
             return states
@@ -122,6 +148,7 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
                        % (_fmt_hms(wall), _fmt_hms(ctx.queue_wait_s)))
         if not in_flight:
             return states
+        _stop_if_requested(ctx, in_flight)
         over_budget = elapsed >= ctx.budget_s and not exempt_budget
         if over_budget or (ctx.max_wall_s is not None and wall >= ctx.max_wall_s):
             if not over_budget:
@@ -197,9 +224,10 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
     names, cases_json = [c for c, _j in stale], stale[0][1]   # one case file per call
     os.makedirs(out_dir, exist_ok=True)
     t0 = ctx.clock.now()
+    stop_before_submit()
     job_id = sweep.submit_job(nc2bp_command(ctx, names, cases_json, out_dir),
                               sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
+    record_job(ctx, job_id)
     state = wait_for_jobs(ctx, [job_id], "bp-convert", exempt_budget=True).get(
         job_id, ("UNKNOWN", ""))[0]
     still = [c for c, j in stale if cc.bp_cache_status(c, j)[0] != "current"]
@@ -210,6 +238,47 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
     _BP_READY.update(cases)
     print("bp inputs: converted %s in %.0f s (job %s)" % (" ".join(names), ctx.clock.now() - t0,
                                                           job_id))
+
+
+def _writable_at(path: str) -> tuple[float, str]:
+    """wtune.run.space.writable_bytes at path's nearest existing ancestor."""
+    from wtune.run.space import writable_bytes
+    while not os.path.exists(path) and os.path.dirname(path) != path:
+        path = os.path.dirname(path)
+    return writable_bytes(path)
+
+
+def input_space_need(case_id: str, cases_json: str | None = None) -> tuple[float, float, str]:
+    """(bytes of the BP conversion still to write, bytes of one per-record input copy, cache
+    dir) of the case's probe inputs."""
+    from wtune.run.space import input_bytes
+    cc = sweep.campaign_configs
+    res, cache, _stale = cc._case_bp_plan(case_id, cases_json)
+    conv, copy = input_bytes(res, cache, cc._import_wtune_bp())
+    return conv, copy, cache
+
+
+def check_input_space(case_id: str, cases_json: str | None = None,
+                      writable: Callable | None = None) -> None:
+    """SystemExit before any job when converting the case's inputs to BP does not fit the space
+    writable at the cache (f1-arm elevconv 2026-10-23: 2.0 GB of netCDF became 7.9 GB of BP and
+    pushed home2 past its quota); a line when it takes half of it. A case whose plan cannot be
+    read (legacy netCDF, unknown case) is not checked."""
+    if os.environ.get("WTUNE_INPUT_FORMAT") == "netcdf":
+        return
+    try:
+        conv, _copy, cache = input_space_need(case_id, cases_json)
+    except (KeyError, OSError):
+        return
+    if conv <= 0:
+        return
+    free, src = (writable or _writable_at)(cache)
+    if conv > free:
+        raise SystemExit("wtune tune: converting the inputs of %s to BP needs %.1f GB in %s, "
+                         "only %.1f GB is writable (%s) -- free space, or bypass with "
+                         "--no-space-check" % (case_id, conv / 1e9, cache, free / 1e9, src))
+    if conv >= 0.5 * free:
+        print("input conversion %.1f GB of %.1f GB writable (%s)" % (conv / 1e9, free / 1e9, src))
 
 
 def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
@@ -227,6 +296,16 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
     if not wtune.machine.copy_probe_inputs():
         return []                               # the jobs read the shared BP cache
     try:
+        _conv, one, _cache = input_space_need(case_id, cases_json)
+        free, src = _writable_at(job_out_dir)
+    except (KeyError, OSError):
+        one, free, src = 0.0, 0.0, ""
+    if one > free:                  # fresh_probe_inputs: reflink copies share extents, else one copy
+        sys.stderr.write("WARNING: the per-record input copy for %s needs %.1f GB, only %.1f GB is "
+                         "writable (%s): the job reads the shared BP cache\n"
+                         % (case_id, one / 1e9, free / 1e9, src))
+        return []
+    try:
         d = sweep.campaign_configs.fresh_probe_inputs(
             case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)
     except Exception as e:                   # the job falls back to the shared cache (warned)
@@ -241,6 +320,7 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
     """Submit one strict_campaign.sbatch CONFIG_FILE job. Returns (job id, configs.json, time
     estimate). CAMPAIGN is exported for a real campaign checkout so the spooled script never
     pairs with stale helpers."""
+    stop_before_submit()
     if time_est is None:
         time_est = _job_time_est(ctx, len(configs), reps, s_est)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
@@ -255,7 +335,8 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
         campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
         extra_export=fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
+    record_job(ctx, job_id)
+    ctx.job_configs[job_id] = configs
     if fresh:
         ctx.input_copies[job_id] = fresh[0][1]
     return job_id, configs_path, time_est
@@ -365,16 +446,20 @@ def busy_s(ctx: Ctx, job_ids: list) -> float:
     return total
 
 
-def _final_cancel_safety_net(ctx: Ctx) -> None:
-    """Past the budget, cancel whatever owned job sacct still shows PENDING/RUNNING."""
-    still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]
+def cancel_in_flight(ctx: Ctx, job_ids: list) -> None:
+    """Cancel those of `job_ids` that sacct still shows PENDING/RUNNING."""
+    still_up = [j for j in job_ids if j not in ctx.cancelled_jobs]
     if still_up:
         states = sweep.sacct_states(still_up, sacct_runner=ctx.sacct_runner,
                                      sacct_cmd=ctx.sacct_cmd)
-        in_flight = [j for j in still_up
-                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
-        if in_flight and ctx.elapsed() >= ctx.budget_s:
-            cancel_jobs(ctx, in_flight)
+        cancel_jobs(ctx, [j for j in still_up
+                          if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES])
+
+
+def _final_cancel_safety_net(ctx: Ctx) -> None:
+    """Past the budget or after a stop, cancel whatever owned job is still PENDING/RUNNING."""
+    if ctx.elapsed() >= ctx.budget_s or STOP["reason"]:
+        cancel_in_flight(ctx, ctx.owned_jobs)
 
 
 def _maxrss_mb_by_job(ctx: Ctx, job_ids: list) -> dict:

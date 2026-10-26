@@ -1,0 +1,5 @@
+已完成 `event.yaml`（位於當前目錄），`wtune event check event.yaml` 通過（0 error / 0 warning）。
+
+我的理解：這是 2016 年 10 月 Matthew 颶風沿佛州、喬治亞外海北上的個案，屬 `tropical_cyclone`；要驗證的是模擬路徑、強度與最佳路徑的差異、34 kt 風圈，以及 500 hPa 高度場對 ERA5 的比對。48 小時起始時間（10/6 00Z）留給 WTune 從 run 讀取，我只寫進 event.txt 明確提到的項目，沒有加入 observation plan 或下載任何資料。
+
+問題：無（文字足以判定事件與比對項目；34 kt 風圈對應 best track 的 wind_radii）。

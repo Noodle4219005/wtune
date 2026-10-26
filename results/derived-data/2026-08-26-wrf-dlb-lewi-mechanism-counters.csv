@@ -1,0 +1,5 @@
+tag,preload_lib,lewi_ompt,respect_cpuset,mpi_wait_lend_eligible,Acquire_borrow,Release_lend,IntoBlockingCall,note
+dlb-vf2,libdlb_mpi_instr(WRONG),borrow:lend,yes,False,0,896,0,wrong preload lib exports 0 MPI_* interposers
+dlb-vf3,libdlb_mpi_instr(WRONG),borrow:lend,no,False,0,896,0,respect-cpuset=no alone insufficient
+dlb-vf4,libdlb_mpi(correct),borrow:lend,no,False,0,896,0,correct preload; MPI_Wait not classified blocking
+dlb-pv-patched,libdlb_mpi(correct),borrow:lend,no,True,0,896,58127,patch fired lending (58127/rank/12steps) but 0 borrows: bulk-sync anti-correlation

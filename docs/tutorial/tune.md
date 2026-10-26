@@ -34,9 +34,9 @@ flowchart LR
 | `-O0` | 不送 job：用模型估計時間，用代理指標挑配置 | 只想先看個大概 |
 | `-O1` | 一輪量測，節點數取 1、2、4、8 與可用的最大值 | 短的個案 |
 | `-O2` | `-O1` 加上：往最佳節點數兩側補量、每節點核心數、在選定的節點數上抽樣量測切法 | 一般情況（`wtune submit` 的預設） |
-| `-O3` | `-O2` 加上：保留兩個節點數、所有合法的 rank × 執行緒、切法、tile 數、由模型逐輪提出候選，最後前幾名重複量測確認 | 很長的正式執行，調校成本攤得掉 |
+| `-O3` | `-O2` 加上：保留兩個節點數、所有合法的 rank × 執行緒、切法、tile 數各量一次（不抽樣），最後前幾名重複量測確認 | 很長的正式執行，調校成本攤得掉 |
 
-直接下 `wtune tune` 不帶等級時是 `-O3`。
+直接下 `wtune tune` 不帶等級時是 `-O2`。
 
 開始之前，WTune 會先印出**每個等級估計要花多久**，再開始送 job。
 
@@ -52,13 +52,30 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 
 ## 中途停止
 
-`wtune tune` 沒有處理中斷訊號：Ctrl-C 或 `kill` 只停掉它自己，已送出的量測 job 會留在佇列裡。量測 job 都叫 `sw-<case-id>-n<N>`（`<case-id>` 印在輸出開頭的 `case=` 那行），停掉 tune 之後照名稱取消：
+覺得已經量到夠好的結果，或要放棄這次調校時：
 
-```bash
-squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-<case-id>-/ {print $1}' | xargs -r scancel
+- 在前景跑：按 **Ctrl-C**。
+- 在背景跑（`setsid nohup ... &`），或要從別的終端機停：在專案裡下 **`wtune stop`**。
+
+兩種做法效果一樣。tune 在下一次輪詢時（每 20 秒一次，加上收尾，在 f1-arm 實測 5–24 秒）會依序：
+
+1. 停止送新的 job。
+2. 取消這次 tune 自己的 job，其他工作不受影響。
+3. 從已量到的結果選出最快的配置，寫出 `tune_report.json`。在切法量測階段停下時，已經量好的切法都會保留。
+
+接著 `wtune run` 就會用這份報告。
+
+```text
+wtune tune: stopped by Ctrl-C -- at the next poll (every 20 s) cancelling this tune's jobs and writing the report from what was measured; ...
+...
+wtune tune: stopped by Ctrl-C -- <專案>/tune/<id>/tune_report.json holds the best of what was measured; `wtune run` uses it
 ```
 
-被殺掉的 tune 不會寫 `tune_report.json`。要它交出目前為止的結果，就讓 `--minutes` 或 `--max-queue-hours` 自己到期。
+- **再按一次 Ctrl-C**：立刻結束，不寫報告，還在 Slurm 裡的 job 也不會取消。這時下 `wtune stop`：它看到 tune 已經不在，就只取消這次 tune 留下的 job。
+- **`wtune stop --dry-run`**：只列出會做什麼，不實際動作。
+- **還沒量到任何結果就停下**：仍會寫一份 `tune_report.json`，但裡面沒有結果。`wtune run` 會跳過它，改用前一份有結果的報告，並印出 `tune report skipped: ... has no result`。
+- **一波量測進行到一半時停下**：那一波裡已經跑完的節點數照樣算進結果，只取消還在排隊或還在跑的。
+- **在 `wtune submit` 裡按 Ctrl-C**：正在跑的那一步先自己收尾（tune 會取消 job、寫出報告），然後 submit 停下。接著用 `wtune submit --skip-tune` 執行並做後處理。再按一次 Ctrl-C 會直接結束那一步。
 
 ## 採樣點怎麼選
 
@@ -85,7 +102,8 @@ flowchart TD
 7. **racing**：每個點只量 1 次時，和最快的差在 2 倍雜訊（6%）以內的點，最多 3 個，再量一次，合併後才決定。差距更大的不再量。
 8. **每節點核心數**：在選定的 N 試 5 種核心數，取最快的；差 3% 以內取核心多的。同樣做 racing。
 9. **round0**：在選定的 N 與核心數下，量基準組態加上分層抽樣的切法（rank × 執行緒、nx × ny、tile 數），每組 1 次。`-O2` 沒有確認量測，所以和最快的差 2 倍雜訊內的切法會在同一個作業裡再量一次，冠軍就是這裡最快的。
-10. **`-O3` 的逐輪搜尋**：每輪由模型（其他個案的量測加上這個個案已量的）提出一批候選，平均分給空著的節點同時量測。最快的領先第二名超過 3% 且這一輪沒找到更快的，或用掉 75% 的時間，就停止並進入確認量測（前幾名各量 2 次）。
+10. **`-O3` 的全量測與確認**：round0 不抽樣，把列得出的合法切法全部量一次（每個作業 24 組），因此不再有模型提案。接著確認量測：依預測整段時間排名前 3 加上基準組態，各量 2 次，從便宜的開始，會超出預算的就略過。
+11. **模型逐輪提案**只在不帶 `-O` 的 `--nodes search --minutes M` 路徑：每輪由模型（其他個案的量測加上這個個案已量的，8 個 bootstrap CatBoost）提出一批候選，平均分給空著的節點同時量測。最快的領先第二名超過 3% 且這一輪沒找到更快的，或用掉 75% 的時間，就停止並進入確認量測。
 
 3% 是量測重複性（`machine.measured.noise_frac`），換機器時可以在 [machine](project.md#machine) 區塊改。
 
@@ -150,7 +168,7 @@ wtune tune -O2 --config wtune.yaml
 
 ## 節點檢查
 
-調校前 WTune 會檢查每個節點：`sinfo` 的狀態，加上每個節點一個 1 分鐘的 `srun` 探測（家目錄、個案目錄、WTune 原始碼、`wrf.exe` 是否都讀得到）。沒通過的節點會從所有 job 排除，可用節點數也跟著下修。
+調校前 WTune 會檢查每個節點：`sinfo` 的狀態，加上每個節點一個 1 分鐘的 `srun` 探測（家目錄、個案目錄、WTune 原始碼、`wrf.exe` 是否都讀得到）。沒通過的節點會從所有 job 排除，可用節點數也跟著下修。排程器拒絕、或 30 秒內沒有配置的探測（節點被預留、別人在用、超過每人工作數上限）不算節點有問題：節點保留，報告標成沒探測。逾時的探測會用 `scancel --name` 取消，不會留在佇列裡。
 
 要跳過這個檢查：`--no-node-preflight`。
 
@@ -221,6 +239,14 @@ wtune tune --node-objective knee --min-efficiency 0.7    # 平行效率仍有 0.
 ```bash
 wtune tune --nodes 4
 ```
+
+`-O0` 到 `-O3` 自己搜節點數，不能和 `--nodes` 一起用（會印 `-O/--pipeline runs its own node search`）。要限制最多幾個節點，用 `--max-nodes`：
+
+```bash
+wtune tune -O1 --max-nodes 1 --minutes 15
+```
+
+某個節點數在每節點全部核心上找不到合法的 MPI 切法時（網格太小或格點數不好分），掃描改用那個節點數上能切的最多核心量 ANCHOR，log 會寫 `node sweep: N=7 has no legal decomposition on all 144 cores/node; ANCHOR on 136 (...)`。記憶體放不下時也一樣先試少一點核心，都不行才跳過那個節點數。
 
 ## 不更動的項目
 

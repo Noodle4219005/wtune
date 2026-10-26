@@ -1,0 +1,17 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 16a5e3c51152e4956089bec65d779c0b95feb986f3cf00b590c950df8947b9e8
+event: {value: idealized Weisman-Klemp supercell simulation (em_quarter_ss), from: "理想化超大胞（supercell）模擬，用 Weisman-Klemp 探空、四分圓風切，em_quarter_ss"}
+types:
+  - {value: idealized, from: "理想化超大胞（supercell）模擬"}
+  - {value: mesoscale_convection, from: "理想化超大胞（supercell）模擬"}
+storms: []
+region: {value: null, from: null}
+verify: []
+diagnose:
+  - {value: updraft helicity, from: "想看上升氣流螺旋度"}
+  - {value: reflectivity hook structure, from: "回波的鉤狀結構"}
+obs_requests: []
+local_obs: []
+questions:
+  - "「跟原始論文的圖比對」要跟哪一篇論文的哪一張圖比對？WTune 沒有直接與論文圖做比對的功能，可否提供該圖的數值資料或改為模型内部的診斷？"

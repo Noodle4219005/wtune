@@ -16,7 +16,7 @@ import wtune.nodes
 from ._deps import sweep, predict
 from .candidates import _sweep_anchor, _sweep_anchor_fitting
 from .common import ANCHOR_END_ID, _fmt_hms, _fmt_sbatch_time, compute_slots, if_set, is_set
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded
 from .estimates import format_level_estimates, highest_level_within, level_estimates
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, choose_nodes
 from .physics_phase import (PIPELINE_PHYSICS_MAX_CANDIDATES, WINDOW_FRAME_LEVEL,
@@ -210,6 +210,7 @@ def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         n0 = choose_nodes(profile, ctx.max_nodes, nodes_policy)[0]
         cfg0, _why = _sweep_anchor(ctx, n0)
         ce.T_cold, s_n0, src = _prediction.cold_start_prediction(ctx, n0, cfg0, st.total_steps)
+        ce.est_info = dict(s_per_step_n=s_n0)      # T_cold's compute even if the rest fails
         pplan0 = ce.pplan0 = plan_prediction_points(ctx, pre.wrapped, precision_min, ce.T_cold,
                                                     False, **pre.pkw)
         try:
@@ -258,7 +259,8 @@ def _pipeline_pre_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
                 "(%s)" % (_fmt_hms(T_cold), precision_min, len(pplan0["selected"]),
                           pplan0["source"]))
     pipe.T_cold_s = T_cold
-    pipe.T_cold_compute_s = (T_cold - ctx.startup_s) if T_cold else None
+    s_n0 = ce.est_info.get("s_per_step_n")
+    pipe.T_cold_compute_s = s_n0 * st.total_steps if T_cold and s_n0 else None
 
 
 def _phase0_submit_rebuild(st: PipelineRun, precision_min: float, info: RebuildInfo) -> str:
@@ -490,7 +492,7 @@ def _phase2_collect_rebuilt(st: PipelineRun, layouts: list[dict], pplan: dict | 
     phase 3 needs them too). Returns the phase-2 status when already decided, else None."""
     ctx = st.ctx
     if st.cap_hit():
-        return "not run (max queue wait exceeded)"
+        return "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
     if pplan is not None and not pplan["selected"] and layouts:
         return ("not run (the t0 anchor suffices for this case at ±%g min: %s, band ±%.0f%%)"
                 % (precision_min, pplan["method"], pplan["band"] * 100))
@@ -855,8 +857,9 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
         # the same fields as the -O1..3 predictions; T already holds the I/O, ranges stay symmetric
         p0 = pipe.prediction
         io_s = io_run["total_s"] if io_run else 0.0
-        p0.add_run_length_io(io_run, T - io_s - ctx.startup_s, ctx.startup_s, band,
-                             ctx.startup_source)
+        comp = s_n * total_steps
+        p0.add_run_length_io(io_run, comp, T - io_s - comp, band,
+                             ctx.startup_source if src.startswith("ledger") else src)
         p0.predicted_range_s = [T * (1 - band), T * (1 + band)]
     print("O0: no jobs -- nodes=%d (%s), layout %s, cold-start whole run %s ±%.0f%% (%s)"
           % (n0, note, {k: cfg.get(k) for k in ("ranks", "omp", "nx", "ny")},

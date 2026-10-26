@@ -1,0 +1,5 @@
+已建立 `event.yaml`（Part 1 完成），`wtune event check event.yaml` 通過：0 errors、1 warning（verify/diagnose 皆空的提示）。我讀到的內容是「跑一個颱風看看，想知道模擬得準不準」，所以把事件標為颱風（`tropical_cyclone`）、`storms` 留空，並在 `questions` 提出兩點確認。文字未指定任何具體數量（路徑、強度、雨量都沒寫），依規則不自行加入 `verify` 項目，也未取得或抓取任何資料。
+
+questions:
+1. 要跑的是哪一個颱風？請給颱風名稱（或年份、區域），好讓我對到最佳路徑資料。
+2. 「準不準」具體要比較哪些量：路徑（track）、強度（intensity），還是降雨（precip_24h／precip_total）？

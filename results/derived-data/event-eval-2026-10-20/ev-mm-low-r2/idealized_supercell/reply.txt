@@ -1,0 +1,4 @@
+我理解這是一個理想化的 Weisman-Klemp 超大胞（supercell）模擬（四分圓風切、em_quarter_ss），要看的重點是模型自身的上升氣流螺旋度與回波的鉤狀結構，因此我把它歸為 `idealized` 與 `mesoscale_convection` 兩類型，並把這兩項都放進 `diagnose`（模型專屬圖，沒有對應的觀測比對）。由於理想化個案沒有對應的實際觀測，我沒有加入任何 `verify` 或 `obs_requests` 項目；`wtune event check event.yaml` 已通過（0 errors、0 warnings）。
+
+questions：
+- 「跟原始論文的圖比對」要跟哪一篇論文的哪一張圖比對？WTune 沒有直接與論文圖做比對的功能，可否提供該圖的數值資料，或改以模型內部的診斷指標代替？

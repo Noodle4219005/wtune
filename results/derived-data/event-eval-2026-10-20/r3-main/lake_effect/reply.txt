@@ -1,0 +1,5 @@
+Done: `event.yaml` in the current directory passes `wtune event check` with 0 errors and 0 warnings.
+
+I read it as a **winter_storm** case — the Buffalo / Lake Erie lake-effect snow band of 17–20 November 2022 — with two observation comparisons (`reflectivity` for band position vs radar, `snowfall` for totals vs observations) and one model-only figure (`diagnose`: cross-section of the lake–air temperature difference). No storm is listed (lake-effect snow is not a tropical cyclone), and no obs requests or local files were added since the text names no specific non-default provider.
+
+Questions: none blocking — but note the text says "snowfall totals vs observations" without a provider, so I mapped it to the `snowfall` obs kind rather than `precip_gauge`; if you meant liquid-equivalent gauge totals instead, that would need `precip_total`/`precip_gauge` instead.

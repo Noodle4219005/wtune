@@ -33,6 +33,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": 1800.0,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -55,9 +56,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/auto/ledger",
@@ -153,6 +158,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/auto/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_tuning_at",
@@ -199,6 +205,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": 1800.0,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -221,9 +228,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/fixed_n/ledger",
@@ -319,6 +330,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/fixed_n/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_tuning_at",
@@ -363,6 +375,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": Infinity,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -385,9 +398,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/no_preflight_o3/ledger",
@@ -470,6 +487,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/no_preflight_o3/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_pipeline_full",
@@ -522,6 +540,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": Infinity,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -544,9 +563,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/o0/ledger",
@@ -629,6 +652,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/o0/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_level0",
@@ -659,6 +683,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": Infinity,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -681,9 +706,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/o1/ledger",
@@ -779,6 +808,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/o1/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_pipeline_full",
@@ -842,6 +872,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": 7200.0,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -864,9 +895,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/o2_minutes/ledger",
@@ -962,6 +997,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/o2_minutes/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_pipeline_full",
@@ -1025,6 +1061,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": Infinity,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -1047,9 +1084,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/o3_full/ledger",
@@ -1142,6 +1183,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/o3_full/out/tune.state.json",
       "steps": 9
      },
      "kind": "run_pipeline_full",
@@ -1205,6 +1247,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": 2700.0,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -1227,9 +1270,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/search_cost/ledger",
@@ -1325,6 +1372,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/search_cost/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_node_search",
@@ -1378,6 +1426,7 @@
       "background_jobs": [],
       "budget_mode": "wall",
       "budget_s": 2700.0,
+      "build_id": "",
       "cancelled_jobs": [],
       "case": "matthew",
       "case_json": {
@@ -1400,9 +1449,13 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "history_dirs": [
+       "<BASETEMP>/no-history-ledgers"
+      ],
       "hotspot_fill": true,
       "input_copies": {},
       "is_fire": false,
+      "job_configs": {},
       "kappa": 0.5,
       "layout_notes": null,
       "ledger_dir": "<TMP>/search_default/ledger",
@@ -1498,6 +1551,7 @@
       "startup_runs": null,
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "state_file": "<TMP>/search_default/out/tune.state.json",
       "steps": 20
      },
      "kind": "run_node_search",

@@ -1,0 +1,8 @@
+已完成 `event.yaml`（`wtune event check event.yaml` 通過，0 error／0 warning，未抓任何資料）。
+
+我把 event.txt 理解為：**2021 年 2 月德州寒潮**（北極冷空氣南下引發寒潮與凍雨／降雪），類型標為 `cold_air_outbreak`、`frontal`、`winter_storm`，區域為德州休士頓。要用觀測比對的是 2 m 最低溫度（`t2_min`）、冷鋒南下的時間（以地面站氣壓 `mslp` 判斷）以及降雪量（`snowfall`），因此 obs_requests 請了 `stations` 與 `snow` 兩類資料。
+
+問題（已寫入 yaml 的 `questions`）：
+1. 只寫了「2021 年 2 月」，請給明確的起始／結束日期。
+2. 地面測站要用哪個來源（ASOS/AWPS、Texas Mesonet、NWS hourly），還是你自己的檔案？
+3. 降雪量要跟什麼比？凍雨是否也要單獨比較？

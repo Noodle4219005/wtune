@@ -1,0 +1,5 @@
+已完成 Part 1：`event.yaml` 已建立並通過 `wtune event check`（0 errors, 0 warnings），未取任何資料。
+
+我理解的事件是台北夏季午後的熱對流：上午淡水河口的海風推進形成海風鋒面，下午盆地內發展雷陣雨。已標記的 type 為 sea_breeze、mesoscale_convection、urban；驗證項目包括海風鋒面進場時間（wind10）、都市熱島（t2_max）、午後雨量分布（precip_1h）與 CWA 站上的雨量（precip_gauge），並把 `/data/cwa_10min/` 登錄為 local_obs，另加一項模型端的海風鋒面結構診斷。
+
+問題：都市熱島我只列了 t2_max 比較，若你其實想看的是模擬與觀測的熱島強度差值或 10 分鐘溫度序列（t2），我可以調整；CWA 那包 10 分鐘資料若同時包含溫度與風，local_obs 的 kind 也可能需要拆成 rain_gauges 與 stations 兩項。

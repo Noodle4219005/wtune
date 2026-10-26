@@ -1,0 +1,7 @@
+已依 event.txt 產生 `event.yaml` 並通過檢查（`wtune event check event.yaml` → OK, 0 error / 0 warning）。
+
+我的理解：這是 2016 年 10 月 Matthew 颶風沿佛州、喬治亞外海北上的案例，模擬 10/6 00Z 起 48 小時；事件類型為 tropical_cyclone（storm: Matthew, 2016），區域為佛州/喬治亞外海。驗證項目為最佳路徑比對的 track、intensity，加上 34 kt 風圈（wind_radii），以及 500 hPa 高度場與 ERA5 的比較（z500）；對應的觀測需求為 best_track 與 reanalysis，無本地資料、無模型診斷圖。
+
+questions：
+1. 最佳路徑要比哪一套（NHC HURDAT2 或 IBTrACS）？若你不指定，我沿用 WTune 預設的 best_track 來源。
+2. 事件中的 48 小時模擬時段我沒有寫進 event.yaml（該欄位屬 case 設定），確認一下起始時間就是 10/6 00Z + 48h 沒錯。

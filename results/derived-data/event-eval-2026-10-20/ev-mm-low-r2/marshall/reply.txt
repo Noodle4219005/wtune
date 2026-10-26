@@ -1,0 +1,4 @@
+I read the Marshall Fire / Front Range downslope windstorm case as a `downslope_wind` and `fire_weather` event in Boulder County, Colorado on 30 Dec 2021, with no tropical cyclone involved. The file verifies 10 m wind and gusts against surface stations and puts the mountain-wave / hydraulic-jump cross-section under `diagnose` since it is model-only. `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+questions:
+- Should the case also be checked against the fire's burn area / progression (fire-weather observations), or is the wind field alone the focus?

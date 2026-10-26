@@ -517,12 +517,17 @@ def _print_stage_result(res: Dict[str, Any], cache: str, aux: Sequence[str], src
         if os.path.realpath(os.path.dirname(p)) == src and not check)))
 
 
+def _required_streams(res: Dict[str, Any]) -> set:
+    """input and boundary; a restart run reads wrfrst, so only boundary."""
+    return {"boundary"} | {st["stream"] for st in res["streams"] if st["stream"] == "input"}
+
+
 def _check_only_aux(res: Dict[str, Any], src_dir: str, err: Callable[[str], Any]
                     ) -> Optional[List[str]]:
     """--check: the aux streams already BP, or None when wrfinput/wrfbdy are not all BP."""
     for p in res["convert"]:
         err("WARNING: %s is netCDF only (no .bp next to it) -- its stream stays netCDF" % p)
-    if {"input", "boundary"} & set(res["needs_convert"]):
+    if _required_streams(res) & set(res["needs_convert"]):
         err("FATAL: --check: wrfinput/wrfbdy are not all BP in %s" % src_dir)
         return None
     return [s for s in res["ready"]
@@ -537,7 +542,7 @@ def _stage_bp_inputs_locked(a: argparse.Namespace, text: str, cache: str,
     for stream, name in res["missing"]:
         err("WARNING: %s input %s found nowhere in %s (neither netCDF nor .bp)"
             % (stream, name, a.src_dir))
-    if not {"input", "boundary"} <= set(res["ready"]):
+    if not _required_streams(res) <= set(res["ready"]):
         err("FATAL: wrfinput/wrfbdy not available as ADIOS2 inputs for %s" % a.case_id)
         return 1
     if a.check:

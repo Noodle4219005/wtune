@@ -1,0 +1,25 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: b699654975a8e08b15a914cbc1539f358097f1aadf7753b844290b253babcc07
+event:
+  value: 2012 年 7 月 21 日北京特大暴雨
+  from: "2012 年 7 月 21 日北京特大暴雨"
+types:
+  - {value: heavy_rain, from: "特大暴雨"}
+  - {value: mesoscale_convection, from: "對流"}
+storms: []
+region:
+  value: Beijing (city area and Fangshan)
+  from: "城區和房山"
+verify:
+  - {value: precip_24h, from: "一天超過 400 mm"}
+  - {value: precip_1h, from: "逐時"}
+  - {value: reflectivity, from: "跟中國氣象局的雷達拼圖比對流的位置"}
+diagnose: []
+obs_requests:
+  - {value: 中國氣象局雷達拼圖 (CMA radar composite), kind: radar,
+     from: "中國氣象局的雷達拼圖"}
+  - {value: CMA 逐時雨量站點資料 (CMA hourly station rainfall), kind: rain_gauges,
+     from: "CMA 的逐時站點資料"}
+local_obs: []
+questions: []

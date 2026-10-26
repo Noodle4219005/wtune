@@ -1,0 +1,22 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 075fb80f955cff1261252ad8e6f86fa49f66746914109781151322c455cff395
+event:
+  value: East Asian summer monsoon regional climate simulation, May 2018 - May 2019
+  from: "東亞夏季季風的區域氣候模擬，2018 年 5 月到 2019 年 5 月共 13 個月"
+types:
+  - {value: regional_climate, from: "區域氣候模擬，2018 年 5 月到 2019 年 5 月共 13 個月"}
+  - {value: monsoon, from: "東亞夏季季風"}
+  - {value: frontal, from: "梅雨帶"}
+storms: []
+region:
+  value: East Asia
+  from: "東亞"
+verify:
+  - {value: monthly_precip, from: "月平均降雨"}
+  - {value: monthly_t2, from: "2 m 溫度的季節偏差"}
+diagnose:
+  - {value: timing of the Meiyu rain-band northward jump, from: "梅雨帶北跳的時間"}
+obs_requests: []
+local_obs: []
+questions: []

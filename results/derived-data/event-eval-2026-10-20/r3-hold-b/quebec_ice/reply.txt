@@ -1,0 +1,5 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes with 0 errors.
+
+I read this as the January 1998 Quebec–Ontario ice storm: a `winter_storm` (freezing rain) with a warm layer aloft, so I tagged types `winter_storm` and `extratropical_cyclone`, region southern Quebec and eastern Ontario, and no storm id since it isn't a tropical cyclone. Verification is limited to what the text names: 2 m temperature at stations (`t2`), total precipitation (`precip_total`), and the warm-nose profile in soundings (`sounding`); no `diagnose` items, no local files and no extra obs requests, since WTune's defaults (ISD stations, soundings, gridded precip) cover all of it.
+
+No questions — the event, its type and all checkable quantities were unambiguous in the text.

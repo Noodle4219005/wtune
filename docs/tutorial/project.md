@@ -16,8 +16,8 @@ mycase/
   manifest.jsonl      每個 wtune 指令一行：時間、版本、指令、輸入的 sha256、輸出、exit code
   case/               namelist.input 是副本，可以改；wrfinput、wrfbdy 等是 symlink，唯讀
   input/
-    bp/               run 用的 ADIOS2 輸入（第一次 run 時轉好）
-    bp-cache/         tune 用的 ADIOS2 輸入
+    bp-cache/         ADIOS2 輸入，tune 和 run 共用（第一次 tune 或 run 時轉好）
+    bp/               0.9.3 以前的 run 用的 ADIOS2 輸入（舊專案才有）
     era5/             wtune post fetch era5
     obs/<name>/       stage4、igra、stations、mrms…，各附 provenance.json
   tune/<id>/          一次 tune
@@ -55,13 +55,40 @@ flowchart TD
 !!! note "原始個案不會被動到"
     `case/` 裡的 `namelist.input` 是副本，可以自由編輯。`wrfinput`、`wrfbdy`、`met_em` 等是 symlink，WTune 不會開啟原始資料夾來寫入。
 
+### 沒有 wrfinput：用 prep 產生
+
+個案沒有 `wrfinput`、`wrfbdy`，或要重新產生時，在專案裡依序下（投影取自 `namelist.wps`，沒有時取自 `wrfinput_d01`）：
+
+1. `wtune prep wps`：在登入節點下載整段時間的 GFS／FNL／CFSR（依日期自動選，`--forcing` 可指定），再送一個 job 跑 geogrid、ungrib、metgrid。
+2. `wtune prep real`：送一個 job 跑 real.exe，把新的 `wrfinput_d<NN>`、`wrfbdy_d01` 連結進 `case/`。`case/` 已經有這些檔時要加 `--replace`。
+
+工作目錄是 `input/prep/`，job 的 log 在 `input/prep/run-<jobid>.out`。需要先 `source` 機器的 `env.sh`（要有 `WPS_DIR` 與 `WRF_TREE`），machine 的 `geog`（或 `WPS_GEOG`）要指向 WPS 靜態資料；目錄不存在時 `prep wps` 在下載前就會停。只有低解析度資料（`WPS_GEOG_LOW_RES`）時，在來源資料夾放一份 `namelist.wps`，設 `geog_data_res = 'lowres'`，`prep` 會沿用它。Ctrl-C 會取消正在跑的 job。目前不接受自備的 GRIB 檔。
+
+!!! warning "下載量與下載中斷"
+    - 下載量跟 namelist 的視窗長度成正比：GFS 0.25° 每 3 小時一個檔，每檔約 0.22 GB，48 小時約 3.7 GB，120 小時約 9 GB。只是要測流程時，先把 `run_hours` 改短。
+    - ungrib 會把每個時間點解成全球的中間檔，GFS 0.25° 每個約 0.8 GB，48 小時的視窗在 `input/prep/wps/` 要 13 GB 以上。家目錄配額不夠時 WPS job 會在寫檔時失敗；先確認配額（例如 `mmlsquota`），或把視窗改短。
+    - 資料來源偶爾會在下載途中停住。重試 3 次仍缺檔時，`prep wps` 會印 `still missing after 3 attempts` 並結束，這時還沒有送出任何 job。原樣再下一次 `wtune prep wps` 即可：已下載的檔會跳過，下到一半的檔會接著下。
+
+### 只有 restart 檔的個案
+
+個案沒有 `wrfinput_d01`、只有 restart 檔時，`project init` 這樣處理：
+
+1. 保留 namelist 起始時間那一組 `wrfrst_d<NN>_<start>`（每個 domain 一個），其他時間的 restart 照舊略過。
+2. 在 `case/namelist.input` 副本裡設 `restart = .true.`。原始資料夾不會被改。
+3. `cases.json` 記下 `restart: true`、起始時間與格式（netCDF 是 2，BP 目錄是 14）。
+
+之後 `wtune tune` 的每個量測都從這組 restart 起跑，`wtune run` 的第一段也是。仍然需要 `wrfbdy_d01`。namelist 的 `start_*` 要等於 restart 檔的時間，不符時 `wtune run` 會列出缺哪些檔。
+
+restart 個案的 `wtune tune` 會在 plan 階段印 `no projection source`：預測整段時間需要重建個案，而重建要 `wrfinput_d01` 或 `namelist.wps` 才知道網格投影。這不影響量測和 WINNER，只是少了那一段預測；要有它，把個案的 `namelist.wps` 放進來源資料夾再 `project init`。
+
 ### 不在專案裡的東西
 
 | 東西 | 位置 | 為什麼在外面 |
 |---|---|---|
 | WRF 執行檔、函式庫 | `WRF_TREE`、`env.sh` 指的地方 | 每個專案共用 |
 | 機器設定 | `~/.config/wtune/machine.yaml` | 每個專案共用 |
-| tune 每個量測 job 的原始紀錄（ledger CSV）與 WRF 工作目錄 | `~/wtune-runs/campaign/` | 目前寫死在這裡；整理過的結果在 `tune/<id>/tune_report.json` |
+| 專案外執行的 tune 的量測紀錄（ledger CSV）與 WRF 工作目錄 | `$WTUNE_CAMPAIGN_OUT`，沒設時 `~/wtune-runs/campaign/` | 專案裡的 tune 寫在 `probes/`。舊的 tune 寫在這裡的紀錄，同一個個案仍會被讀來估第一次量測的時間 |
+| Thompson 查表快取 | `~/wtune-runs/thompson_tables/<build>/` | `<build>` 是 `wrf.exe` 內容的 sha1，同一個執行檔的量測共用 |
 | 專案外執行的 tune 的 ADIOS2 輸入 | `~/wtune-runs/bp-cache/` | 只有不在專案裡跑 tune 時才用 |
 
 ### 怎麼整理
@@ -71,7 +98,9 @@ flowchart TD
 - **一定要留**：`project.yaml`、`case/`、`manifest.jsonl`、每個 `tune/<id>/tune_report.json`、`runs/<id>/run_report.json`、`post/<id>/report.html` 與 `figures/`。這些是結果和來源的紀錄，佔的空間很小。
 - **需要空間時可以刪**：
     - `_nc_cache/` 和 `input/bp-cache/`：會重建。
+    - 舊專案的 `input/bp/`：0.9.3 起 run 改讀 tune 的 `input/bp-cache/`。下一次 tune 轉好之後，確認這個專案沒有進行中的 run，就可以刪。
     - 舊的 `runs/<id>/seg_<k>/` 輸出：先確認那次的 post 做完。
+    - `probes/` 裡的 WRF 工作目錄（`probes/<個案>_<配置>_r<n>_<job>/`）。`probes/ledger_*.csv` 要留，它是每次量測的原始紀錄。
     - 舊的 `post/<id>/<類型>/` 資料檔。
   
   刪之前先查 `manifest.jsonl`，確認那個 id 是哪次指令產生的。
@@ -167,7 +196,7 @@ machine:
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 | `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
 | `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
-| `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕並被當成節點有問題，所以要設成 `false`（`--node-preflight off`） |
+| `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕；被拒絕或 30 秒內沒拿到節點的探測，節點會保留、標成「沒探測」，不會被排除。這種叢集上檢查幫助不大，又要排隊，可以設成 `false`（`--node-preflight off`） |
 | `node_memory_gib` | 調校前先估每個配置每節點要多少記憶體，放不下的不送；第一個成功探測的 MaxRSS 會校正後面的估計。用 `scontrol show node <節點> \| grep RealMemory`（MB）換算 |
 | `copy_probe_inputs` | 內建每個探測作業各自複製一份 BP 輸入，避開 scc NFS 多人同時開檔卡住的問題。沒有 reflink 時是整份複製，一波幾個作業就是好幾份；在有配額的檔案系統（例如 f1-arm 的 100 G home2）設成 `false`。副本在作業結束後一律刪除 |
 | `measured` | 見下方「measured」 |

@@ -16,7 +16,7 @@ from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggre
                          merge_aggs, rank_predicted_entries, sample_more_diverse_configs)
 from .common import (ANCHOR_END_ID, RACE_MAX, _fmt_hms, chunk_round_robin, close_to_best,
                      compute_slots, would_exceed_budget)
-from .context import Ctx, cores_used
+from .context import Ctx, QueueCapExceeded, cores_used
 from .estimates import EST_ROUND0_CONFIGS
 from .jobs import submit_configs_job
 from .prediction import predict_candidates
@@ -35,12 +35,21 @@ Wave = tuple[list, dict, list, dict, dict]   # (job_ids, configs_by_cid, rows, j
 
 def select_confirm_entries(ctx: Ctx, nodes: int, all_results: dict,
                            anchor_cid: str | None) -> list[dict]:
-    """The confirm candidates: the top 3 by predicted whole-run time (rank_predicted_entries)
-    plus the anchor, deduped, as aggregate_by_cid entries with their pred_* fields."""
+    """The confirm candidates: the top 3 by predicted whole-run time (rank_predicted_entries),
+    the fastest measured median when those miss it (f1-arm conus12 2026-10-14: the prediction
+    does not see dist, and cyclic 0.132 s/step went unconfirmed against block 0.187), and the
+    anchor, deduped, as aggregate_by_cid entries with their pred_* fields."""
     predicted = predict_candidates(ctx, nodes, all_results)
     ranked = rank_predicted_entries(predicted, anchor_cid)
     top = list(ranked[:3])
     cids = {r["cid"] for r in top}
+    measured = [e for e in predicted.values()
+                if e.get("median") is not None and e.get("config") is not None]
+    if measured:
+        fastest = min(measured, key=lambda e: (e["median"], e["cid"]))
+        if fastest["cid"] not in cids:
+            top.append(fastest)
+            cids.add(fastest["cid"])
     if anchor_cid in predicted and anchor_cid not in cids:
         top.append(predicted[anchor_cid])
     seen, entries = set(), []
@@ -187,8 +196,7 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
     wave when the measured s/step undercuts the estimate. With `fill` and a time cap, top-up
     waves sized off the measured startup and s/step continue until the cap (less one race job)
     or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
-    s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                          ctx.hardware_id)
+    s_est, s_source, n_rows = ctx.estimate_s_per_step()
     if ctx.full_space:
         return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
@@ -246,13 +254,17 @@ def _default_proposer(ctx: Ctx) -> Callable:
 
     case_fields = decomp_search.case_row_fields(ctx.case_json)
     prior_rows = []
-    for path in sorted(glob.glob(os.path.join(ctx.ledger_dir, "ledger_*.csv"))):
+    paths = [p for d in [ctx.ledger_dir] + list(ctx.history_dirs)
+             for p in sorted(glob.glob(os.path.join(d, "ledger_*.csv")))]
+    for path in paths:
         if os.path.basename(path).startswith("ledger_%s_" % ctx.case):
             continue    # this case's own ledgers are already in `state` (case_measured_rows)
         try:
-            prior_rows.extend(decomp_search.benchmark.load_ledger(path))
+            rows = decomp_search.benchmark.load_ledger(path)
         except Exception:
             continue    # best-effort cross-case prior; a malformed sibling ledger is not fatal
+        prior_rows.extend(r for r in rows if not ctx.build_id
+                          or sweep.row_build_id(r) in ("", ctx.build_id))   # never another build
 
     def proposer(state, batch_size, kappa=None):
         return decomp_search.propose_for_case(
@@ -430,7 +442,7 @@ def _fit_confirm(ctx: Ctx, entries: list[dict]) -> tuple[list[dict], list[dict],
 
 def run_confirm(ctx: Ctx, all_configs_by_cid: dict, all_results: dict, anchor_cid: str | None,
                 s_est: float) -> tuple[str | None, dict | None]:
-    """Re-measure the confirm candidates (top 3 + anchor) in one job of ctx.confirm_reps
+    """Re-measure the confirm candidates (top 3, the fastest measured, the anchor) in one job of ctx.confirm_reps
     replicates, keeping only those that fit the budget. Returns (job id, {cid: result}) or
     (None, None) when nothing fits."""
     entries = select_confirm_entries(ctx, ctx.nodes, all_results, anchor_cid)
@@ -540,10 +552,23 @@ def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
 def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
                   confirm: bool = True) -> tuple[dict, dict | None, str | None]:
     """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results,
-    confirm_results, anchor_cid)."""
+    confirm_results, anchor_cid). A queue cap or a user stop keeps what was measured."""
+    first_job = len(ctx.owned_jobs)
+    try:
+        return _run_tuning_at(ctx, s_est, adaptive, confirm)
+    except QueueCapExceeded as e:
+        jobs = [j for j in ctx.owned_jobs[first_job:] if j in ctx.job_configs]
+        configs_by_cid = {c["id"]: c for j in jobs for c in ctx.job_configs[j]}
+        all_results = aggregate_by_cid(ctx.ledger_reader(ctx.case, jobs) if jobs else [],
+                                       configs_by_cid)
+        print("layouts at N=%d: %s; keeping the %d measured" % (ctx.nodes, e, len(all_results)))
+        return all_results, None, "ANCHOR" if "ANCHOR" in all_results else None
+
+
+def _run_tuning_at(ctx: Ctx, s_est: float | None, adaptive: bool,
+                   confirm: bool) -> tuple[dict, dict | None, str | None]:
     if s_est is None:
-        s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                     ctx.hardware_id)
+        s_est, _src, _n = ctx.estimate_s_per_step()
     job_ids0, configs_by_cid, rows0 = run_round0(ctx, fill=not adaptive and not confirm)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
     anchor_cid = "ANCHOR" if "ANCHOR" in configs_by_cid else None

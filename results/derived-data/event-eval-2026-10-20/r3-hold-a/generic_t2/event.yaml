@@ -1,0 +1,20 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: d6a563aada1da283e187380084ef27047b71e14c8c2282439b6babd38b1722bb
+event:
+  value: 模擬的溫度準確度
+  from: "這次模擬的溫度準不準"
+types: []
+storms: []
+region:
+  value: null
+  from: null
+verify:
+  - value: t2
+    from: "溫度"
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - 這次模擬的是什麼天氣事件、什麼類型（例如颱風、強降雨、鋒面）？
+  - 要檢查的是哪一種溫度：2 公尺溫度本身、還是最高溫／最低溫？

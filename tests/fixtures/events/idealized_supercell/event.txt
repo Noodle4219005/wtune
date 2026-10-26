@@ -1,0 +1,2 @@
+理想化超大胞（supercell）模擬，用 Weisman-Klemp 探空、四分圓風切，em_quarter_ss。
+想看上升氣流螺旋度和回波的鉤狀結構，最好能跟原始論文的圖比對。

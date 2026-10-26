@@ -1,0 +1,7 @@
+Passed.
+
+**Summary:** I read event.txt as a LES case of the convective boundary layer over the ARM SGP site on a clear-sky summer day in 2019, typed as `boundary_layer`, with model-to-observation comparisons for PBL height, potential temperature profiles (radiosondes) and surface sensible/latent heat flux (ARM flux station), and no model-only figures. `event.yaml` now passes `wtune event check` with 0 errors and 0 warnings, and no data was fetched.
+
+**Questions:**
+1. Which specific day in 2019 should the case use? ("pick one from 2019" is left to you, and I did not guess a date.)
+2. Should the verification window be daytime only (mid-morning to evening), when the convective boundary layer is fully developed, or the whole day including the morning transition?

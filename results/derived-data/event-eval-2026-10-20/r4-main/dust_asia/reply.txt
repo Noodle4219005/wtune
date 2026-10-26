@@ -1,0 +1,5 @@
+Done — `event.yaml` created and `wtune event check event.yaml` passes with 0 errors/warnings.
+
+我理解的是：2023 年 4 月中旬一次東亞沙塵暴，塵沙由蒙古戈壁吹到華北、韓國與台灣，用 WRF-Chem 模擬。驗證項目為 MODIS 的氣膠光學厚度（aod）與各地 PM10 測站濃度（pm10），並另外診斷沙塵抵達各地區的時間；MODIS 與測站資料都屬 WTune 預設來源，故未列 obs_requests，也沒有本地檔案。
+
+問題：抵達時間是與觀測比對還是純模型診斷？若要與觀測比對，請指定用哪種觀測（測站 PM10 的濃度突升、或 AOD 增長），我再調整 event.yaml。

@@ -113,7 +113,7 @@ def performance_diagram_points(rows):
     return out
 
 
-def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
+def scores_vs_threshold(rows, title, out_path, thresh_label="threshold", op="≥"):
     """rows: [{thresh, pod, far, csi, fbias, total?}] -> one Roebber (2009, WAF 24:601)
     performance diagram: x = success ratio (1-FAR), y = POD, curved CSI isolines (grey), straight
     frequency-bias rays (dashed, labelled); one marker per event threshold (decision 0064). The
@@ -140,7 +140,7 @@ def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
     for k, (th, s, p, c, fb) in enumerate(pts):
         n = next((r.get("total") for r in rows if r["thresh"] == th), None)
         ax.plot(s, p, "o", ms=9, color=cmap(k / max(1, len(pts) - 1)), mec="k",
-                label="≥ %g %s%s" % (th, unit, ("  (n=%d)" % n) if n else ""))
+                label="%s %g %s%s" % (op, th, unit, ("  (n=%d)" % n) if n else ""))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("success ratio (1 - FAR)")
@@ -203,6 +203,32 @@ def station_bias_maps(panels, suptitle, out_path):
         cb.set_label(p.get("cbar_label", "model - observation"))
         ax.set_title(p["title"], fontsize=9)
     fig.suptitle(suptitle, fontsize=10)
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
+    return out_path
+
+
+def scatter_compare(fcst, obs, title, out_path, unit):
+    """Model against observation at matched points, with the 1:1 line; the title gets n, mean
+    bias (model - obs), RMSE and Pearson r."""
+    import numpy as np
+    plt = _matplotlib()
+    f, o = np.asarray(fcst, "f8"), np.asarray(obs, "f8")
+    fig, ax = plt.subplots(figsize=(5.6, 5.4), layout="constrained")
+    top = float(max(f.max(), o.max(), 1.0)) * 1.05
+    ax.plot([0, top], [0, top], color="0.4", lw=1, ls="--", label="1:1")
+    ax.scatter(o, f, s=14, alpha=0.6, edgecolor="none")
+    ax.set_xlim(0, top)
+    ax.set_ylim(0, top)
+    ax.set_aspect("equal")
+    ax.set_xlabel("observation (%s)" % unit)
+    ax.set_ylabel("model (%s)" % unit)
+    r = float(np.corrcoef(f, o)[0, 1]) if f.size > 2 and f.std() > 0 and o.std() > 0 else float("nan")
+    import textwrap
+    ax.set_title("%s\nn=%d  bias %+.2f  RMSE %.2f %s  r %.2f"
+                 % (textwrap.fill(title, 60), f.size, float(np.mean(f - o)), float(np.sqrt(np.mean((f - o) ** 2))),
+                    unit, r), fontsize=9)
+    ax.legend(loc="upper left", fontsize=8)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path

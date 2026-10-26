@@ -10,10 +10,11 @@ import math
 import os
 
 import wtune.extensions
+import wtune.machine
 from ._deps import wc, predict
 from .candidates import rank_predicted_entries
 from .common import _fmt_hms
-from .context import Ctx
+from .context import STOP, Ctx
 from .estimates import format_level_estimates
 from .jobs import MAXRSS_NOTE
 from .prediction import predict_candidates
@@ -24,17 +25,16 @@ LAYOUT_ROWS_SHOWN = 40               # rows of node_selection.layouts printed (t
 
 
 def local_param_table(config: dict, nodes: int) -> dict:
-    """Parameter table of `config` at `nodes`: namelist lines, the mpirun line of campaign/sites/
-    scc.sh site_launch (cyclic adds --rank-by node) and its env. wtune.predict.build_param_table
+    """Parameter table of `config` at `nodes`: namelist lines, the launch line this machine's
+    site file builds (wtune.machine.site_launch_line) and its env. wtune.predict.build_param_table
     is not used: it hardcodes dist=cyclic."""
     ranks, omp = int(config["ranks"]), int(config["omp"])
     nx, ny, numtiles = int(config["nx"]), int(config["ny"]), int(config["numtiles"])
     dist = config.get("dist", "block")
     tpn = ranks // nodes if nodes else ranks
-    launch = "mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core" % (ranks, tpn, omp)
-    if dist == "cyclic":
-        launch += " --rank-by node"     # site_launch(): cyclic reproduces WRF's cyclic rank order
-    launch += " ./wrf.exe"
+    launch = (wtune.machine.site_launch_line(ranks, tpn, omp, dist, nodes or 1)
+              or "site_launch %d %d %d %s (campaign/sites/%s.sh)"
+              % (ranks, tpn, omp, dist, wtune.machine.site()))
     return dict(
         ranks=ranks, omp=omp, nodes=nodes, ranks_per_node=tpn, nproc_x=nx, nproc_y=ny,
         numtiles=numtiles, dist=dist, launch_line=launch,
@@ -210,6 +210,9 @@ def _node_table_lines(ns: dict) -> list[str]:
                         "%.0f" % r["wall_s"] if r.get("wall_s") is not None else "-",
                         "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-",
                         _mb(r.get("maxrss_mb"))))
+    if ns.get("table") and ns["table"][0]["nodes"] != 1:
+        lines.append("NOTE: speedup and eff are relative to N=%d, the smallest N measured"
+                     % ns["table"][0]["nodes"])
     for obj, c in (ns.get("choices") or {}).items():
         lines.append("choice %-5s%s N=%s  %s" % (obj, "*" if obj == ns.get("objective") else " ",
                                                  c["nodes"], c["note"]))
@@ -409,7 +412,8 @@ def render_pipeline_text(pipe: dict) -> str:
                     _fmt_hms(pipe.get("total_queue_wait_s", 0.0)),
                     _fmt_hms(pipe.get("total_controller_s", 0.0)),
                     _fmt_hms(pipe.get("predicted_real_s") or 0), pipe.get("predicted_real_source"),
-                    "  [STOPPED: max queue wait exceeded]" if pipe.get("queue_cap_hit") else ""))
+                    "  [STOPPED: %s]" % (STOP["reason"] or "max queue wait exceeded")
+                    if pipe.get("queue_cap_hit") else ""))
     return "\n".join(lines)
 
 

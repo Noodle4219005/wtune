@@ -1,0 +1,7 @@
+已完成 Part 1，`event.yaml` 通過檢查（0 error / 0 warning）。
+
+我理解的是：這是一個 2018 年 5 月至 2019 年 5 月、共 13 個月、50 km 網格的東亞夏季季風區域氣候模擬，類型標為 `regional_climate`、`monsoon` 與 `frontal`（梅雨帶）。要與觀測比對的量是「月平均降雨」與「2 m 溫度季節偏差」，因此填入 `monthly_precip` 與 `monthly_t2`；「梅雨帶北跳的時間」屬於只有模式才能給的圖，列在 `diagnose`。未加入 `storms`、`obs_requests`、`local_obs`，並非 idealized 案例（文中給了實際年月）。
+
+questions:
+- 「梅雨帶北跳的時間」我先當作模式診斷項；您是否也希望它與觀測（例如再分析雨帶位置或地面雨量時間序列）比對？
+- `frontal` 類型是否要保留（梅雨帶是否視為本案的frontal現象），或只保留季風與區域氣候？

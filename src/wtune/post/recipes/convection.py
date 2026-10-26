@@ -357,12 +357,25 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
             if fl:
                 picks.append((t, p, fl))
         use = "nexrad"
+    agent, notes = None, []
+    if not picks and project_dir:
+        from wtune.post import agent_obs
+        from wtune.post.recipe import note
+        ok, bad = agent_obs.usable(project_dir, "radar")
+        notes = [note("convection", "agent dataset %s is not used: %s (wtune event obs-check)"
+                      % (n, e)) for n, e in bad]
+        for name, d, prov in ok:
+            idx = agent_obs.snapshot_index(d, "radar")
+            picks = [(t, p, [f]) for t, p in times for f in [agent_obs.nearest(idx, t, 8)] if f]
+            if picks:
+                use, agent = "agent", (name, prov)
+                break
     if not picks:
         reason = radar_missing_reason(project_dir, run_dir, [t for t, _ in times], bbox)
         if nex or mrms:
             reason = ("radar files are present but none lies within +-8 min of a post-spin-up model "
                       "frame; fetch more: " + reason.split("run on a login node: ")[-1])
-        return [missing(i, "MRMS / NEXRAD composite reflectivity", reason) for i in RADAR_IDS]
+        return notes + [missing(i, "MRMS / NEXRAD composite reflectivity", reason) for i in RADAR_IDS]
     step = max(1, -(-len(picks) // MAX_RADAR_TIMES))
     picks = picks[::step]
 
@@ -392,6 +405,10 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
                 onc, n_rad = radar_composite.write_composite_latlon(
                     files, np.asarray(mlat, "f8"), np.asarray(mlon, "f8"), griddes, t, onc,
                     sites=sites)
+            elif use == "agent":
+                onc = agent_obs.regrid_snapshot(files[0], "refl", t, griddes, onc, "REFC_OBS",
+                                                "dBZ", bbox, "remapnn")
+                n_rad = 1
             else:
                 onc, n_rad = radar_composite.mrms_on_latlon(files[0], griddes, t, onc), 1
             if onc is None:
@@ -417,7 +434,7 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
     except radar_composite.PyartUnavailable as e:
         return [missing(i, "NEXRAD composite reflectivity", str(e)) for i in RADAR_IDS]
     except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError, ImportError, OSError,
-            StopIteration) as e:
+            StopIteration, ValueError, KeyError) as e:
         return [missing(i, "MET Grid-Stat vs radar", "verification failed: %s" % e) for i in RADAR_IDS]
     if not per_ctc or best is None:
         return [missing(i, "radar composite reflectivity",
@@ -445,16 +462,23 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
         for r in pooled_fss:
             w.writerow([r["thresh"], r["width"], round(r["width"] * cell_km, 2), r["fss"]])
 
-    obs_name = "MRMS MergedReflectivityQCComposite" if use == "mrms" else "NEXRAD Level II composite (Py-ART)"
-    src = sources.source_tags(project_dir, [use])
+    if use == "agent":
+        import textwrap
+        obs_name = textwrap.shorten(agent[1].get("dataset") or agent[0], 48, placeholder="...")
+        src = [agent_obs.source_tag(*agent)]
+    else:
+        obs_name = ("MRMS MergedReflectivityQCComposite" if use == "mrms"
+                    else "NEXRAD Level II composite (Py-ART)")
+        src = sources.source_tags(project_dir, [use])
     nt = len(per_ctc)
     common = dict(obs_sources=src, csv=[csv_ts, csv_pool], n_times=nt,
                   tool="MET grid_stat (both fields on one lat/lon grid, interior mask), pooled over %d time(s)" % nt)
     _s, tb, glat, glon, gf, go, n_rad = best
-    out = []
+    out = list(notes)
     p = obs_figs.side_by_side(
         glat, glon, gf, go, ("%s d%02d model max column reflectivity" % (run_label, domain), obs_name + " (obs)"),
-        "composite reflectivity %s UTC, matched points (%d radar(s))" % (tb.strftime("%Y-%m-%d %H:%M"), n_rad),
+        "composite reflectivity %s UTC, matched points%s" % (
+            tb.strftime("%Y-%m-%d %H:%M"), "" if use == "agent" else " (%d radar(s))" % n_rad),
         os.path.join(out_dir, "conv_radar_compare.png"), obs_figs.DBZ_LEVELS, cmap=reflectivity_cmap(),
         cbar_label="dBZ", extend="max")
     out.append(fig("conv_radar_compare", p, run_label, domain="d%02d" % domain,

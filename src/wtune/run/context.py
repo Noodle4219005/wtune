@@ -45,6 +45,8 @@ class RunOptions:
     poll_interval: float               # s between sacct polls
     stall_minutes: float = 20.0        # rsl.error.0000 unchanged this long: cancel
     compress_history: bool = False     # converted frames replace their BP dirs
+    no_space_check: bool = False       # submit even when the output estimate does not fit
+    thompson_cache: bool = False       # link/harvest the per-build Thompson table cache
 
 
 @dataclasses.dataclass
@@ -65,6 +67,7 @@ class RunPlan:
     restart: RestartSetting
     notes: list[str]
     nc_root: Optional[str] = None      # --sidecar: the `wtune post` netCDF cache
+    start_dir: Optional[str] = None    # a restart case: segment 0 reads its wrfrst from here
 
 
 def default_scancel(job_id: str) -> None:
@@ -88,6 +91,7 @@ class RunState:
     """Budgets that are per run, not per segment."""
     rescue_used: bool = False
     resumes: int = 0
+    jobs: list = dataclasses.field(default_factory=list)   # every segment job, for `wtune stop`
 
 
 @dataclasses.dataclass
@@ -102,6 +106,7 @@ class RunContext:
     case_adios2_xml: Optional[str] = None      # the case's own adios2.xml text
     sidecar: Any = None                        # wtune.sidecar.Sidecar (--sidecar)
     state: RunState = dataclasses.field(default_factory=RunState)
+    state_file: Optional[str] = None           # <out>/run.state.json (wtune.stopping)
 
     @property
     def geo(self) -> Geometry:

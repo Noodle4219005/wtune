@@ -408,10 +408,16 @@ def test_short_run_not_segmented():
 # 4. parameter table / launch line
 # --------------------------------------------------------------------------
 
-def test_cores_per_node_comes_from_the_calibration_else_the_machine_setting(monkeypatch):
+def test_cores_per_node_is_the_machine_setting_before_the_calibration(monkeypatch):
+    """f1-arm 2026-10-25: machine.yaml says 144, no f1-arm calibration, and scc.json's 72 made
+    predict warn '90 cores exceeds 72 cores/node'."""
+    monkeypatch.delenv("WTUNE_CORES_PER_NODE", raising=False)
     assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 72
+    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "144")
+    assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 144
     monkeypatch.setenv("WTUNE_CORES_PER_NODE", "112")
     assert wp.cores_per_node({}) == wp.cores_per_node(None) == 112
+    monkeypatch.delenv("WTUNE_CORES_PER_NODE")
     config = {"ranks": 288, "omp": 1, "nx": 16, "ny": 18, "numtiles": 1, "dist": "block"}
     scc = wp.build_param_table(config, 4, 2, "nfs", wp.cores_per_node(wp.load_calibration(CALIBRATION)))
     assert scc["ranks_per_node"] == 72 and scc["warning"] is None
@@ -425,7 +431,7 @@ def test_param_table_launch_line_and_namelist_lines():
     p = wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")
     assert p["ranks_per_node"] == 112
     assert p["warning"] is None
-    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core --rank-by node"
+    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core --rank-by node ./wrf.exe"
     assert p["env"]["OMP_NUM_THREADS"] == "2"
     assert p["env"]["OMP_STACKSIZE"] == "1G"
     assert p["namelist_lines"] == ["nproc_x = 16,", "nproc_y = 14,", "numtiles = 12,"]
@@ -439,13 +445,13 @@ def test_param_table_launch_line_matches_scc_sites_site_launch():
     config_block = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1, "dist": "block"}
     p_block = wp.build_param_table(config_block, nodes=4, io_form=2, io_target="nfs")
     assert p_block["dist"] == "block"
-    assert p_block["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core"
+    assert p_block["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core ./wrf.exe"
     assert "--rank-by" not in p_block["launch_line"]
 
     config_cyclic = dict(config_block, dist="cyclic")
     p_cyclic = wp.build_param_table(config_cyclic, nodes=4, io_form=2, io_target="nfs")
     assert p_cyclic["dist"] == "cyclic"
-    assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node"
+    assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node ./wrf.exe"
 
     # config with no 'dist' key at all must NOT guess cyclic (2026-09-23 scc blind-test
     # bug: this used to silently default to "cyclic" and print --rank-by node for a
@@ -603,6 +609,46 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
     assert abs(ratio - 1.0) <= 0.05, (
         "conus25 self-consistency must reproduce 2090s within +-5%%, got %.1fs (ratio %.4f)"
         % (pred["total_s"], ratio))
+
+
+def test_adaptive_time_step_widens_the_range_to_the_step_bounds(tmp_path):
+    # B1: with use_adaptive_time_step the step count was run length / time_step, silently
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    nl = CONUS25_NAMELIST.replace("&domains", "&domains\n use_adaptive_time_step = .true.,\n"
+                                  " min_time_step = 5,\n max_time_step = 30,", 1)
+    assert nl != CONUS25_NAMELIST
+    _write(str(case_dir / "namelist.input"), nl)
+    config = {"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config=config, ledger_paths=[], calibration_path=CALIBRATION,
+        io_form_override=None, io_target="nfs")
+    comp, steps = pred["compute"]["compute_total_s"], pred["steps"]
+    assert steps == pred["run_s"] / 15
+    assert pred["range_high_s"] >= pred["total_s"] + comp * (pred["run_s"] / 5 / steps - 1) - 1
+    assert pred["range_low_s"] <= pred["total_s"] - comp * (1 - pred["run_s"] / 30 / steps) + 1
+    assert "use_adaptive_time_step" in pred["steps_note"]
+
+
+def test_adaptive_bounds_follow_wrf_and_the_range_stays_positive(tmp_path):
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    nl = CONUS25_NAMELIST.replace("&domains", "&domains\n use_adaptive_time_step = .true.,\n"
+                                  " max_time_step = 200,", 1)
+    _write(str(case_dir / "namelist.input"), nl)
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}, ledger_paths=[],
+        calibration_path=CALIBRATION, io_form_override=None, io_target="nfs")
+    assert 0 <= pred["range_low_s"] <= pred["total_s"]           # was -299 s
+    # dyn_em/start_em.F: -1 -> NINT(k * min(dx,dy) / 1000) s; *_den divides
+    nl = wp.parse_namelist(_write(str(tmp_path / "nl"), "&domains\n use_adaptive_time_step = "
+                                  ".true.,\n dx = 500,\n dy = 500,\n max_time_step = 3,\n"
+                                  " max_time_step_den = 2,\n/\n"))
+    assert wp.adaptive_step_bounds(nl, 3600.0) is None           # min 2 s > max 3/2 s
+    nl["domains"]["max_time_step_den"] = [1]
+    assert wp.adaptive_step_bounds(nl, 3600.0) == (1200, 1800, 2.0, 3.0)
 
 
 # --------------------------------------------------------------------------
@@ -1679,3 +1725,13 @@ def test_time_control_datetime_accepts_overflowing_minutes(tmp_path):
     nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), NORAD_NAMELIST))
     assert wp.get_time_control_datetime(nl, "end") == datetime.datetime(1, 1, 1, 2, 0, 0)
     assert wp.get_time_control_datetime(nl, "start") == datetime.datetime(1, 1, 1, 0, 0, 0)
+
+
+def test_launch_line_is_the_site_files(monkeypatch):
+    """The parameter table printed scc's mpirun form on every machine (f1-arm 2026-10-14)."""
+    import wtune.machine
+    monkeypatch.setenv("WTUNE_SITE", "f1arm")
+    assert wtune.machine.site_launch_line(90, 90, 1, "block", 1) == \
+        "mpirun -np 90 --map-by ppr:45:numa:PE=1 --bind-to core ./wrf.exe"
+    monkeypatch.setenv("WTUNE_SITE", "nosuchsite")
+    assert wtune.machine.site_launch_line(90, 90, 1, "block", 1) is None

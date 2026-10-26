@@ -28,7 +28,8 @@ HELP = "NOAA ISD-Lite hourly surface stations (T, Td, MSLP, wind, precip)"
 PROVENANCE = dict(sources.REGISTRY["stations"])
 
 HISTORY = "https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv"
-LITE = "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/%d/%s-%s-%d.gz"
+# NCEI's pub/data/noaa/isd-lite/ now answers 301 to the AWS bucket's index page (2026-10-26)
+LITE = "https://noaa-isd-pds.s3.amazonaws.com/isd-lite/data/%d/%s-%s-%d.gz"
 
 
 def add_arguments(parser):
@@ -68,6 +69,26 @@ def station_id(r):
     return "%s-%s" % (r["usaf"], r["wban"])
 
 
+def _prune(project, base):
+    """stations.csv and provenance.json without the stations whose files an earlier fetch kept
+    and this one removed (an HTML page in place of the .gz)."""
+    cat = os.path.join(base, "stations.csv")
+    if not os.path.isfile(cat):
+        return
+    with open(cat, newline="") as fh:
+        rows = list(csv.reader(fh))
+    have = {n.rsplit("-", 1)[0] for n in os.listdir(base) if n.endswith(".gz")}
+    with open(cat, "w", newline="") as fh:
+        csv.writer(fh).writerows(rows[:1] + [r for r in rows[1:] if r and r[0] in have])
+    sources.write_provenance(project, NAME, PROVENANCE, [], {"stations.csv": sources.sha256_file(cat)},
+                             prune_missing=True)
+
+
+def _is_gzip(path):
+    with open(path, "rb") as fh:
+        return fh.read(2) == b"\x1f\x8b"
+
+
 def run(args):
     try:
         start, end, bbox = sources.resolve_window(args)
@@ -94,8 +115,14 @@ def run(args):
         for y in years:
             url = LITE % (y, r["usaf"], r["wban"], y)
             dest = os.path.join(base, "%s-%s-%d.gz" % (r["usaf"], r["wban"], y))
+            if os.path.isfile(dest) and not _is_gzip(dest):
+                os.remove(dest)                 # an HTML page an earlier fetch kept
             sha, dl = sources.download(url, dest, known_sha=known.get(os.path.basename(dest)))
             if sha is None:
+                continue
+            if not _is_gzip(dest):
+                print("stations: %s is not a gzip file (a moved or error page?) -- skipped" % url)
+                os.remove(dest)
                 continue
             got = True
             written.append(dest)
@@ -104,9 +131,13 @@ def run(args):
                 urls.append(url)
         if got:
             kept.append(r)
+        else:
+            print("stations: %s has no ISD-Lite file for %s -- skipped"
+                  % (station_id(r), ", ".join(str(y) for y in years)))
     if not kept:
         print("stations: %d catalogue stations in region but none has an ISD-Lite file for %s"
               % (len(chosen), ", ".join(str(y) for y in years)))
+        _prune(args.project, base)
         return []
     cat = os.path.join(base, "stations.csv")
     with open(cat, "w", newline="") as fh:
@@ -120,6 +151,6 @@ def run(args):
         urls.append(HISTORY)
     sources.write_provenance(args.project, NAME, PROVENANCE, urls, files,
                              window=sources.window_dict(start, end), bbox=list(bbox),
-                             extra={"n_stations": len(kept)})
+                             extra={"n_stations": len(kept)}, prune_missing=True)
     print("stations: %d station(s), %d file(s) under %s" % (len(kept), len(written), base))
     return written

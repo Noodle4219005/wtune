@@ -73,10 +73,22 @@ REGISTRY = {
         "resolution": "0.01 deg lat/lon, 2 min (reflectivity), hourly (QPE)",
         "access": "public, no credentials",
     },
+    "bdeck": {
+        "dataset": "NHC ATCF best-track b-deck",
+        "provider": "NOAA National Hurricane Center",
+        "url": "https://ftp.nhc.noaa.gov/atcf/archive/<year>/b<basin><nn><year>.dat.gz",
+        "license": "US Government work, public domain",
+        "citation": "National Hurricane Center ATCF archive (best track, b-deck).",
+        "coverage_time": "storms NHC tracks, by year",
+        "coverage_space": "Atlantic and eastern/central Pacific basins",
+        "resolution": "6-hourly fixes (plus landfall/intensity points); position, wind, pressure, "
+                      "wind radii",
+        "access": "public, no credentials",
+    },
     "stations": {
         "dataset": "NOAA Integrated Surface Database (ISD-Lite hourly)",
         "provider": "NOAA National Centers for Environmental Information (NCEI)",
-        "url": "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/ ; station list "
+        "url": "https://noaa-isd-pds.s3.amazonaws.com/isd-lite/data/ ; station list "
                "https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv",
         "license": "public domain (NOAA/NCEI open data)",
         "citation": "Smith, A., N. Lott, and R. Vose, 2011: The Integrated Surface Database: "
@@ -210,11 +222,12 @@ def read_provenance(project, name):
 
 
 def write_provenance(project, name, provenance, urls, files, window=None, bbox=None,
-                     extra=None):
+                     extra=None, prune_missing=False):
     """Writes/updates <dataset_dir>/provenance.json: `provenance` (the module's PROVENANCE dict)
     + `urls` (fetched) + `files` ({relative path: sha256}) + fetch time + requested window/bbox.
     An existing record is merged: urls/files accumulate, so a resumed or repeated fetch does not
-    forget what an earlier one downloaded. `fetched_utc` is the time of the newest download;
+    forget what an earlier one downloaded. prune_missing: drop files (keys relative to the
+    dataset dir) that are no longer on disk. `fetched_utc` is the time of the newest download;
     a run that downloaded nothing keeps the old one."""
     d = dataset_dir(project, name)
     os.makedirs(d, exist_ok=True)
@@ -223,7 +236,8 @@ def write_provenance(project, name, provenance, urls, files, window=None, bbox=N
     rec["urls"] = sorted(set(old.get("urls", [])) | set(urls))
     merged = dict(old.get("files", {}))
     merged.update(files)
-    rec["files"] = merged
+    rec["files"] = ({k: v for k, v in merged.items() if os.path.exists(os.path.join(d, k))}
+                    if prune_missing else merged)
     rec["fetched_utc"] = utc_now() if urls else old.get("fetched_utc", utc_now())
     rec["window"] = window if window is not None else old.get("window")
     rec["bbox"] = bbox if bbox is not None else old.get("bbox")
@@ -243,10 +257,12 @@ def dataset_records(project_dir, names):
     out = []
     for name in names:
         static = REGISTRY.get(name)
-        if static is None:
-            continue
-        rec = dict(static)
         prov = read_provenance(project_dir, name) if project_dir else None
+        if static is None:
+            if not (prov and prov.get("format") == "wtune-obs/1"):
+                continue
+            static = {k: "" for k in PROVENANCE_KEYS}     # an agent-fetched dataset
+        rec = dict(static)
         if prov:
             rec.update({k: prov[k] for k in PROVENANCE_KEYS if k in prov})
         rec["name"] = name

@@ -4,6 +4,7 @@ measurements, and the pipeline's prediction points, error bands and run-length I
 from __future__ import annotations
 
 import concurrent.futures
+import threading
 import csv
 import dataclasses
 import datetime
@@ -213,6 +214,8 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     seg_timeout_min = _budget.rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
                                                           config.get("omp", 1))
 
+    owned_lock = threading.Lock()
+
     def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = probe_plan.plan_rebuild_segments(
@@ -224,7 +227,10 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
+        _jobs.stop_before_submit()
         job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
+        with owned_lock:       # owned at once: another point failing must not orphan this job
+            _jobs.record_job(ctx, job_id)
         print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
         plan["_plan_dir"] = pdir
         return plan, job_id
@@ -234,7 +240,6 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
     plans = [d[0] for d in done]
     job_ids = [d[1] for d in done]
-    ctx.owned_jobs.extend(job_ids)
     states = _jobs.wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
@@ -584,8 +589,9 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
                 io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
                 case_name=ctx.case, rsl_paths=None, include_io=False)
             T = float(pred["total_s"])
-            return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune.predict cold start"
+            comp = float(pred["compute"]["compute_total_s"])   # T's init is predict's, not startup_s
+            return T, max(1e-6, comp / max(1, total_steps)), "wtune.predict cold start"
         except Exception:                                   # noqa: BLE001
             pass
-    s_est, src, _k = sweep.estimate_s_per_step(ctx.case, nodes, ctx.ledger_dir, ctx.hardware_id)
+    s_est, src, _k = ctx.estimate_s_per_step(nodes)
     return total_steps * s_est + ctx.startup_s, s_est, "ledger estimate (%s)" % src

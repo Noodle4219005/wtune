@@ -1,0 +1,6 @@
+已完成 `event.yaml`，`wtune event check` 通過（0 errors, 0 warnings），未取任何資料。
+
+我理解的是：2018 年 8 月印度喀拉拉邦（Kerala）季風豪雨事件，類型為 heavy_rain、monsoon、orographic（西高止山迎風面），區域為 Kerala／西高止山迎風面；要驗證逐日雨量（precip_24h）與累積雨量（precip_total）的空間分布，另有 850 hPa 西南季風強度列為模式診斷項。
+
+questions：
+- 850 hPa 西南季風強度是否要與 ERA5 再分析比較，還是只看模式自身的風場？（目前先當作 diagnose，若要比較我可以改成 verify: upper_air）

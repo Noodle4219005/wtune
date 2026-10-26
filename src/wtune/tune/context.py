@@ -25,7 +25,16 @@ DEFAULT_STARTUP_S = sweep.STARTUP_S    # s/run startup, scc_sweep's documented c
 
 
 class QueueCapExceeded(RuntimeError):
-    """--max-queue-hours reached: in-flight jobs were cancelled and the run stops."""
+    """--max-queue-hours reached (or, as StopRequested, the user stopped the tune): in-flight jobs
+    were cancelled, nothing more is submitted, what was measured is kept."""
+    partial: dict = {}                 # what an interrupted node-sweep wave still measured
+
+
+class StopRequested(QueueCapExceeded):
+    """Ctrl-C or `wtune stop` (SIGINT/SIGTERM) during `wtune tune`."""
+
+
+from wtune.stopping import STOP  # noqa: E402,F401  -- the Ctrl-C / wtune stop flag
 
 
 class RealClock:
@@ -86,8 +95,12 @@ class Ctx:
     proposer: Any
     clock: Any
     start_time: float = 0.0
+    build_id: str = ""                  # sha1 of wrf.exe (sweep.wrf_build_id): the ledger rows' build=
+    history_dirs: list = dataclasses.field(default_factory=list)  # older ledgers (sweep.history_ledger_dirs)
     owned_jobs: list = dataclasses.field(default_factory=list)
     cancelled_jobs: list = dataclasses.field(default_factory=list)
+    job_configs: dict = dataclasses.field(default_factory=dict)   # job -> the configs it measures
+    state_file: str | None = None      # <out>/tune.state.json: pid + owned jobs, for `wtune stop`
     # --config (wtune/config.py); the defaults are a no-op filter / the pre---config behaviour
     search_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["search"]))
@@ -151,6 +164,13 @@ class Ctx:
             return self.clock.now() - self.start_time - self.queue_wait_s
         return self.clock.now() - self.start_time
 
+    def estimate_s_per_step(self, nodes: int | None = None) -> tuple:
+        """sweep.estimate_s_per_step for this case at `nodes` (default: the tune's), from this
+        build's rows of the tune's ledger and the older shared ones."""
+        return sweep.estimate_s_per_step(self.case, self.nodes if nodes is None else nodes,
+                                         self.ledger_dir, self.hardware_id,
+                                         build_id=self.build_id, extra_dirs=self.history_dirs)
+
 
 def resolve_case(case_id: str, cores_per_node: int) -> tuple[dict, str, dict]:
     """(case json, namelist path, wtune.case profile) of a registered case."""
@@ -195,6 +215,22 @@ def _total_steps(namelist_path: str) -> int | None:
         return int(steps_n) if steps_n and steps_n > 0 else None
     except Exception:
         return None
+
+
+def adaptive_steps_warning(namelist_path: str) -> str | None:
+    """The whole-run times count run length / time_step d01 steps; with use_adaptive_time_step
+    WRF's own dt decides, so say how far off that can be."""
+    try:
+        nl = predict.parse_namelist(namelist_path)
+        steps_n, run_s, _dt, _note = predict.get_d01_steps(nl)
+        b = predict.adaptive_step_bounds(nl, run_s)
+    except Exception:
+        return None
+    if not b:
+        return None
+    return ("use_adaptive_time_step: WRF picks d01's dt between about %g and %g s, so the run "
+            "takes about %d-%d steps; the whole-run times below assume %d (time_step)"
+            % (b[2], b[3], b[0], b[1], steps_n))
 
 
 def cores_used(ctx: Ctx) -> int:

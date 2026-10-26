@@ -1,0 +1,8 @@
+已完成 Part 1：`event.yaml` 已建立於目前目錄，`wtune event check event.yaml` 通過（0 errors、0 warnings）。
+
+我理解的事件是：2009 年 8 月莫拉克颱風在台灣南部造成破紀錄雨量（阿里山 4 天超過 2,700 mm），屬 tropical_cyclone + heavy_rain + orographic；驗證項目為颱風路徑、強度與南台灣山區累積雨量對雨量站，另把「西南氣流的水氣通量」放在 diagnose（模型剖面）而非 verify，未取得任何資料。
+
+questions：
+1. 雨量站資料要用哪個來源（CWA 自動測站、CWA QPE 網格降水，或你自己的檔案）？
+2. 阿里山「4 天超過 2,700 mm」的累積起訖日期？
+3. 路徑與強度比對要用 IBTrACS 還是中央氣象署最佳路徑？

@@ -1,0 +1,3 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes (0 errors, 0 warnings).
+
+我理解這是一個理想化的 Weisman-Klemp 超大胞案例（`em_quarter_ss`、四分圓風切），類型標為 `idealized` 與 `mesoscale_convection`；因為是理想化模擬，沒有對應的實際觀測可驗證，所以 `verify` 留空，而把上升氣流螺旋度與模擬雷達回波的鉤狀結構列為 `diagnose`（模型自身產出的圖）。唯一一個問題是「跟原始論文的圖比對」沒有任何 obs kind 可以涵蓋：請問您能否提供該論文的圖或數值（檔案路徑），或您希望改以其他方式參考？

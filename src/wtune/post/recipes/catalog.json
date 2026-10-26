@@ -198,24 +198,24 @@
   "conv_radar_compare": {
     "zh": {
       "question": "模式的最大柱反射率與雷達合成反射率在位置與強度上是否一致？",
-      "how_to_read": "左為模式 mdbz、右為雷達合成反射率（NEXRAD Level II，經 Py-ART 網格化取柱最大值；2020-10-14 之後改用 MRMS），同一 dBZ 色階、同一格網（cdo remapnn），只畫兩者皆有值的格點；選取觀測 ≥35 dBZ 面積最大的時刻。",
+      "how_to_read": "左為模式 mdbz、右為雷達合成反射率（NEXRAD Level II，經 Py-ART 網格化取柱最大值；2020-10-14 之後改用 MRMS），同一 dBZ 色階、同一格網（cdo remapnn），只畫兩者皆有值的格點；選取觀測 ≥35 dBZ 面積最大的時刻。若專案沒有 MRMS／NEXRAD，會改用 agent 找來並通過 `wtune event obs-check` 的雷達資料（wtune-obs/1 的 refl_*.nc），來源見圖下標示。",
       "common_misreadings": "把雷達範圍外當成『無回波』——範圍外是缺值；雷達合成是掃描體積內插，模式 mdbz 是 Thompson/WSM 等方案的公式，兩者定義不完全相同。"
     },
     "en": {
       "question": "Do model max-column reflectivity and the radar composite agree in position and intensity?",
-      "how_to_read": "Left model mdbz, right radar composite (NEXRAD Level II gridded with Py-ART, column maximum; MRMS after 2020-10-14), one dBZ scale, one grid (cdo remapnn), matched cells only; the time with the most observed area >= 35 dBZ is shown.",
+      "how_to_read": "Left model mdbz, right radar composite (NEXRAD Level II gridded with Py-ART, column maximum; MRMS after 2020-10-14), one dBZ scale, one grid (cdo remapnn), matched cells only; the time with the most observed area >= 35 dBZ is shown. Without MRMS / NEXRAD the comparison uses radar data an agent fetched (wtune-obs/1 refl_*.nc, passed `wtune event obs-check`); the source tag names it.",
       "common_misreadings": "Treating cells beyond radar range as 'no echo' -- they are missing; the radar composite is a volume-scan interpolation while model mdbz is a scheme-dependent formula, so the two are not the same quantity."
     }
   },
   "conv_fss": {
     "zh": {
       "question": "回波型態在不同空間尺度下與雷達吻合到什麼程度？",
-      "how_to_read": "MET Grid-Stat NBRCNT FSS（觀測：雷達合成），鄰域寬度 1/3/5/9 格點（乘以模式格距換成公里），各取樣時刻依 FBS 彙整；虛線為有用技巧 0.5+f0/2。",
+      "how_to_read": "MET Grid-Stat NBRCNT FSS（觀測：雷達合成），鄰域寬度 1/3/5/9 格點（乘以模式格距換成公里），各取樣時刻依 FBS 彙整；虛線為有用技巧 0.5+f0/2。若專案沒有 MRMS／NEXRAD，會改用 agent 找來並通過 `wtune event obs-check` 的雷達資料（wtune-obs/1 的 refl_*.nc），來源見圖下標示。",
       "common_misreadings": "與降水 FSS 相同：稀有門檻的 f0 很小，FSS 偏低是構造性的；合成範圍外不計。"
     },
     "en": {
       "question": "How well does the echo pattern match the radar across spatial scales?",
-      "how_to_read": "MET Grid-Stat NBRCNT FSS (observation: radar composite), neighbourhood widths 1/3/5/9 points (x model grid spacing), pooled over the sampled times through the FBS terms; dotted line = useful skill 0.5 + f0/2.",
+      "how_to_read": "MET Grid-Stat NBRCNT FSS (observation: radar composite), neighbourhood widths 1/3/5/9 points (x model grid spacing), pooled over the sampled times through the FBS terms; dotted line = useful skill 0.5 + f0/2. Without MRMS / NEXRAD the comparison uses radar data an agent fetched (wtune-obs/1 refl_*.nc, passed `wtune event obs-check`); the source tag names it.",
       "common_misreadings": "As for precipitation FSS: rare thresholds have small f0 so low FSS is built in; cells outside radar range are excluded."
     }
   },
@@ -257,12 +257,12 @@
   },
   "precip_ets_fbias": {
     "zh": {
-      "question": "在 1/10/25/50/100 mm 各門檻下，模式對降水事件的命中與誤報如何？",
+      "question": "在 0.254/2.54/6.35/12.7/25.4/50 mm（0.01–2 英寸）各門檻下，模式對降水事件的命中與誤報如何？",
       "how_to_read": "MET Grid-Stat 的 CTS 線（觀測：NCEP Stage IV）：POD（PODY）、FAR、CSI 與頻率偏差 FBIAS（1 為完美），橫軸為門檻；n 為匹配格點數。",
       "common_misreadings": "在門檻高、事件很少時把 CSI 的高低當成穩定結論——樣本極小；FBIAS 遠大於 1 表示模式的強降水範圍過大或位置偏離。"
     },
     "en": {
-      "question": "How well does the model hit or falsely alarm precipitation events at 1/10/25/50/100 mm?",
+      "question": "How well does the model hit or falsely alarm precipitation events at 0.254/2.54/6.35/12.7/25.4/50 mm (0.01-2 in)?",
       "how_to_read": "MET Grid-Stat CTS lines (observation: NCEP Stage IV): POD (PODY), FAR, CSI and frequency bias FBIAS (1 = perfect) against threshold; n is the number of matched points.",
       "common_misreadings": "Trusting CSI at high thresholds where events are very few; FBIAS far above 1 means the model's heavy-rain area is too large or displaced."
     }
@@ -642,25 +642,25 @@
   "terrain_leeward_station": {
     "zh": {
       "question": "背風測站有沒有焚風（T2 上升、RH 下降、陣風增強）？",
-      "how_to_read": "本次未抓取測站觀測，因此此圖為缺項——需要在 project.yaml 指定一個背風測站點才能產生。",
-      "common_misreadings": "把「缺項」誤讀成焚風不存在；只是這一輪沒有設定測站，不代表模式沒有模擬出焚風訊號。"
+      "how_to_read": "測站：專案 input/obs/stations/ 的 NOAA ISD-Lite。沿 700 hPa 風向、山脊下風處 30–100 km、離剖面線 25 km 以內，選離山脊最近、有觀測且在模式內部的測站；畫最近格點的模式 T2、RH2、10 m 風速與觀測的時間序列。焚風訊號是 T2 上升、RH 下降、風速增強同時出現。",
+      "common_misreadings": "把單一測站的差異當成整個背風面的表現；也把缺項當成沒有焚風——缺項只表示背風窗內沒有可用測站，原因寫在缺項裡。"
     },
     "en": {
       "question": "Does a lee-side station show a foehn signal (T2 up, RH down, gustier wind)?",
-      "how_to_read": "No station observations were fetched this round, so this entry is an explicit gap -- a lee-side point must be named in project.yaml to produce it.",
-      "common_misreadings": "Reading the missing entry as \"no foehn occurred\"; it only means no station was configured this round."
+      "how_to_read": "Stations: NOAA ISD-Lite from the project's input/obs/stations/. The station nearest the crest in the lee window (30-100 km downstream of the ridge along the 700 hPa wind, within 25 km of the section line, with observations, inside the model interior) is picked; model T2, RH2 and 10 m wind speed at the nearest grid cell are plotted against its observations. A foehn shows as T2 up, RH down and wind up together.",
+      "common_misreadings": "Reading one station as the whole lee slope; reading a missing entry as \"no foehn\" -- it only means no usable station sat in the lee window, and the entry says why."
     }
   },
   "terrain_point_stat": {
     "zh": {
       "question": "模式的地形性天氣是否通過測站觀測驗證？",
-      "how_to_read": "本次未抓取測站觀測，MET Point-Stat 比對為缺項。",
-      "common_misreadings": "把缺項當成驗證失敗；只是沒有取得觀測資料，模式本身未被判定為錯誤。"
+      "how_to_read": "與 precip_stn_series／precip_stn_map 同一套流程（NOAA ISD-Lite、MET Point-Stat），只是用地形網域：上圖是 2 m 溫度、露點、10 m 風速與海平面氣壓的 ME（模式減觀測）與 RMSE 時間序列，另一張是各站平均偏差地圖（T2、10 m 風速、海平面氣壓，三者都沒有配對時改畫露點）。只用網域內部（interior）的測站；時段內沒有任何模式與觀測配對的變數不畫（例如 ISD-Lite 該時段溫度缺測時就沒有 T2 那一格）。降水也跑在同一個網域時不重複畫，改為一行 info。",
+      "common_misreadings": "把偏差全當成地形造成的誤差——沒有做測站高度修正，山區測站的 T2 偏差常來自模式地形高度與測站高度不同；測站少時統計不穩。"
     },
     "en": {
       "question": "Is the model's terrain-driven weather verified against station observations?",
-      "how_to_read": "No station observations were fetched this round, so the MET Point-Stat comparison is an explicit gap.",
-      "common_misreadings": "Reading the missing entry as a failed verification; it only reflects the absence of fetched observations."
+      "how_to_read": "The precip_stn_series / precip_stn_map pipeline (NOAA ISD-Lite, MET Point-Stat) run on the terrain domain: CNT ME (model minus obs) and RMSE of 2 m temperature, dew point, 10 m wind speed and MSLP against time, plus a map of each station's mean bias (T2, 10 m wind speed, MSLP; dew point when none of these has a pair). Only stations inside the interior mask are used, and a variable with no model-observation pair in the window has no panel (e.g. no T2 panel when ISD-Lite reports no temperature then). When precip runs on the same domain the figure is not repeated; an info note says so.",
+      "common_misreadings": "Reading the whole bias as terrain error -- no station-elevation correction is applied, so mountain stations' T2 bias often comes from the model terrain height differing from the station's; few stations make the statistics unstable."
     }
   },
   "moisture_pw": {
@@ -1026,12 +1026,12 @@
   "precip_stn_series": {
     "zh": {
       "question": "模式的 2 m 溫度、露點、10 m 風速與海平面氣壓相對地面測站偏差多少、如何隨時間變化？",
-      "how_to_read": "測站：NOAA ISD-Lite（NCEI）。MET ascii2nc 轉成點觀測，MET Point-Stat 每個有效時刻把模式（cdo remapbil 到經緯度格網）雙線性內插到測站，於模式內部多邊形內配對；CNT 的 ME（模式減觀測）與 RMSE 畫成時間序列。",
+      "how_to_read": "測站：NOAA ISD-Lite（NCEI）。MET ascii2nc 轉成點觀測，MET Point-Stat 每個有效時刻把模式（cdo remapbil 到經緯度格網）雙線性內插到測站，於模式內部多邊形內配對；CNT 的 ME（模式減觀測）與 RMSE 畫成時間序列。時段內沒有任何配對的變數不畫。",
       "common_misreadings": "把偏差當成模式物理誤差——沒有做測站高度修正；ISD 測站少（每時刻約十餘站）且集中在陸地/海岸，統計不穩；日夜循環常造成偏差的週期起伏。"
     },
     "en": {
       "question": "How large is the model's 2 m temperature, dew point, 10 m wind speed and MSLP error against surface stations, and how does it evolve?",
-      "how_to_read": "Stations: NOAA ISD-Lite (NCEI). MET ascii2nc converts them to point observations; MET Point-Stat interpolates the model (moved to lat/lon with cdo remapbil) bilinearly to each station at every valid time, paired inside the model interior polygon; CNT ME (model minus obs) and RMSE are plotted against time.",
+      "how_to_read": "Stations: NOAA ISD-Lite (NCEI). MET ascii2nc converts them to point observations; MET Point-Stat interpolates the model (moved to lat/lon with cdo remapbil) bilinearly to each station at every valid time, paired inside the model interior polygon; CNT ME (model minus obs) and RMSE are plotted against time. A variable with no pair in the window has no panel.",
       "common_misreadings": "Reading the bias as pure physics error -- no station-elevation correction is applied; only ~a dozen stations pair per time, mostly coastal/land; diurnal cycles make the bias oscillate."
     }
   },
@@ -1050,12 +1050,12 @@
   "conv_radar_scores": {
     "zh": {
       "question": "在 20/35/45 dBZ 下，模式對強回波的命中與誤報如何？",
-      "how_to_read": "MET Grid-Stat（觀測：雷達合成）各取樣時刻的 CTC 計數加總後算 POD、FAR、CSI、頻率偏差 FBIAS，橫軸為反射率門檻；時刻數見報告。",
+      "how_to_read": "MET Grid-Stat（觀測：雷達合成）各取樣時刻的 CTC 計數加總後算 POD、FAR、CSI、頻率偏差 FBIAS，橫軸為反射率門檻；時刻數見報告。若專案沒有 MRMS／NEXRAD，會改用 agent 找來並通過 `wtune event obs-check` 的雷達資料（wtune-obs/1 的 refl_*.nc），來源見圖下標示。",
       "common_misreadings": "把彙整分數當成單一時刻的表現；門檻越高事件越少，分數越不穩定。"
     },
     "en": {
       "question": "How well does the model hit or falsely alarm strong echoes at 20/35/45 dBZ?",
-      "how_to_read": "MET Grid-Stat (observation: radar composite): contingency counts (CTC) of every sampled time are summed, then POD, FAR, CSI and frequency bias FBIAS are formed, against reflectivity threshold; number of times in the report.",
+      "how_to_read": "MET Grid-Stat (observation: radar composite): contingency counts (CTC) of every sampled time are summed, then POD, FAR, CSI and frequency bias FBIAS are formed, against reflectivity threshold; number of times in the report. Without MRMS / NEXRAD the comparison uses radar data an agent fetched (wtune-obs/1 refl_*.nc, passed `wtune event obs-check`); the source tag names it.",
       "common_misreadings": "Taking the pooled score as the skill of a single time; higher thresholds have fewer events and less stable scores."
     }
   },
@@ -1105,6 +1105,162 @@
       "question": "Where does the precipitation bias lie, season by season?",
       "how_to_read": "DJF/MAM/JJA/SON model-minus-GPCP v2.3 precipitation maps (mm/day); seasons are weighted by days and partial seasons are never averaged.",
       "common_misreadings": "GPCP is 2.5 deg, so at about 50 km the bias near coasts and terrain is dominated by the resolution mismatch, not necessarily a model error."
+    }
+  },
+  "precip_agent_compare": {
+    "zh": {
+      "question": "模式累積降水的位置與強度，和 agent 找來的格點降水觀測相比如何？",
+      "how_to_read": "左為模式、右為觀測，同一色階、只畫兩者皆有值的匹配格點，限制在模式內部（去掉 spec_bdy_width 邊界區）。模式先以 cdo remapcon 轉到經緯度格網，再由 MET Grid-Stat 以 BUDGET 法重新網格化到觀測自己的格網。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "把衛星或雷達反演當成真值；格點降水產品在山區、海上與對流核心常有系統性偏差。觀測格網較粗時，模式的極值會被平滑掉。"
+    },
+    "en": {
+      "question": "How do model accumulated-precipitation position and amount compare with the gridded precipitation an agent fetched?",
+      "how_to_read": "Left model, right observation, one colour scale, matched cells only, inside the model interior (spec_bdy_width cells excluded). The model is moved to a lat/lon grid with cdo remapcon, then MET Grid-Stat regrids it (BUDGET) onto the observation's own grid. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Taking a satellite or radar retrieval as truth: gridded products are biased over mountains, oceans and convective cores. On a coarse observation grid the model's extremes are smoothed."
+    }
+  },
+  "precip_agent_diff": {
+    "zh": {
+      "question": "模式和 agent 找來的格點降水差在哪裡？",
+      "how_to_read": "模式減觀測，對稱色階（98 百分位），只在匹配格點。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "位置偏移會同時出現一正一負的偶極，不代表兩處各自有誤。"
+    },
+    "en": {
+      "question": "Where does the model differ from the gridded precipitation an agent fetched?",
+      "how_to_read": "Model minus observation, symmetric scale (98th percentile), matched cells only. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "A displaced rain area shows as a positive/negative dipole, not as two separate errors."
+    }
+  },
+  "precip_agent_scores": {
+    "zh": {
+      "question": "各雨量門檻下，模式和 agent 找來的格點降水的類別分數如何？",
+      "how_to_read": "MET Grid-Stat CTS：POD、FAR、CSI、頻率偏差，x 軸是門檻（mm）；n 是匹配格點數。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "高門檻的格點很少時分數變動很大；頻率偏差 1 只代表面積對，不代表位置對。"
+    },
+    "en": {
+      "question": "What are the categorical scores against the agent-fetched gridded precipitation at each threshold?",
+      "how_to_read": "MET Grid-Stat CTS: POD, FAR, CSI, frequency bias against threshold (mm); n is the number of matched cells. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Few cells above a high threshold make the score noisy; a frequency bias of 1 means the right area, not the right place."
+    }
+  },
+  "precip_agent_fss": {
+    "zh": {
+      "question": "在多大的空間尺度上，模式降水和 agent 找來的格點降水才算吻合？",
+      "how_to_read": "MET Grid-Stat NBRCNT 的 FSS 對鄰域寬度（以觀測格點數換算成 km），每條線一個門檻。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "km 換算用觀測格網的平均緯度間距，經度方向在高緯會較窄。"
+    },
+    "en": {
+      "question": "At what spatial scale does the model rain agree with the agent-fetched gridded precipitation?",
+      "how_to_read": "MET Grid-Stat NBRCNT FSS against neighbourhood width (observation cells converted to km), one line per threshold. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "The km scale uses the mean latitude spacing of the observation grid; cells are narrower in longitude at high latitude."
+    }
+  },
+  "precip_gauge_scatter": {
+    "zh": {
+      "question": "模式在雨量站位置的累積雨量，和 agent 找來的雨量站觀測相比如何？",
+      "how_to_read": "每點是一個雨量站一個累積時段：x 為觀測、y 為模式（MET Point-Stat 以雙線性內插到站點，限模式內部），虛線為 1:1。標題列出配對數、平均偏差（模式減觀測）、RMSE、相關係數。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "格點平均雨量和單點雨量本來就不同，強降雨時模式在點上偏低不一定是模式錯；雨量站在強風下會少接雨。"
+    },
+    "en": {
+      "question": "How does the model accumulation at the gauges compare with the rain gauges an agent fetched?",
+      "how_to_read": "Each dot is one gauge and one accumulation period: x observation, y model (MET Point-Stat, bilinear to the gauge, model interior only); dashed 1:1 line. The title gives pairs, mean bias (model minus obs), RMSE and correlation. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "A grid-cell mean is not a point total: a model low at the gauge in heavy rain is not necessarily a model error; gauges under-catch in strong wind."
+    }
+  },
+  "precip_gauge_map": {
+    "zh": {
+      "question": "哪些雨量站的模式偏差最大？空間上有沒有系統性的型態？",
+      "how_to_read": "每個圓點是一個雨量站，顏色為所有時段配對的平均『模式減觀測』，對稱色階（95 百分位）。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "站點稀疏時不要把單站偏差推到整個區域；山區站對模式地形高度很敏感。"
+    },
+    "en": {
+      "question": "Which gauges show the largest model error, and is there a spatial pattern?",
+      "how_to_read": "Each dot is a gauge coloured by its mean model-minus-observation over all periods; symmetric scale (95th percentile). The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Do not generalise one gauge to a region; mountain gauges are sensitive to the model's terrain height."
+    }
+  },
+  "cloud_ir_compare": {
+    "zh": {
+      "question": "模式的雲頂（OLR 換算亮溫）和衛星紅外亮溫在位置上是否一致？",
+      "how_to_read": "左為模式 OLR 換算的等效黑體溫度，右為衛星紅外窗區亮溫，都放在模式的經緯度網格上（觀測以 cdo remapcon 平均），同一色階（240 K 以下彩色），只畫兩者皆有值的格點；選取觀測 ≤220 K 面積最大的時刻。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "模式值是寬頻 OLR 代理量，在高雲上比窗區頻道偏暖，所以冷雲面積偏小不一定是模式少了雲；低雲與地表溫差小，這張圖幾乎看不出。"
+    },
+    "en": {
+      "question": "Do model cloud tops (OLR-derived Tb) and satellite IR brightness temperature agree in position?",
+      "how_to_read": "Left model OLR-derived equivalent blackbody temperature, right satellite IR window brightness temperature, both on the model lat/lon grid (obs averaged with cdo remapcon), one scale (colour below 240 K), matched cells only; the time with the most observed area <= 220 K is shown. The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "The model value is a broadband OLR proxy, warmer than a window channel over high cloud, so a smaller cold-cloud area is not necessarily missing cloud; low cloud barely differs from the surface here."
+    }
+  },
+  "cloud_ir_scores": {
+    "zh": {
+      "question": "以冷雲頂（亮溫 ≤ 門檻）為事件，模式的命中與誤報如何？",
+      "how_to_read": "MET Grid-Stat 類別分數，事件是亮溫 ≤ 240、220、210 K，所有時刻的列聯表合併後計算；Roebber 圖上越靠右上越好。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "OLR 代理量在高雲上偏暖，會讓頻率偏差系統性小於 1。"
+    },
+    "en": {
+      "question": "With cold tops (Tb <= threshold) as events, how do hits and false alarms look?",
+      "how_to_read": "MET Grid-Stat categorical scores for Tb <= 240, 220, 210 K, contingency counts pooled over all times; up and right is better on the Roebber diagram. The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "The OLR proxy runs warm over high cloud, which pushes the frequency bias below 1 systematically."
+    }
+  },
+  "cloud_ir_fss": {
+    "zh": {
+      "question": "冷雲頂在多大的空間尺度上和衛星吻合？",
+      "how_to_read": "MET Grid-Stat NBRCNT 的 FSS 對鄰域寬度（模式格點數 × 格距），每條線一個亮溫門檻，所有時刻合併。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "同上：寬頻代理量的偏暖會壓低高門檻的 FSS。"
+    },
+    "en": {
+      "question": "At what scale do model cold tops match the satellite?",
+      "how_to_read": "MET Grid-Stat NBRCNT FSS against neighbourhood width (model cells x grid spacing), one line per Tb threshold, pooled over all times. The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "As above: the warm broadband proxy lowers FSS at the coldest thresholds."
+    }
+  },
+  "stn_gust_scatter": {
+    "zh": {
+      "question": "模式陣風和測站陣風相比如何？",
+      "how_to_read": "每點是一個測站一個時刻：x 觀測、y 模式（MET Point-Stat 雙線性內插、限模式內部）。模式陣風有 WSPD10MAX 就用，否則用 NCEP UPP 的 CALGUST（PBL 頂風速往下混合）；方法寫在標題。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "測站陣風是數秒的峰值，模式是格點與輸出時刻的診斷值，模式偏低是常態；只在有陣風報告的時刻才有點（弱風時多數測站不報陣風）。"
+    },
+    "en": {
+      "question": "How do model gusts compare with station gusts?",
+      "how_to_read": "Each dot is one station and time: x observation, y model (MET Point-Stat, bilinear, model interior). The model gust is WSPD10MAX when written, else NCEP UPP CALGUST (PBL-top wind mixed down); the title names the method. The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "A station gust is a few-second peak, the model a grid-cell diagnostic at the output time, so a low model is normal; only times with a reported gust appear (most stations report none in light wind)."
+    }
+  },
+  "stn_gust_map": {
+    "zh": {
+      "question": "哪些測站的模式陣風偏差最大？",
+      "how_to_read": "每個圓點是一個測站，顏色為所有時刻的平均「模式減觀測」陣風，對稱色階（95 百分位）。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "配對數少的測站平均值不穩定；山區與海岸測站對格點地形與陸海遮罩敏感。"
+    },
+    "en": {
+      "question": "Which stations show the largest model gust error?",
+      "how_to_read": "Each dot is a station coloured by its mean model-minus-observation gust over all times; symmetric scale (95th percentile). The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "Means over few pairs are noisy; mountain and coastal stations are sensitive to model terrain and the land/sea mask."
+    }
+  },
+  "stn_vis_scatter": {
+    "zh": {
+      "question": "模式能見度和測站能見度相比如何？",
+      "how_to_read": "每點是一個測站一個時刻。模式能見度用 Stoelinga–Warner（1999，UPP CALVIS）由最低層雲水、雨、冰、雪的消光計算；模式與觀測都截在 16.1 km（ASOS 上限）。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "這個方法不含霾與氣膠，晴空時模式一律是上限值；它比的是霧、低雲與降水造成的低能見度。"
+    },
+    "en": {
+      "question": "How does model visibility compare with station visibility?",
+      "how_to_read": "Each dot is one station and time. Model visibility is Stoelinga-Warner (1999, UPP CALVIS) extinction from cloud water, rain, ice and snow at the lowest level; both are capped at 16.1 km (the ASOS maximum). The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "The method has no haze or aerosol, so clear air is always at the cap; it tests fog, low cloud and precipitation, not dry-air visibility."
+    }
+  },
+  "stn_vis_map": {
+    "zh": {
+      "question": "哪些測站的模式能見度偏差最大？",
+      "how_to_read": "每個圓點是一個測站，顏色為平均「模式減觀測」能見度（m），對稱色階（95 百分位）。觀測是 agent 找來、轉成 wtune-obs/1 並通過 `wtune event obs-check` 的資料集，名稱與授權見圖下標示。",
+      "common_misreadings": "截斷在 16.1 km 會讓晴天的偏差變成 0；大的負偏差代表模式在那裡起霧或降水太多。"
+    },
+    "en": {
+      "question": "Which stations show the largest model visibility error?",
+      "how_to_read": "Each dot is a station coloured by its mean model-minus-observation visibility (m); symmetric scale (95th percentile). The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
+      "common_misreadings": "The 16.1 km cap makes clear-sky bias zero; a large negative bias means too much model fog or precipitation there."
     }
   }
 }

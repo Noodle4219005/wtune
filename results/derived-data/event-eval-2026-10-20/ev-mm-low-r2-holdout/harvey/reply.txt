@@ -1,0 +1,3 @@
+I read the case as Hurricane Harvey (2017) stalling over southeast Texas: a tropical cyclone with extreme multi-day rainfall, verified against Stage IV gridded precipitation totals around Houston plus the storm track from best-track data. `event.yaml` now lists types `tropical_cyclone` and `heavy_rain`, storm Harvey (2017), region southeast Texas/Houston, and two verify items (`precip_total`, `track`); Stage IV and HURDAT2 are WTune defaults, so no extra observation requests or local files were needed. `wtune event check event.yaml` passes with 0 errors.
+
+Questions: none — the request was clear enough to proceed to Part 2 (the observation plan) when you want it.

@@ -1,0 +1,28 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 363092d6a3edfb30643575c4a43253a983725cdbbcdb0113d912b0fa27e7a1f5
+event:
+  value: 莫拉克颱風 2009 年 8 月台灣南部破紀錄豪雨
+  from: 莫拉克颱風（2009 年 8 月）在台灣南部造成破紀錄的雨量
+types:
+  - {value: tropical_cyclone, from: 莫拉克颱風}
+  - {value: heavy_rain, from: 造成破紀錄的雨量，阿里山 4 天超過 2,700 mm}
+  - {value: orographic, from: 南台灣山區的累積雨量}
+storms:
+  - {name: 莫拉克, year: 2009, from: 莫拉克颱風（2009 年 8 月）}
+region:
+  value: 台灣南部（含南台灣山區、阿里山）
+  from: 在台灣南部造成破紀錄的雨量，阿里山 4 天超過 2,700 mm
+verify:
+  - {value: track, from: 想看路徑和強度}
+  - {value: intensity, from: 想看路徑和強度}
+  - {value: precip_gauge, from: 南台灣山區的累積雨量跟雨量站比}
+diagnose:
+  - {value: 西南氣流的水氣通量剖面, from: 西南氣流的水氣通量也想看}
+obs_requests:
+  - {value: 雨量站逐時雨量, kind: rain_gauges, from: 累積雨量跟雨量站比}
+local_obs: []
+questions:
+  - 雨量站資料要用哪一個來源？（中央氣象署的自動測站逐時雨量、CWA QPE 網格降水，或使用者自己的檔案）
+  - 阿里山「4 天超過 2,700 mm」的累積區間起訖日期是哪兩天？
+  - 路徑與強度要比對的是西北太平洋（WPAC）最佳路徑資料（IBTrACS 或中央氣象署的颱風最佳路徑），可以確認要用哪一份嗎？

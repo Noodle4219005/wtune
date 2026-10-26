@@ -1,0 +1,3 @@
+我讀到的是 2012 年 7 月 21 日北京特大暴雨（城區與房山一天超過 400 mm），要跟中國氣象局的雷達拼圖比對對流的位置，雨量則用 CMA 的逐時站點資料。已依此產出 `event.yaml`（本目錄）：類型為 `heavy_rain` 與 `mesoscale_convection`，驗證項為 `reflectivity`、`precip_1h`、`precip_gauge`，並把 CMA 雷達拼圖與 CMA 逐時站點雨量列為 `obs_requests`（kind 分別為 radar、rain_gauges），無 local_obs。`wtune event check event.yaml` 已通過（0 error、0 warning）；依指示本回合未抓取任何資料。
+
+問題：文字中提到「城區和房山一天超過 400 mm」，但比對用的是逐時站點資料，若還想比對 24 小時累積雨量（`precip_24h`），請告知是否要加入。

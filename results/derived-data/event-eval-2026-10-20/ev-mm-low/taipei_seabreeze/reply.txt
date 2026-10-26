@@ -1,0 +1,8 @@
+我讀了 event.txt，產生了 `event.yaml`（`wtune event check event.yaml` 通過，0 error／0 warning）。
+
+理解到的內容：這是台北夏季午後的海風—都市對流案例，類型取 `sea_breeze`、`urban`、`mesoscale_convection`；驗證項目為海風鋒面進來的時間（wind10）、都市熱島（t2）與午後雨量分布（precip_gauge），另外把盆地內雷陣雨的結構列為 model-only 的 diagnose。CWA 局屬站 10 分鐘資料以 `local_obs` 路徑 `/data/cwa_10min/`、kind 為 `stations` 引用，沒有任何 obs_requests（也未抓取任何資料）。
+
+questions:
+1.這是台北哪一年的夏季午後案例？event.txt 沒有指定日期。
+
+2. `/data/cwa_10min/` 的內容是否包含 10 分鐘雨量與風速/T2 欄位？若只有部分欄位，Part 2 轉換時需要你補充（雨量累積或瞬時值的定義）。

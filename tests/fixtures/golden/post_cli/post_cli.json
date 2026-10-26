@@ -242,7 +242,12 @@
   "fetch": {
    "rc": 0,
    "stderr": "",
-   "stdout": "usage: wtune post fetch [-h] [--list]\n                        {era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n                        ...\n\npositional arguments:\n  {era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n    era5                ERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the\n                        synoptic comparison -> <project>/input/era5/\n    era5_monthly        ERA5 monthly means (t2m, sst, tp) aggregated from ARCO\n                        hourly data -> <project>/input/era5/monthly/\n    gpcp_monthly        GPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI)\n                        -> <project>/input/obs/gpcp_monthly/\n    igra                NOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for\n                        stations inside the WRF domain\n    mrms                NOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-\n                        pds; 2020-10-14 onward only)\n    nexrad              NEXRAD Level II volumes (AWS unidata-nexrad-level2)\n                        nearest each hour, per radar\n    stage4              NCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the\n                        IEM archive\n    stations            NOAA ISD-Lite hourly surface stations (T, Td, MSLP,\n                        wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --list                list fetch modules: NAME, HELP, coverage_time\n"
+   "stdout": "usage: wtune post fetch [-h] [--list]\n                        {bdeck,era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n                        ...\n\npositional arguments:\n  {bdeck,era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n    bdeck               NHC ATCF best-track b-deck of the project's storm\n                        (project.yaml storm:)\n    era5                ERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the\n                        synoptic comparison -> <project>/input/era5/\n    era5_monthly        ERA5 monthly means (t2m, sst, tp) aggregated from ARCO\n                        hourly data -> <project>/input/era5/monthly/\n    gpcp_monthly        GPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI)\n                        -> <project>/input/obs/gpcp_monthly/\n    igra                NOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for\n                        stations inside the WRF domain\n    mrms                NOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-\n                        pds; 2020-10-14 onward only)\n    nexrad              NEXRAD Level II volumes (AWS unidata-nexrad-level2)\n                        nearest each hour, per radar\n    stage4              NCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the\n                        IEM archive\n    stations            NOAA ISD-Lite hourly surface stations (T, Td, MSLP,\n                        wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --list                list fetch modules: NAME, HELP, coverage_time\n"
+  },
+  "fetch-bdeck": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch bdeck [-h] --project PROJECT [--run-dir RUN_DIR]\n                              [--start START] [--end END] [--bbox BBOX]\n                              [--storm STORM] [--nc-cache DIR]\n\nNHC ATCF best-track b-deck of the project's storm (project.yaml storm:)\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; data goes to its input/obs/bdeck/\n  --run-dir RUN_DIR  run whose wrfout gives the time window and region\n  --start START      override the window start (UTC, YYYY-MM-DD_HH)\n  --end END          override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX        override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --storm STORM      ATCF id (AL142016) or HURDAT2 name; default project.yaml\n                     storm.id\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
   },
   "fetch-era5": {
    "rc": 0,
@@ -395,6 +400,18 @@
    "times": "'t1,t2'",
    "vars": "'a'",
    "workers": "4"
+  },
+  "fetch-bdeck": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'bdeck'",
+   "list": "False",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "start": "None",
+   "storm": "None"
   },
   "fetch-era5": {
    "bbox": "None",

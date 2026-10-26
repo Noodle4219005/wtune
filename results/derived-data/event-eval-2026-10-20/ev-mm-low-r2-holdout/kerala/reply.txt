@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes (0 errors, 0 warnings).
+
+我理解的是：這是 2018 年 8 月印度喀拉拉邦的季風豪雨與洪水事件，西高止山迎風面連續多天大雨所造成；事件類型標為 heavy_rain、monon/季風與 orographic。要驗證的項目為逐日雨量（precip_24h）、累積雨量（precip_total）的空間分布，以及 850 hPa 西南季風強度（以 upper_air／再分析比對），沒有颱風所以 storms 為空，也沒有需要 WTune 另外抓取的資料來源。
+
+問題：850 hPa 西南季風強度我放在 verify（與再分析／觀測比對），若您其實只想看模式本身的風場結構（例如剖面圖），我可以改放到 diagnose。

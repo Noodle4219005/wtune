@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes with 0 errors. I read the case as a January 2023 atmospheric-river series over California (types: atmospheric_river, heavy_rain, orographic), with three verification items: IVT against ERA5, 24 h precipitation against Stage IV/gridded and gauges, and Sierra Nevada snow level (mapped to `snow_depth`).
+
+Questions:
+- Should the snow level be compared with observed snow depth/snowfall, or is it just a model figure (e.g. 0 °C wet-bulb height)?
+- Which specific storm/date(s) in January 2023 should the run cover — "series" names none, and no storm id is given.

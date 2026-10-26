@@ -9,8 +9,9 @@ import shlex
 import time
 from typing import Any, Callable, Optional
 
+import wtune.stopping
 from ._deps import sweep, wp, tune
-from .common import ADIOS2_IO_FORM, UNSET, WRF_FMT, Record, RunError, _fmt
+from .common import ADIOS2_IO_FORM, UNSET, WRF_FMT, Record, RunError, RunStopped, _fmt
 from .context import RunContext
 from .geometry import Geometry, step_time
 from .namelist import render_segment_namelist
@@ -20,6 +21,8 @@ from .sbatch import render_segment_sbatch
 from .staging import (merge_adios2_xml, output_dir_names, precreate_output_dirs,
                       remove_empty_output_dirs, render_adios2_restart_xml, restart_files,
                       setup_segment_dir)
+from .space import (_fmt_bytes, drop_older_restarts, gzip_rsl, remove_computed_tables,
+                    shrunk_outputs)
 
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
 
@@ -54,6 +57,7 @@ class AttemptRecord(Record):
     resume_time: Any = UNSET           # the restart the next attempt resumed from
     no_resume_reason: Any = UNSET
     stalled: Any = UNSET               # why StallWatch cancelled the job
+    shrunk: Any = UNSET                # history outputs far smaller than their stream's largest
 
 
 @dataclasses.dataclass
@@ -87,7 +91,7 @@ def _attempt_namelist(ctx: RunContext, k: int, seg: Segment, att: Attempt,
                                    ctx.plan.restart.set_min, ctx.opts.restart_io_form,
                                    time_step=time_step, io_streams=inputs.io_streams,
                                    per_record_edits=inputs.per_record_edits,
-                                   resumed=bool(att.resume))
+                                   resumed=att.src_dir is not None)
 
 
 def _restart_links(geo: Geometry, k: int, att: Attempt, start: str) -> list[str]:
@@ -144,7 +148,8 @@ def _submit_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, seg_dir
     script = render_segment_sbatch(
         seg_dir, k, seg.config, limit,
         "wtrun-%s-s%d" % (os.path.basename(ctx.plan.case_dir), k),
-        env_source=ctx.opts.env_source, campaign_dir=ctx.opts.campaign_dir)
+        env_source=ctx.opts.env_source, campaign_dir=ctx.opts.campaign_dir,
+        thompson_cache=ctx.opts.thompson_cache)
     spath = os.path.join(seg_dir, "segment.sbatch")
     with open(spath, "w") as f:
         f.write(script)
@@ -213,11 +218,21 @@ class StallWatch:
             self.cancel(self.job_id)
 
 
+def stop_before_submit() -> None:
+    """No segment is submitted once the user stopped the run."""
+    if wtune.stopping.STOP["reason"]:
+        raise RunStopped("%s; no further segment submitted" % wtune.stopping.STOP["reason"])
+
+
 def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: bool) -> Outcome:
     """Stage, submit, wait for and inspect one attempt; its record goes into the report."""
     geo, side, run = ctx.geo, ctx.sidecar, ctx.runners
     seg_dir, out_names = _stage_attempt(ctx, k, seg, att)
+    stop_before_submit()
     job_id = _submit_attempt(ctx, k, seg, att, seg_dir)
+    ctx.state.jobs.append(job_id)
+    if ctx.state_file:
+        wtune.stopping.write_state(ctx.state_file, "run", ctx.state.jobs)
     rec = AttemptRecord(dir=seg_dir, job_id=job_id, time_step=att.time_step,
                         submitted_utc=dt.datetime.utcnow().isoformat())
     if att.resume:
@@ -230,12 +245,22 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     side_poll = side.watcher(seg_dir, job_id, seg.config) if side else None
 
     def on_poll(state):
+        if wtune.stopping.STOP["reason"]:
+            if run.scancel_runner:
+                run.scancel_runner(job_id)
+            rec.state = "CANCELLED"
+            raise RunStopped("%s; segment %d job %s cancelled"
+                             % (wtune.stopping.STOP["reason"], k, job_id))
         stall(state)
         if side_poll:
             side_poll(state)
-    state, elapsed = wait_for_job(
-        job_id, run.sacct_runner, ctx.opts.sacct_cmd, ctx.opts.poll_interval, run.sleep, run.log,
-        on_poll=on_poll)
+    try:
+        state, elapsed = wait_for_job(
+            job_id, run.sacct_runner, ctx.opts.sacct_cmd, ctx.opts.poll_interval, run.sleep,
+            run.log, on_poll=on_poll)
+    finally:                                        # a wtune stop or Ctrl-C raises out of the wait
+        if not ctx.opts.thompson_cache:
+            remove_computed_tables(seg_dir)
     if stall.why:
         rec.stalled = stall.why
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
@@ -247,4 +272,24 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     rec.sum_d01_elapsed_s, rec.n_d01_steps = snap.get("sum_d01_elapsed_s"), snap.get("n_d01_steps")
     rec.restart_ok = is_last or all(restart_files(seg_dir, seg.end, geo.max_dom).values())
     rec.ok = snap.get("status") == "done" and rec.restart_ok
+    if rec.ok:                      # side.job_ended above waited for any in-job conversion
+        shrunk = shrunk_outputs(seg_dir, out_names)
+        if shrunk:
+            rec.shrunk, rec.ok = shrunk, False
+    if rec.ok:                      # a failed attempt keeps its rsl plain for the diagnosis
+        n, before, after = gzip_rsl(seg_dir)
+        if n:
+            run.log("segment rsl: %d files of ranks > 0 gzipped, %s -> %s"
+                    % (n, _fmt_bytes(before), _fmt_bytes(after)))
+    if rec.ok and ctx.plan.restart.set_min is not None:
+        # restarts WTune asked for (not the case's): only a finished attempt, since a failed
+        # one may resume from an older set than the newest (resume_point)
+        is_bp = sweep.campaign_configs._import_wtune_bp().is_bp
+        freed = drop_older_restarts(seg_dir, geo.max_dom, is_bp)
+        for r in seg.attempts[:-1]:              # failed attempts a resume started from
+            if r.resume_time is not UNSET and r.resume_time:
+                freed += drop_older_restarts(r.dir, geo.max_dom, is_bp, keep=r.resume_time)
+        if freed:
+            run.log("older restart sets deleted (%s); the newest valid one is kept"
+                    % _fmt_bytes(freed))
     return Outcome(seg_dir, rec, state, elapsed, snap, rec.ok)

@@ -170,11 +170,12 @@ class Sidecar:
             self.save()
 
     def _drop_older_restarts(self, seg_dir: str) -> None:
-        """A resume starts from the newest valid restart of the dir (wtune.resume reads the
-        disk), so the older valid sets only take space."""
+        """While the job runs, all but the two newest valid sets: a resume cannot use the newest
+        when the job died before stepping past it, or when it is the segment end
+        (wtune.resume.resume_point), and then takes the one before."""
         mine = sorted((r for r in self.rec["valid_restarts"]
                        if r["dir"] == seg_dir and not r.get("deleted")), key=lambda r: r["time"])
-        for r in mine[:-1]:
+        for r in mine[:-2]:
             for d in range(1, self.max_dom + 1):
                 for p in glob.glob(os.path.join(seg_dir, "wrfrst_d%02d_%s*"
                                                 % (d, glob.escape(r["time"])))):

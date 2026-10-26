@@ -1,0 +1,7 @@
+已完成 Part 1，`event.yaml` 已通過 `wtune event check`（0 errors）。
+
+我理解到的內容是：你要檢查這次 WRF 模擬的溫度準不準，所以我在 `verify` 放了 `t2`（對照地面站觀測），`diagnose`、`obs_requests`、`local_obs`、`storms` 都留空，因為文字裡沒有提到任何天氣現象、資料來源或檔案。由於原文沒有任何地名、日期或現象名稱，我也沒有填 `types` 和 `region`。
+
+questions:
+- 這次模擬的是什麼天氣事件（例如颱風、梅雨豪雨、鋒面、寒流）？這會決定 `types` 與觀測計畫。
+- 想比較的是哪一種溫度：2 公尺氣溫（t2）、最高溫（t2_max）還是最低溫（t2_min）？

@@ -1,0 +1,5 @@
+已完成 Part 1：`event.yaml` 已建立，`wtune event check event.yaml` 通過（0 error, 0 warning），並用 `wtune event plan` 確認需求列。
+
+我理解的是：夏季午後台北的熱對流案例——上午海風從淡水河口進入盆地、下午盆地內午後雷陣雨；types 設為 `sea_breeze`、`mesoscale_convection`、`urban`，區域為台北盆地與淡水河口。「午後雨量分布」以 `precip_gauge` 比對（測站雨量），「都市熱島」以 `t2` 比對，「海風鋒面進來的時間」列為模式圖（diagnose），使用者自備的 CWA 10 分鐘資料放在 `local_obs` 的 `/data/cwa_10min/`（雨量與測站兩種 kind），沒有任何 TC 風暴。
+
+questions：都市熱島是否要用 CWA 測站 10 分鐘溫度來比對模型的 2 公尺溫度？另外該資料夾同時註冊為 `rain_gauges` 與 `stations` 兩種 kind，若它只含雨量欄位我會在 Part 2 只保留其中一種。

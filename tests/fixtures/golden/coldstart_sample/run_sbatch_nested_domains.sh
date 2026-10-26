@@ -74,7 +74,7 @@ if [ $GEO_CACHED = 1 ]; then
   echo 'Successful completion of geogrid (cached)' > geogrid.log.cached; rc=0
 else
 echo "=== geogrid.exe ($(date -u +%FT%TZ)) ==="
-mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./geogrid.exe
+if nm -D --undefined-only ./geogrid.exe 2>/dev/null | grep -qi mpi_init; then mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./geogrid.exe; else ./geogrid.exe; fi
 rc=$?; pkill -u "$USER" -x geogrid.exe 2>/dev/null
 fi
 GEO_EM_EXPECTED=(geo_em.d01.nc geo_em.d02.nc geo_em.d03.nc)
@@ -133,7 +133,7 @@ run_window() {
   fi
 
   echo "=== window $k: metgrid.exe ($(date -u +%FT%TZ)) ==="
-  mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./metgrid.exe
+  if nm -D --undefined-only ./metgrid.exe 2>/dev/null | grep -qi mpi_init; then mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./metgrid.exe; else ./metgrid.exe; fi
   rc=$?; pkill -u "$USER" -x metgrid.exe 2>/dev/null
   for f in "${expected_met[@]}"; do [ -f "$f" ] || missing_met+=("$f"); done
   if [ $rc -ne 0 ] || [ ${#missing_met[@]} -gt 0 ] || ! grep -q 'Successful completion' metgrid.log* 2>/dev/null; then
@@ -166,8 +166,8 @@ run_window() {
   ln -sf ../real/wrfbdy_d01 .
   shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob
   [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .
-  TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "$WRF_TREE/main/wrf.exe" | sha1sum | cut -c1-16)"
-  shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
+  TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(sha1sum < "$(readlink -f "$WRF_TREE/main/wrf.exe")" | cut -c1-16)"
+  shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$f" ] || continue; [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
   python3 "$TOOL" fix-wrf-namelist --plan "$PLAN" --win "$k" --nproc-x 12 --nproc-y 12 --numtiles 4 || return 1
   export OMP_NUM_THREADS=1
   unset OMP_PLACES OMP_PROC_BIND
@@ -182,7 +182,7 @@ run_window() {
   pkill -u "$USER" -x wrf.exe 2>/dev/null
   [ $rc -ne 0 ] && return 1
   shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob
-  for f in "${TBLS[@]}"; do [ -L "$f" ] || { mkdir -p "$TBL_CACHE" && [ -e "$TBL_CACHE/$f" ] || cp -f "$f" "$TBL_CACHE/"; }; done
+  for f in "${TBLS[@]}"; do [ -L "$f" ] || [ -e "$TBL_CACHE/$f" ] || { mkdir -p "$TBL_CACHE" && cp -f "$f" "$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$" && mv -f "$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$" "$TBL_CACHE/$f"; }; done
   LAST_WRF_STATUS="ok"
   return 0
 }

@@ -3,6 +3,290 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.9.3 — 2026-10-26
+
+**`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or
+project folder ("the 2021 Zhengzhou rain; check hourly and 24 h rain and the surface wind; my
+CMA gauges are in ~/obs/cma_rain.csv"). An agent following the new `wtune-event` skill turns it
+into `event.yaml`, quoting the sentence behind every value. `wtune event check` rejects a quote
+that is not in `event.txt`, a type or variable outside `wtune event vocab`, a storm id the text
+does not state, a stale `source_sha256`, a tropical cyclone with no storm and no question, and
+an `idealized` case that is also compared with observations. `wtune event plan` then says, for
+each comparison, whether a fetch module gets the data (`module`), the agent has to find it
+(`agent_fetch`: radar and rain outside the US, gusts, satellite IR, non-NHC best tracks), it is
+the user's file (`local`), WTune has no such comparison (`unsupported`), or it is a model-only
+figure. 22 event types; the eval set (17 cases plus 8 held-out) and the scripts that score a
+model on it are in `tests/fixtures/events*` and `campaign/event_eval/`.
+
+**`wtune post` reads observations an agent fetched.** The agent converts what it finds to
+`wtune-obs/1` in `<project>/input/obs/<name>/` (a `provenance.json` with the source, licence and
+sha256 of every file); `wtune event obs-check` checks names, units, ranges, axes, UTC times and
+checksums, and warns on magnitudes that usually mean a unit, scale or coverage mistake (no rain
+anywhere, no radar cell outside coverage, gusts under 2 m/s). The recipes use only folders
+without errors:
+
+| kind | file | compared in |
+|---|---|---|
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc` | precip: Grid-Stat on the dataset's grid, files summed to the longest window (`precip_agent_*`) |
+| `rain_gauges` | `gauges.csv` | precip: Point-Stat per period (`precip_gauge_*`) |
+| `radar` | `refl_YYYYMMDDHHMM.nc` | convection: the radar Grid-Stat when there is no MRMS / NEXRAD |
+| `satellite_ir` | `irtb_YYYYMMDDHHMM.nc` | cloud: model OLR-derived Tb vs IR, cold tops <= 240/220/210 K (`cloud_ir_*`) |
+| `stations_extra` | `stations_extra.csv` | precip: gust and visibility Point-Stat (`stn_gust_*`, `stn_vis_*`) |
+
+WRF writes no gust or visibility: the model gust is `WSPD10MAX` when the run has it, else NCEP
+UPP's CALGUST; visibility is Stoelinga-Warner (1999) at the lowest level, model and obs capped
+at 16.1 km. Rain-gauge point obs are named `APCP_<hours>`: MET 12.1 Point-Stat rejects a point
+obs named `APCP` by name and never matches an `A6` level against ascii2nc's level in seconds.
+Checked on f1-arm with Matthew: CMORPH, ISD 6 h totals, the IEM NEXRAD N0Q mosaic, GridSat-B1
+and NCEI Global Hourly gusts and visibility.
+
+**`post preview` writes the values it draws.** Each preview figure gets a netCDF file of the
+plotted fields in `post/preview/data/`, named like the figure in `figures/` (SLP and 10 m wind,
+terrain per domain, Stage IV total, ERA5 z500); the best track stays `tc/best_track.dat`.
+
+**`prep wps` checks the static data first.** It looks for the WPS static data (`machine.geog`,
+or `WPS_GEOG`) before downloading the forcing, and a download that still misses files after its
+retries is an error message, not a traceback. Run on f1-arm: WPS and real.exe for a 12 h window
+(matthew, `geog_data_res='lowres'`).
+
+**Serial WPS under `mpirun`.** geogrid and metgrid were always started with `mpirun -np <ppn>`;
+a serial WPS build (f1-arm's) then ran ppn independent copies that all wrote the same file, and
+the job failed. They now run under `mpirun` only when the executable calls `MPI_Init`. Linking
+`libmpi` is no evidence: a serial build gets it through a parallel netCDF/HDF5.
+
+**MET on RHEL.** `bin/install-postproc.sh` failed after building netcdf-cxx4 where CMake installs
+to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
+installed on f1-arm; the guide has the steps.
+
+**`wtune run` checks disk space.** Before the first job it estimates the history and restart
+output (frames x a conservative 40 3-D fields per frame) and refuses to submit when that does not
+fit the space writable at `--out`; on GPFS this is the user's quota headroom, not `df`
+(`--no-space-check` overrides); the estimate includes the BP conversion of inputs not yet in
+the cache (uncompressed netCDF size: elevconv's 2.0 GB became 7.9 GB) and one per-segment input
+copy. After each job it compares every history frame with the largest
+of its stream: past the f1-arm soft quota WRF+ADIOS2 printed `SUCCESS COMPLETE WRF` while d02
+frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a segment now fails.
+The plan also warns when the case sets `debug_level` above 0: sc26p1 (`debug_level=50`) wrote
+~31 MB of `rsl.out` per rank per 6 model hours, which the estimate does not count.
+
+**A failed segment names the WRF FATAL.** The error now quotes the first `FATAL CALLED` message of
+any rank; c34 ended at 02:44 when WRF-Fire stopped the model ("Fire has reached domain boundary",
+rank 39 only) and the report said only "warnings none".
+
+**`wtune run` segments get the probes' environment.** The segment job sourced the site file but
+never called its `site_env`, which on f1-arm pins Open MPI's TCP to the IPoIB network. Multi-node
+segments therefore talked over the 1 Gb/s management network: c34 on 5 nodes ran 1.52 s per d01
+step against the 0.246 s tune measured with the same layout, hit its time limit and was resumed.
+
+**`--compress-history` with more than one segment.** After every segment had passed, deleting
+the run's own restarts removed the link a later segment started from and then tried to size it:
+the run ended `failed` with `FileNotFoundError` (f1-arm severe2023, 2 segments).
+
+**`wtune run` after `wtune tune -O0`.** `-O0` writes its unmeasured layout as `best`; `run`
+looked only for a measured winner and asked for `--nodes/--nx/--ny`. It now takes the `-O0`
+layout.
+
+**One station verification per domain.** When the terrain domain is also the finest domain,
+`terrain_point_stat` ran the same MET Point-Stat as `precip_stn_series` and drew the same figure
+twice. It is now left out with an info note pointing to the precip figures. The
+`precip_ets_fbias` caption named thresholds 1/10/25/50/100 mm; it now names the ones used,
+0.254/2.54/6.35/12.7/25.4/50 mm.
+
+**Tune and run share one BP input conversion.** In a project, `wtune run` now uses the tune's
+cache `<project>/input/bp-cache/<case>/<key>/` (or `$WTUNE_BP_CACHE`, as the tune does) instead
+of its own `<project>/input/bp/`; marshall held the same 3 GB conversion twice. A project whose
+`input/bp/` already has a conversion keeps using it until the tune's cache has one; the next
+tune converts once into the cache, and `input/bp/` can then be deleted once no run of the
+project is in progress.
+
+**`wtune tune` checks disk space.** Before any job, the node pre-flight included, it estimates
+the BP conversion of the case's inputs not yet in the cache and stops when it does not fit the
+space writable there (GPFS quota headroom; `--no-space-check` overrides). When a job's per-record
+input copy (reflinks, or one full copy) would not fit, the job reads the shared cache instead,
+with a warning.
+
+**The confirm round includes the fastest measured layout** that has a configuration. It took the top 3 by predicted
+run time and the anchor; the prediction does not see `dist`, so on f1-arm conus12 a cyclic
+layout measured at 0.132 s/step was never confirmed against block layouts at 0.187.
+
+**Node pre-flight on shared clusters.** A probe the scheduler refuses or does not start within
+30 s (`srun --immediate=30`: a reservation, a busy node, a per-user submit limit) no longer
+excludes the node as unhealthy; it is kept and reported as not probed. A probe that times out
+has its job cancelled by name and user (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
+job behind on scc. A refusal that names an invalid account, partition or QOS is reported as a configuration error, not as a busy node.
+
+**`wtune run --thompson-cache`.** Every segment linked no `qr_acr_q*.dat` / `freezeH2O.dat`, so
+Thompson recomputed them at each start (~70 s on scc). With `--thompson-cache` (also on
+`wtune submit`) segments link them from the per-build cache and add the ones a completed segment
+computed. It is off by default: on f1-arm the tables take under a second (matthew: 20 s for the
+segment that computed them, 21 s for the one that read them). Without it `wtune run` deletes the
+tables WRF computed into a segment once its job has ended, however it ended; they are 357 MiB and
+were kept in every segment directory.
+
+**One Thompson table cache per build, keyed by the `wrf.exe` contents.** The tune's probes kept
+their tables in `$OUT/thompson_tables`, shared by every build, and the coldstart probes and
+`wtune run` keyed theirs by the sha1 of the `wrf.exe` path, so a rebuild in place with other flags
+kept the old build's tables. All of them, and `wtune calibrate`, now use
+`~/wtune-runs/thompson_tables/<sha1 of wrf.exe>/` (`$WTUNE_TABLE_CACHE` moves it). The coldstart
+probes' copy of the link step also linked a `freezeH2O.dat` the cache did not have, which makes
+WRF fail writing the table (the same defect as `wtune run`'s below). Every job now caches a
+table through a temporary name in the cache, so a concurrent job never links a partial file; the
+tune's probes cache only from a run that got past WRF's init (one that died writing a table
+cached it before), and `wtune calibrate` also caches what a completed run computed. After the
+upgrade every build starts with an empty cache: run a tune before `wtune calibrate` on a new
+build, or the calibration runs submitted together all compute the tables and are excluded from
+the fit. The old `$OUT/thompson_tables` and the path-keyed coldstart directories are no longer
+read and can be deleted.
+
+**Probe ledgers carry the build.** Each ledger row's notes get `build=<sha1 of wrf.exe>`. The
+s/step estimate a tune sizes its first measurements with (round 0, the node-search finalists,
+the `-O0` cold-start prediction) used every row of the case on the machine, so a vanilla and a
+tuned-flag build were averaged together; it now uses the rows of the same build, then rows
+written before this change, never another build's, and so does the `-O3` cross-case prior. The
+tune takes the build from the tree its jobs will run (`env.sh`, then the site file's `$W`) and
+prints it; with no `wrf.exe` there it says that every build's rows are used.
+
+**A project's probes stay in the project.** Inside a project the probes write their ledgers and
+WRF run directories to `<project>/probes/` (`--ledger-dir` still wins; outside a project,
+`$WTUNE_CAMPAIGN_OUT`, else `~/wtune-runs/campaign`). The tune exports `WTUNE_CAMPAIGN_OUT` and
+the site files use it for `$OUT`, so the probes write where the tune reads: f1's site file wrote
+to `~/wrf-bench/wscore/campaign` while the tune read `~/wtune-runs/campaign`. Ledgers of earlier
+tunes in `~/wtune-runs/campaign` are still read for the estimate and the `-O3` prior.
+
+**`wtune predict` uses the machine's cores per node.** The calibration file's `cores_per_node`
+came first, so on f1-arm (144 cores, no calibration of its own) scc's 72 made predict warn that
+90 ranks per node exceed 72 cores. The machine setting now wins when it is set.
+
+**ISD-Lite moved to AWS.** NCEI's `pub/data/noaa/isd-lite/` now answers 301 with the
+`noaa-isd-pds` bucket's index page, and `wtune post fetch stations` saved that page as every
+station's `.gz` (f1-arm c34: `terrain_point_stat` and `terrain_leeward_station` failed with "Not a
+gzipped file"). It now fetches from `noaa-isd-pds.s3.amazonaws.com/isd-lite/data/`, skips a
+download that is not gzip, and replaces such a file left by an earlier fetch.
+
+**`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
+every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote
+17.6 GB in 22 minutes). A failed segment keeps them plain for the diagnosis. When the quota is
+full the gzip stops with a warning and the run goes on.
+
+**`wtune submit` passes the run's options.** `--resume`, `--checkpoint-minutes` and
+`--stall-minutes` go to `wtune run`; `--no-space-check` goes to both tune and run.
+
+**Launch lines in reports.** The tune report and `wtune predict` printed scc's
+`mpirun ... ppr:N:node` on every machine; they now print the command the site file's
+`site_launch` builds (f1-arm: `ppr:45:numa`).
+
+**Terrain captions.** `terrain_point_stat` and `terrain_leeward_station` said no station
+observations were fetched; they now describe the ISD-Lite / MET Point-Stat figures and the lee
+station rule (30-100 km downstream of the crest, within 25 km of the section line).
+
+**`-O0` time breakdown.** The whole run from `wtune predict` carries predict's own init time, but
+the breakdown subtracted the 120 s startup constant from it, so a short case showed a negative
+compute (sc26p2: `compute -20s`). Compute is now predict's compute, and init the rest.
+
+**A node count that measured nothing is reported.** A probe that timed out or failed (isc21 on
+scc: N=1, rc=124) was only "submitted" in the log, and the table's speedup and efficiency then
+started from N=2 without saying so. The sweep now prints the failed N with its job and state,
+and the log and report say which N speedup and efficiency are relative to.
+
+**Older checkpoints are deleted without `--compress-history` too.** `--resume` (on by default)
+writes a restart every 1/8 of the run; only `--compress-history` deleted the older ones, so a
+one-segment run kept about 8 sets. After an attempt that finished, the restart sets WTune asked
+for (its checkpoints, or `--checkpoint-minutes`) are cut to the newest valid one, which the next
+segment starts from; the case's own restart interval is not touched. A failed attempt keeps all
+of them until its resume finished, then only the set the resume started from: a resume cannot use
+the newest set when the job died before stepping past it, or when it is the segment end, and
+takes the one before. For the same reason `--compress-history` now keeps
+the two newest sets while a job runs, not one.
+
+**`use_adaptive_time_step`.** The step count was run length / `time_step`, though WRF picks d01's
+dt each step. `wtune predict` now gives the bounds from `min_time_step` and `max_time_step` (as
+WRF's `start_em.F`: -1 is NINT(3 or 8 x min(dx, dy) in km) s, `*_den` divides), widens the range
+to them and says so; `wtune tune` prints the same warning. They are approximate: WRF shortens dt
+below the minimum to land on output times.
+
+**`wtune run` converts its inputs on a compute node.** The netCDF -> BP conversion ran in the
+`wtune run` process, on the login node (tens of GB for dorian). When the BP cache is not current,
+`wtune run` now submits one conversion job (`<out>/nc2bp/`), waits for it, and stops with nothing
+submitted if it fails; a current cache submits nothing; `wtune stop`, Ctrl-C and an sacct that
+never answers cancel it. Run
+inside a Slurm job (`SLURM_JOB_ID` set, which an `salloc` shell also sets), it converts in place
+as before. The login node still reads the inputs to check the cache, and hashes one whose
+modification time changed.
+
+**Network only on login nodes.** Two post steps reached the internet from a compute-node job:
+the tc report downloaded the NHC b-deck (30 s timeout, then HURDAT2), and the map check asked
+cartopy for the Natural Earth coastline, which downloads a missing file (f1-arm job 14882 hung
+12 min). The map check now only looks on disk (`bin/fetch-natural-earth.sh` fetches);
+`wtune post fetch bdeck` puts the storm's b-deck in `<project>/input/obs/bdeck/`, which tc and
+the recipe read, and inside a Slurm job tc no longer downloads. `wtune submit` fetches it when
+`post.fetch` lists `bdeck`; a storm of the current year is fetched again each time (NHC still
+revises it; a failed download keeps the copy it has), an older one only when its file changed. The test suite, which runs on compute nodes, now fails a test that
+connects to a non-loopback address or looks up a host name, instead of letting it wait for a
+timeout.
+
+**`wtune calibrate` links the files the namelist names.** The calibration jobs linked `$W/run`,
+the Thompson tables and the inputs, but not `iofields_filename`, `wrflowinp`, `tslist` and the
+like; WRF 4.8 hangs at `input_input` without the iofields file. They now run the probes'
+`configs.py link-namelist-files`.
+
+**Startup and init per machine.** `machine.measured.startup_s` and `init_s` replace scc's 120 s.
+On f1-arm 45 segments took 2-15 s from job start to WRF's first step (median 5.4 s), so every
+prediction there was about 100 s high; the f1-arm guide now sets both to 15 s.
+
+**Ledger estimates scale from the nearest node count only.** The s/step estimate scaled every
+ledger row linearly to the node count asked for; WRF does not scale linearly, and matthew at
+N=1 was estimated at 0.061 s/step against 0.016 measured. Only the rows at the nearest measured
+node count are used now.
+
+**Docs.** `-O3` is described as what it does: it measures the whole space, with no model rounds.
+The workflow, tune and post flowcharts have colour legends.
+
+## 0.9.2 — 2026-10-19
+
+**Stopping a tune keeps what it measured.** Ctrl-C, or `wtune stop` for a tune running in the
+background, now stops `wtune tune` within one poll: it submits nothing more, cancels only its
+own jobs, and writes `tune_report.json` from the best of what was measured -- the layouts
+already measured at a finalist included -- so `wtune run` can use it right away. Before, Ctrl-C
+killed the controller, left its jobs running in Slurm and wrote no report, and `wtune run` then
+used the previous tune's report. A second Ctrl-C quits at once; `wtune stop` then cancels the
+jobs that tune left (it keeps its pid and job ids in `tune/<id>/tune.state.json` while it runs).
+Under `wtune submit`, Ctrl-C no longer kills the running step: the step stops itself, then
+submit stops (`wtune submit --skip-tune` continues with the report). The same applies to a
+`--max-queue-hours` stop: the jobs of the interrupted node-sweep wave that already finished now
+count. `wtune run` skips a tune report with no result (a tune stopped before anything was
+measured) instead of failing on it while an earlier report exists.
+
+**`env_source` with `$HOME`.** `machine.env_source: $HOME/...` reached the jobs unexpanded, so a
+job's site file could not source it (f1-arm, `f1arm.sh: line 23: $HOME/wtune-f1arm/env.sh: No such
+file or directory`); jobs worked only because they inherit the submitting shell. It is now expanded
+like `wrf_tree`.
+
+**`wtune run` stops the same way.** Ctrl-C or `wtune stop` cancels the running segment at the
+next poll, submits no further segment and marks `run_report.json` `stopped` (exit 130). Before,
+Ctrl-C left the segment job running in Slurm and the report said `failed`. `wtune stop` finds
+runs by `runs/<id>/run.state.json`. The prediction-rebuild jobs of `wtune tune` are now recorded
+as they are submitted, so a stop cancels them too.
+
+**`wtune prep wps` and `wtune prep real`.** WPS (one job: geogrid, ungrib, metgrid) and then
+real.exe (one job) for the project's case over its whole namelist window, reusing the
+`case_rebuild` steps; the forcing is downloaded on the login node. `prep real` links the new
+`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). On f1-arm only the forcing
+download has run so far (it stalled on two files, see the project page); the WPS and real.exe
+jobs of `prep` have not yet run on a cluster.
+
+**`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
+pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty
+directory was removed afterwards. Only io_form 14 outputs are pre-created now.
+
+**Restart-only cases.** A case with `wrfrst_d<NN>_<start>` and no `wrfinput_d01` now works
+end to end. `wtune project init` keeps those restart files, sets `restart = .true.` in the
+project's namelist copy and records the restart time and format in `cases.json`. Every tune
+probe starts from them (`--restart-from`), and `wtune run` starts segment 0 from them with
+`io_form_restart` matching their format. ADIOS2 input staging no longer requires wrfinput when
+the namelist restarts. `wtune post preview` and the observation window read a netCDF wrfrst
+when there is no wrfinput. `--compress-history` now removes restart *links* instead of failing
+on a linked BP directory.
+
 ## 0.9.1 — 2026-10-19
 
 **`wtune post preview`: what post will draw, before the run.** It lists the figures of the

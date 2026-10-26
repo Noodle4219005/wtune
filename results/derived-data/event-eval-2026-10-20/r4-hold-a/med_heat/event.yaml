@@ -1,0 +1,15 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: ed79c42d45705c080f3d21abe78c486c38752aae8032ebcbf7eb9d8e7578d768
+event: {value: Southern Europe heat wave July 2023, from: "2023 年 7 月南歐熱浪"}
+types:
+  - {value: heat_wave, from: "南歐熱浪"}
+storms: []
+region: {value: Southern Europe, Sicily and Sardinia, from: "南歐", "西西里和薩丁尼亞"}
+verify:
+  - {value: t2_max, from: "看每日最高溫跟測站比"}
+diagnose:
+  - {value: 500 hPa high pressure ridge, from: "500 hPa 高壓脊"}
+obs_requests: []
+local_obs: []
+questions: []

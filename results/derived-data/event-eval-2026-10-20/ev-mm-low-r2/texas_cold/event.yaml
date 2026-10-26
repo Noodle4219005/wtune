@@ -1,0 +1,23 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 8d0f2ca3a8a2cc00df27bd8dfe504f749991257a9d9329fe3707e25f5d179854
+event:
+  value: 2021 年 2 月德州寒潮
+  from: "2021 年 2 月德州寒潮"
+types:
+  - {value: cold_air_outbreak, from: "寒潮"}
+  - {value: winter_storm, from: "還下了雪和凍雨"}
+  - {value: frontal, from: "冷鋒南下的時間"}
+storms: []
+region:
+  value: 德州休士頓
+  from: "德州寒潮"
+verify:
+  - {value: t2_min, from: "看 2 m 溫度的低溫"}
+  - {value: t2, from: "冷鋒南下的時間，跟地面測站比"}
+  - {value: snowfall, from: "降雪量如果能比也想看"}
+diagnose:
+  - {value: 冷鋒南下時的 2 m 溫度時間序列, from: "看 2 m 溫度的低溫和冷鋒南下的時間"}
+obs_requests: []
+local_obs: []
+questions: []

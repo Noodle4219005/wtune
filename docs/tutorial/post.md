@@ -54,7 +54,9 @@ wtune post preview          # 在 project 內；不需要 runs/
     - 模擬時段的 Stage IV 觀測雨量（`precip-precip_stage4_total.png`）
     - 已下載的 ERA5 500 hPa 高度
 
-`preview.html` 另外列出 tune 預估的執行時間。
+- **圖的數值**：每張圖畫的數值另存成 netCDF，放在 `post/preview/data/`，檔名和 `figures/` 裡的圖相同、副檔名換成 `.nc`。例如 `synoptic-syn_slp_wind10_f000.nc` 有 `slp`（hPa）、`u10`、`v10`（m/s）和 2-D 的 `lat`、`lon`；`common_domain_map.nc` 每個 domain 一個 group（`d01`、`d02`…），各有地形 `terrain`。最佳路徑沒有網格，數據是 `tc/best_track.dat`（ATCF 格式）。用 `ncdump -h` 或 xarray 讀即可。
+
+`preview.html` 另外列出 tune 預估的執行時間，每張圖下面也註明數據檔。
 
 這些圖都不是模式結果，而是初始場和觀測：模式中途會算出什麼，跑之前無法知道。跑完後拿 `post/<id>/figures/` 的同名圖（例如兩邊的 `tc-track_map.png`）來比，差異就是模式自己的表現。觀測要先用 `wtune post fetch` 下載，沒下載的那幾張會在「略過」裡說明。
 
@@ -94,10 +96,31 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 | `igra` | IGRA2 探空 | 00Z 與 12Z |
 | `era5`、`era5_monthly` | ERA5 再分析 | — |
 | `gpcp_monthly` | GPCP 月降水 | 2.5 度 |
+| `bdeck` | NHC ATCF 最佳路徑 b-deck（`project.yaml` 的 `storm:`） | 大西洋與東、中太平洋 |
 
-抓資料要在能連外網的機器上執行。每個資料集都會寫一份 `provenance.json`（提供者、網址、授權、抓取時間、引用格式）。
+抓資料要在能連外網的機器上執行，也就是登入節點。在 Slurm job 裡（`--srun`、`wtune submit` 的後處理）不會連網：`tc` 只讀 `bdeck` 抓好的檔或 `--bdeck`，都沒有時改用 HURDAT2；地圖底圖只讀 `bin/fetch-natural-earth.sh` 下載好的 Natural Earth，沒有就不畫海岸線。每個資料集都會寫一份 `provenance.json`（提供者、網址、授權、抓取時間、引用格式）。
 
 比較範圍一律排除模式的側邊界區。降水比對另外限制在 NEXRAD 站 230 km 以內，因為 Stage IV 在外海是 0 而不是缺值。
+
+### agent 找來的觀測
+
+沒有 fetch 模組的資料（美國以外的格點雨量、各國雨量站）可以由 agent 依 [event](event.md) 的流程找來，轉成標準格式 `wtune-obs/1` 放在 `input/obs/<name>/`。`post recipe` 會自動使用通過 `wtune event obs-check` 的資料夾：
+
+| kind | 檔案 | 畫出的圖 |
+|---|---|---|
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc`（到該時刻為止 NN 小時的累積，`precip` mm） | `precip_agent_*`：和 Stage IV 同樣的 Grid-Stat 四張圖，在該資料集自己的格網上比 |
+| `rain_gauges` | `gauges.csv`（`id,lat,lon,elev_m,start_utc,end_utc,precip_mm`） | `precip_gauge_*`：MET Point-Stat 的散布圖和每站偏差地圖 |
+| `radar` | `refl_YYYYMMDDHHMM.nc`（`refl` dBZ；無回波填負值，無涵蓋填 NaN） | `conv_radar_*`、`conv_fss`：沒有 MRMS／NEXRAD 時改用它，在模式網格上比 |
+| `satellite_ir` | `irtb_YYYYMMDDHHMM.nc`（紅外窗區亮溫 `tb`，K） | `cloud_ir_*`：模式 OLR 換算亮溫對衛星，冷雲頂 ≤240／220／210 K 的分數與 FSS |
+| `stations_extra` | `stations_extra.csv`（`id,lat,lon,elev_m,time_utc,var,value`，`var` 是 `gust` m/s 或 `visibility` m） | `stn_gust_*`、`stn_vis_*`：Point-Stat 散布圖與每站偏差地圖 |
+
+所有格點檔都是 1-D `lat`、`lon`（度），時間一律 UTC。WRF 不輸出陣風與能見度，模式端用標準診斷：陣風有 `WSPD10MAX`（`nwp_diagnostics = 1`）就用，否則用 NCEP UPP 的 CALGUST；能見度用 Stoelinga–Warner（1999），模式與觀測都截在 16.1 km。衛星比較的模式值是 OLR 換算的寬頻亮溫，在高雲上比窗區頻道偏暖。
+
+```bash
+wtune event obs-check --project .        # 檢查 input/obs/ 下所有 wtune-obs/1 資料夾
+```
+
+有 error 的資料夾不會被使用，報告頂端的 notes 會寫出第一個錯誤。`obs-check` 也會對常見的轉換錯誤發出 warning（整個資料夾都沒有超過 1 mm 的雨、大範圍雷達沒有任何缺值、陣風中位數低於 2 m/s 等），這些多半是單位、縮放或雷達範圍沒處理好，要確認後再用。圖下的來源標示取自該資料夾的 `provenance.json`。
 
 ## 報告
 

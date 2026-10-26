@@ -80,7 +80,7 @@ flowchart TD
 ## run：怎麼把整段模擬跑完
 
 - 用 WINNER 的節點數、rank 數、切法和執行緒數。
-- 第一次執行時，把輸入轉成 ADIOS2 BP 格式，放在 `input/bp/`，之後重複使用。
+- 第一次執行時，把輸入轉成 ADIOS2 BP 格式，放在 `input/bp-cache/`，tune 和 run 共用，之後重複使用。
 - 模擬切成數段，每段是一個 Slurm job，段與段之間用 restart 檔交接。節點故障時從上一個 restart 續跑。
 - 進度用 `wtune watch runs/<id>` 看。細節見 [run 與 watch](run.md)。
 
@@ -102,6 +102,6 @@ flowchart TD
 
 ## 中途停止
 
-`wtune tune` 目前不處理中斷訊號。殺掉它之後，已送出的 job 要自己用 `scancel` 取消，做法見 [tune](tune.md) 的「中途停止」一節。
+`wtune tune` 和 `wtune run` 在前景跑時按 Ctrl-C，在背景跑時下 `wtune stop`，都只取消自己的 job。tune 會用已量到的最快配置寫出 `tune_report.json`，之後 `wtune run` 直接接著用；run 會把報告標成 stopped。細節見 [tune](tune.md) 與 [run](run.md) 的「中途停止」。
 
 下一步：[1. 安裝](install.md)。

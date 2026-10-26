@@ -1,0 +1,5 @@
+我理解的是：2023 年 4 月中旬的東亞沙塵暴（從蒙古戈壁吹到華北、韓國、台灣），用 WRF-Chem 跑，比對 MODIS AOD 與各地 PM10 測站的沙塵濃度。已建立 `event.yaml`（type: dust_air_quality；region: 蒙古戈壁→華北/韓國/台灣；verify: aod、pm10），`wtune event check event.yaml` 通過（0 error, 0 warning），未抓取任何資料。
+
+問題：
+1. 「抵達時間」的評估方式？目前只能用 AOD / PM10 時序判斷，需要指定判斷門檻或特定測站嗎？
+2. 是否需要用到 WTune 預設以外的觀測來源（例如地面 PM10 網路本身的資料來源），或先讓 WTune 的 plan 決定即可？

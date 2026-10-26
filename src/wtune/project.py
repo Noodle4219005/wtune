@@ -235,30 +235,61 @@ def apply_project_env(project_dir, project_doc):
 
 
 def latest_tune_report(project_dir, case_id=None, log=None):
-    """Newest <project>/tune/*/tune_report.json by mtime, or None. With case_id, only a report
-    made for that case counts; each newer report skipped for another case is passed to log."""
+    """Newest <project>/tune/*/tune_report.json with a result (not a tune stopped or aborted
+    before anything was measured), by mtime, or None. With case_id, only a report made for that
+    case counts. Each newer report skipped is passed to log."""
     tune_dir = os.path.join(project_dir, "tune")
     names = os.listdir(tune_dir) if os.path.isdir(tune_dir) else []
     paths = [p for p in (os.path.join(tune_dir, n, "tune_report.json") for n in names)
              if os.path.isfile(p)]
     for path in sorted(paths, key=os.path.getmtime, reverse=True):
-        if not case_id:
-            return path
         try:
             with open(path) as fh:
-                case = json.load(fh).get("case")
-        except (OSError, ValueError, AttributeError):
-            case = None
-        if case == case_id:
+                report = json.load(fh)
+        except (OSError, ValueError):
+            report = {}
+        report = report if isinstance(report, dict) else {}
+        if report.get("pipeline_aborted") or not (report.get("winner") or report.get("nodes")):
+            why = "has no result (%s)" % (report.get("stopped") or "aborted before a measurement")
+        elif case_id and report.get("case") != case_id:
+            why = "is for case %s, not %s" % (report.get("case") or "?", case_id)
+        else:
             return path
         if log:
-            log("tune report skipped: %s is for case %s, not %s" % (path, case or "?", case_id))
+            log("tune report skipped: %s %s" % (path, why))
     return None
 
 
 PHYSICS_KEYS = ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
                 "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt",
                 "physics_suite")
+
+
+def restart_files(case_dir):
+    """[wrfrst_dNN_<namelist start>] of every domain when the case starts from restart files
+    (no wrfinput_d01, or restart = .true.); [] otherwise."""
+    from wtune import predict as wp
+    nl = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+    start = "%04d-%02d-%02d_%02d:%02d:%02d" % tuple(
+        int(wp.g_dom(nl, "time_control", "start_" + k, 0) or 0)
+        for k in ("year", "month", "day", "hour", "minute", "second"))
+    names = ["wrfrst_d%02d_%s" % (d, start)
+             for d in range(1, int(wp.g(nl, "domains", "max_dom", 1)) + 1)]
+    restart = str(wp.g(nl, "time_control", "restart", "")).strip(".").lower() in ("true", "t")
+    if not (restart or not os.path.exists(os.path.join(case_dir, "wrfinput_d01"))):
+        return []
+    return names if all(os.path.exists(os.path.join(case_dir, n)) for n in names) else []
+
+
+def _mark_restart(namelist_path):
+    """restart = .true. in the project's copy of the namelist (the source is never written)."""
+    with open(namelist_path) as fh:
+        text = fh.read()
+    new, n = re.subn(r"(?im)^(\s*restart\s*=\s*)\.?\w+\.?", r"\1.true.", text, count=1)
+    if not n:
+        new = re.sub(r"(?im)^(\s*&time_control\s*\n)", r"\1 restart = .true.,\n", text, count=1)
+    with open(namelist_path, "w") as fh:
+        fh.write(new)
 
 
 def case_entry_from_namelist(case_dir):
@@ -274,8 +305,11 @@ def case_entry_from_namelist(case_dir):
     # the probe job (strict_campaign.sbatch) reads these d01 physics keys and case_family
     physics = {k: wp.g(nl, "physics", k) for k in PHYSICS_KEYS
                if wp.g(nl, "physics", k) is not None}
+    rst = restart_files(case_dir)
+    restart = dict(restart_time=rst[0][len("wrfrst_d01_"):], restart_io_form=(
+        14 if os.path.isdir(os.path.join(case_dir, rst[0])) else 2)) if rst else {}
     return dict(
-        prep_dir=case_dir, bp_dir="", restart=False, input_files=[],
+        prep_dir=case_dir, bp_dir="", restart=bool(rst), input_files=rst, **restart,
         history_key="history_interval", dt=wp.g(nl, "domains", "time_step"),
         e_we=e_we[0], e_sn=e_sn[0], e_vert=e_vert[0],
         dx=wp.g(nl, "domains", "dx"), dy=wp.g(nl, "domains", "dy") or wp.g(nl, "domains", "dx"),
@@ -480,13 +514,18 @@ def _populate_case_dir(case_dir, dest_dir):
     the machine's WRF). Never opens a file under case_dir for
     writing -- os.symlink and shutil.copy2 (read + fresh write at dest) both leave the source
     untouched, so the original case dir's mtime/sha256 are unchanged (decision 0058 P1).
-    Returns (skipped previous-run outputs, skipped executables)."""
+    A case without wrfinput_d01 keeps the wrfrst files of its namelist start and gets
+    restart = .true. in its copied namelist. Returns (skipped previous-run outputs, skipped
+    executables)."""
     entries = sorted(os.listdir(case_dir))
+    restart = set(restart_files(case_dir)) if "namelist.input" in entries else set()
     skipped, executables = 0, 0
     for entry in entries:
         src = os.path.join(case_dir, entry)
         dst = os.path.join(dest_dir, entry)
-        if is_previous_run_output(entry, entries):
+        if entry in restart:                    # the case starts from these
+            os.symlink(src, dst)
+        elif is_previous_run_output(entry, entries):
             skipped += 1
         elif entry.endswith(".exe"):
             executables += 1
@@ -494,6 +533,9 @@ def _populate_case_dir(case_dir, dest_dir):
             shutil.copy2(src, dst)
         else:
             os.symlink(src, dst)
+    if restart:
+        _mark_restart(os.path.join(dest_dir, "namelist.input"))
+        print("restart case: starts from %s" % ", ".join(sorted(restart)))
     return skipped, executables
 
 

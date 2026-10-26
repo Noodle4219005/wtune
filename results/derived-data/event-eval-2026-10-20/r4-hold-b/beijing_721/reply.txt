@@ -1,0 +1,5 @@
+已建立 `event.yaml` 並通過 `wtune event check`（0 errors）。
+
+我理解的是：2012 年 7 月 21 日北京特大暴雨（城區與房山一天超過 400 mm），事件類型為 `heavy_rain` 與 `mesoscale_convection`；要跟中國氣象局的雷達拼圖比對流位置（`reflectivity`），雨量則用 CMA 逐時站點資料比對（`precip_gauge`）。因為 CMA 的雷達與站點資料不是 WTune 預設來源，已列為 `obs_requests`（kind: `radar`、`rain_gauges`），未取任何資料。
+
+questions：無。

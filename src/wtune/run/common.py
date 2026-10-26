@@ -18,6 +18,10 @@ class RunError(Exception):
     pass
 
 
+class RunStopped(RunError):
+    """Ctrl-C or `wtune stop`: the in-flight segment job was cancelled."""
+
+
 class _Unset:
     def __repr__(self) -> str:
         return "UNSET"

@@ -1,0 +1,5 @@
+已完成 `event.yaml`（`wtune event check` 通過，0 error / 0 warning）。
+
+我把這個案例理解為：2009 年 8 月莫拉克颱風在台灣南部造成破紀錄降雨（阿里山 4 天逾 2,700 mm），要檢查颱風路徑與強度、南台灣山區的累積雨量（與雨量站比較），並額外看西南氣流的水氣通量；類型設定為 tropical_cyclone、heavy_rain、atmospheric_river，區域為台灣南部（阿里山）。水氣通量放在 `diagnose`（模型自身診斷），未使用 obs_requests 或 local_obs。
+
+問題：文中未給颱風編號，若要指定 best-track 資料中的特定 storm id 或想加入颱風眼牆結構等模型診斷，請再補充說明。

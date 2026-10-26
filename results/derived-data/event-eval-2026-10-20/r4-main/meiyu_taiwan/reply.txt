@@ -1,0 +1,5 @@
+已完成 `event.yaml`（位於 `meiyu_taiwan/event.yaml`），`wtune event check event.yaml` 通過（0 error / 0 warning），未抓取任何資料。
+
+我理解的事件是：2023 年 6 月初的梅雨鋒面滯留在台灣北部，造成豪雨，特別是雪山山脈迎風面；要把模式結果與中央氣象署雷達回波比對來看鋒面對流帶的位置，雨量則用氣象署自動雨量站比對。對應設定為 `types: frontal / heavy_rain / orographic`，`verify: reflectivity`、`precip_gauge`，並因使用者指名中央氣象署（CWA）雷達回波整合資料與自動雨量站（非 WTune 預設來源）列為 `obs_requests`。
+
+問題：無特別疑問；若要進行比對，仍需知道欲比對的具體時段（目前只知「6 月初」），但依規則日期由 run 決定，我會在 Part 2 依 run 的時間範圍處理。

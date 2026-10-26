@@ -45,7 +45,9 @@ V=$HOME/wrf-stack/nvhpc-arm
 export PATH=$V/bin:$HOME/.pixi/bin:$PATH
 export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
-export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
+export WPS_DIR=$HOME/wrf-env/nvhpc-arm/wps/WPS-4.6.0    # WPS 4.6.0，可讀 GRIB2
+export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python   # 有 adios2 綁定的 python
 export OMP_STACKSIZE=1G
 export WTUNE_CARTOPY_DATA=$HOME/wtune-f1arm/cartopy-data   # 計算節點沒網路，post 的底圖放本機
 ```
@@ -62,20 +64,26 @@ account: <你的計畫代號>
 hardware_id: f1-grace
 site: f1arm
 env_source: $HOME/wtune-f1arm/env.sh
-wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
+geog: /work2/u5727520/wrf-newcase/WPS_GEOG_LOW_RES
 max_hours: 8.0
 max_omp: 1
 node_preflight: false
 node_memory_gib: 218.0
 copy_probe_inputs: false
+measured:
+  startup_s: 15.0
+  init_s: 15.0
 ```
 
 | 欄位 | 為什麼是這個值 |
 |---|---|
 | `max_nodes: 8` | 測試時自訂的上限；`arm1440` 最多 10 節點 |
+| `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
 | `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |
+| `geog` | `wtune prep wps` 的 WPS 靜態資料。f1-arm 上只有低解析度版（1.5 G）；完整的 `geog_high_res_mandatory` 解開約 29 GB，home2 與 work2 的配額都放不下。所以個案要附 `namelist.wps` 並設 `geog_data_res = 'lowres'` |
 
 換 WRF 樹時 `env.sh` 的 `WRF_TREE` 和這裡的 `wrf_tree` 要一起改。只 `export WRF_TREE` 不夠：`wtune run` 會用它，但 tune 的量測 job 送出前會先 `source` env 檔，用的是檔案裡的 `WRF_TREE`。要讓某次 tune 用別的樹，就另存一份 env 檔，再 `export WTUNE_ENV_SOURCE=<那份檔>`。`~/wtune-f1arm/env-tuned.sh` 就是這樣留下來的：它指向舊的 tuned 樹，給需要和舊量測比較的驗證用。
 
@@ -94,12 +102,35 @@ ssh f1-arm "cd ~/wtune-adios2 && ~/.pixi/bin/pixi install --frozen --manifest-pa
 - `tar -x` 只會新增和覆蓋檔案，上游刪掉的檔案會留著。要完全乾淨就解到新目錄，再重裝 pixi 環境。
 - 確認：`cat ~/wtune-adios2/.deployed-commit`。
 
+## 後處理工具（MET、ParaView）
+
+`wtune post` 的 MET 驗證圖和 ParaView 3-D 圖要另外裝，裝在 `~/wtune-adios2/envs/` 底下，`wtune` 自己找得到，不用設環境變數。重新部署不會刪掉它們。
+
+```bash
+# 登入節點：ParaView（conda-forge，2.3G），並先把 MET 的原始碼抓下來（計算節點沒網路）
+cd ~/wtune-adios2
+~/.pixi/bin/pixi install --manifest-path envs/paraview/pixi.toml
+source ~/spack/share/spack/setup-env.sh
+spack -e envs/postproc config add "packages:all:target:[armv8.5a]"
+spack -e envs/postproc concretize -f
+spack -e envs/postproc fetch -D
+# 計算節點編 MET（約 10 分鐘），最後一步檢查每個工具
+sbatch -A <計畫代號> -p arm-dev -n 1 -c 32 --mem=60G -t 1:00:00 --wrap '
+  export PATH=$HOME/wrf-env/nvhpc-arm/bootstrap-prefix/bin:$PATH
+  source ~/spack/share/spack/setup-env.sh; cd ~/wtune-adios2
+  spack -e envs/postproc install -j 32 && bin/install-postproc.sh --check'
+```
+
+- `target armv8.5a`：GCC 15.2 的 assembler 不認得 spack 給 `neoverse_v2` 的 `-march=armv9-a+...+memtag+profile`，每個套件都會編不過。
+- `bootstrap-prefix/bin`：f1-arm 沒有系統的 `patch`，spack 套 patch 時會失敗；這裡有一份另外編好的 GNU patch。
+- 只要 1/4 個節點，`arm-dev` 通常馬上排到；要整個節點的 job 常要排到隔天。
+- `wtune doctor` 的 `grid_stat`、`pvbatch` 兩行變成 `OK` 就是裝好了。ParaView 在沒有 GPU 的節點上也能 offscreen 出圖。
+
 ## 每次登入
 
 ```bash
 source ~/wtune-f1arm/env.sh
 export PATH=$HOME/wtune-adios2/bin:$PATH
-export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python
 wtune doctor
 ```
 
@@ -158,16 +189,21 @@ sacct -S now-7days -X --format=JobID,JobName%24,State,Start,Elapsed,NNodes
 
 ## 停止
 
-`wtune tune` 沒有處理中斷訊號。直接殺掉它，已送出的 job 會留在佇列裡，要自己 `scancel`：
+tune 在背景跑時：
 
 ```bash
-ps -u $USER -o pid,pgid,etime,args | grep "[s]rc/wtune tune"
-kill -- -<PGID>                                   # 整個 process group：bin/wtune、pixi、python
-squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-yagi-3f06a1-/ {print $1}' | xargs -r scancel
+cd ~/wtune-projects/yagi
+wtune stop --dry-run      # 先看會做什麼
+wtune stop
+wtune run                 # 用剛寫出的 tune_report.json
 ```
 
-- 只取消這次 tune 的 job（照名稱篩）。不要用 `scancel -u $USER`，會連其他工作一起取消。
-- 殺掉之後沒有 `tune_report.json`。想讓它自己交出結果，就等 `--minutes` 或 `--max-queue-hours` 到。
+`wtune stop` 找到這個專案正在跑的 tune，請它收尾，通常半分鐘內完成：
+
+- 取消它自己的 job。
+- 用已量到的最快配置寫出 `tune_report.json`。
+
+在前景跑時，按 Ctrl-C 效果相同。不要用 `scancel -u $USER`，那會連其他工作一起取消。
 
 ## 家目錄配額
 
@@ -187,4 +223,4 @@ GPFS 看的是 `blocks` 加 `in_doubt`：兩者加起來超過 100G，所有寫�
 | 5 節點以上的掃描排很久 | `arm1440` 每人 2 跑／4 送，叢集忙 | 用 `--max-queue-hours` 收尾 |
 | 整段模擬時間的 I/O 預測不準 | 沒有 f1-arm 的 calibration，退回 `machine/calibration/scc.json` | 只影響時間預測，不影響選哪個設定 |
 | 每個輸出檔印一次 `adios2 error ... error code 4` | ADIOS2 沒有編進 Blosc2，壓縮加不上去 | 輸出照寫、不壓縮 |
-| 舊的量測不能直接和現在比 | 2026-10-19 以前用 `nvhpc-adios2-tuned-dmpar`（含團隊的 `wrf_io.F90` patch、多了 `-tp=grace -Mstack_arrays -Mfprelaxed`），之後預設是 vanilla | 要比就用 `env-tuned.sh`，見上面 machine.yaml 那段 |
+| 舊的量測不能直接和現在比 | 2026-10-19 以前用 `nvhpc-adios2-tuned-dmpar`（含團隊的 `wrf_io.F90` patch、多了 `-tp=grace -Mstack_arrays -Mfprelaxed`）；10-19 到 10-21 預設是未改原始碼、原始旗標的 vanilla；2026-10-21 起預設是未改原始碼、加上那三個旗標的 `vanilla-v480-adios2-tuned-dmpar`（matthew 每步快 4%）。另外 2026-10-21 以前多節點的 `wtune run` 走 1 Gb/s 網路（`b9afa4b` 修正），那時的多節點執行時間偏慢 | 要比就用 `env-tuned.sh`，見上面 machine.yaml 那段 |

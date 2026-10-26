@@ -1,0 +1,4 @@
+job,rep,hygiene_reap_census_s,mpirun_start_to_rsl_error_0000_s,rsl_error_0000_to_namelist_output_s,namelist_output_to_mpirun_exit_s,wrf_rc,success_complete,first_step_reached
+4787,1,2.305838,18.274422,0.104873,6.436496,1,0,0
+4787,2,2.205436,48.774602,0.104769,12.199517,1,0,0
+4787,3,2.305481,33.091693,0.105229,37.211687,1,0,0

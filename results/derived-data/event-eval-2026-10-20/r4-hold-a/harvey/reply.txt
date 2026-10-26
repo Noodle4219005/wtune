@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes (0 errors, 0 warnings).
+
+**Summary:** I read event.txt and built `event.yaml` for Hurricane Harvey, which stalled over southeast Texas in late August 2017. I classified it as `tropical_cyclone` (from "Hurricane Harvey") and `heavy_rain` (from "multi-day rainfall totals around Houston"), with storm `Harvey` (2017) and region southeast Texas. The two observations to verify are `precip_total` (multi-day rainfall totals compared against Stage IV, one of WTune's default datasets) and `track` (the storm's track while stalled, against best track); no `obs_requests` or `local_obs` were needed since the text names no non-default provider and no local file. No `diagnose` items, since everything the text asks for is an observation comparison rather than a model-only figure, and the case is not idealized.
+
+**Questions:** None — the event, its type, and both comparisons were stated explicitly in event.txt.

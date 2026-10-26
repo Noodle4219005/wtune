@@ -1,0 +1,13 @@
+{
+ "format": "wtune-obs/1",
+ "kind": "rain_gauges",
+ "dataset": "CWA surface station hourly observations (CODiS)",
+ "provider": "Central Weather Administration, Taiwan",
+ "url": "https://codis.cwa.gov.tw/ (POST /api/station)",
+ "license": "Taiwan Open Government Data License v1.0",
+ "citation": "CWA CODiS, hourly station data",
+ "fetched_utc": "2026-10-26T00:18:24Z",
+ "files": {
+  "gauges.csv": "db2ba7b115c5399debab151d2f15b64cd4faa7983db8a58020ecb907ce96e0a5"
+ }
+}

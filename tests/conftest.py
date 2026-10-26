@@ -25,6 +25,33 @@ os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-ma
 os.environ.pop("WRF_TREE", None)
 # recipe figure sets in one process: tests stub them with local closures (test_post_recipe_parallel)
 os.environ["WTUNE_POST_WORKERS"] = "1"
+# a cluster shell's machine settings (f1-arm env.sh) must not reach the launch-line and
+# cores-per-node expectations
+for _v in ("WTUNE_SITE", "WTUNE_NUMA_PER_NODE", "WTUNE_CORES_PER_NODE"):
+    os.environ.pop(_v, None)
+
+
+_TUNE_ENV = ("WTUNE_CAMPAIGN_OUT", "WTUNE_PREFLIGHT_EXCLUDE", "WTUNE_BP_CACHE")   # set by wtune tune
+
+
+@pytest.fixture(autouse=True)
+def _no_account_ledgers(monkeypatch, tmp_path_factory):
+    """A tune reads the account's older ledgers (~/wtune-runs/campaign) and resolves the probes'
+    WRF tree by sourcing env.sh: neither may reach a test on a cluster login node."""
+    import wtune.tools.scc_sweep
+    import wtune.tune.cli
+    saved = {v: os.environ.get(v) for v in _TUNE_ENV}
+    monkeypatch.delenv("WTUNE_CAMPAIGN_OUT", raising=False)
+    monkeypatch.delenv("WTUNE_PREFLIGHT_EXCLUDE", raising=False)
+    monkeypatch.setattr(wtune.tools.scc_sweep, "HISTORY_LEDGER_DIR",
+                        str(tmp_path_factory.getbasetemp() / "no-history-ledgers"))
+    monkeypatch.setattr(wtune.tune.cli, "_build_id", lambda args: "")
+    yield
+    for v, value in saved.items():          # what a test that ran a real tune left set
+        if value is None:
+            os.environ.pop(v, None)
+        else:
+            os.environ[v] = value
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +65,47 @@ def _no_real_slurm(monkeypatch):
         raise FileNotFoundError(argv[0])
     monkeypatch.setattr(wtune.tune.preflight, "default_preflight_runner", absent)
     monkeypatch.setattr(wtune.tune.cli, "default_preflight_runner", absent)
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """The suite runs on compute nodes, which have no internet: a test that reaches the network
+    fails at once instead of hanging until a timeout. Loopback and Unix sockets stay open."""
+    import ipaddress
+    import socket
+    real = {n: getattr(socket.socket, n) for n in ("connect", "connect_ex")}
+
+    def local(host):
+        if isinstance(host, (bytes, bytearray)):
+            host = host.decode("ascii", "replace")
+        host = str(host or "").split("%")[0]
+        if host in ("", "localhost", "0.0.0.0", "::"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        return ip.is_loopback or ip.is_unspecified
+
+    def guard(name):
+        def call(self, address):
+            if self.family == socket.AF_UNIX or (isinstance(address, tuple) and local(address[0])):
+                return real[name](self, address)
+            raise OSError("network access in a test: %r" % (address,))
+        return call
+
+    def lookup(fn):                       # a DNS lookup can hang as long as a connect
+        def call(host, *a, **kw):
+            if host is None or local(host if not isinstance(host, tuple) else host[0]):
+                return fn(host, *a, **kw)
+            raise OSError("name lookup in a test: %r" % (host,))
+        return call
+    for n in real:
+        monkeypatch.setattr(socket.socket, n, guard(n))
+    for n in ("getaddrinfo", "gethostbyname", "gethostbyname_ex", "gethostbyaddr",
+              "getnameinfo"):
+        monkeypatch.setattr(socket, n, lookup(getattr(socket, n)))
 
 
 def swap_wtune_module(monkeypatch, name, module):

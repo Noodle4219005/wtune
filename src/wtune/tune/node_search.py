@@ -16,7 +16,7 @@ from .budget import _fallback_s_per_step, _job_time_est
 from .candidates import _sweep_anchor, _sweep_anchor_fitting, aggregate_by_cid, merge_aggs
 from .common import (UNSET, Record, _fmt_hms, close_to_best, parse_run_id,
                      would_exceed_budget)
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded
 from .jobs import MAXRSS_NOTE, _maxrss_mb_by_job, submit_configs_job
 from . import jobs as _jobs
 from . import memory as _memory
@@ -196,7 +196,20 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
     awaited together. Returns {key: {agg, job, maxrss_mb}} for the items that produced a
     measurement."""
     reps = reps or _sweep_reps(ctx)
-    jobs = {}
+    jobs: dict = {}
+    try:
+        return _anchor_wave(ctx, items, s_est_for, skipped, reps, jobs)
+    except QueueCapExceeded as e:            # keep the jobs that finished before the stop
+        _jobs.cancel_in_flight(ctx, list(jobs.values()))
+        states = sweep.sacct_states(list(jobs.values()), sacct_runner=ctx.sacct_runner,
+                                    sacct_cmd=ctx.sacct_cmd)
+        done = {k: j for k, j in jobs.items() if states.get(j, ("", ""))[0] == "COMPLETED"}
+        e.partial = _anchor_results(ctx, items, done, states, [])
+        raise
+
+
+def _anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable, skipped: list, reps: int,
+                 jobs: dict) -> dict:
     for it in items:
         n = it["nodes"]
         s_est, src = s_est_for(n)
@@ -222,8 +235,16 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
     out: dict = {}
     if not jobs:
         return out
+    states = _jobs.wait_for_jobs(ctx, list(jobs.values()), "node-sweep")
+    return _anchor_results(ctx, items, jobs, states, skipped)
+
+
+def _anchor_results(ctx: Ctx, items: list[dict], jobs: dict, states: dict,
+                    skipped: list) -> dict:
+    """{key: {agg, job, maxrss_mb}} of the wave's jobs with a ledger measurement; the others go
+    to `skipped` with their Slurm state."""
+    out: dict = {}
     ids = list(jobs.values())
-    states = _jobs.wait_for_jobs(ctx, ids, "node-sweep")
     rows = ctx.ledger_reader(ctx.case, ids)
     rss = _maxrss_mb_by_job(ctx, ids)
     for it in items:
@@ -266,9 +287,14 @@ def _race(ctx: Ctx, entries: dict, s_est_for: Callable, label: str) -> list:
     return jobs
 
 
-def _queue_capped(ctx: Ctx) -> bool:
-    """True once --max-queue-hours was reached: nothing more may be submitted."""
-    return ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s
+def _halt_reason(ctx: Ctx) -> str | None:
+    """Why nothing more may be submitted -- the user stopped the tune, or --max-queue-hours was
+    reached -- else None."""
+    if STOP["reason"]:
+        return STOP["reason"]
+    if ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s:
+        return "queue cap reached"
+    return None
 
 
 def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
@@ -325,7 +351,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         if meas:
             near = min(meas, key=lambda m: (abs(m - n), m))
             return statistics.median(meas[near]), "median at N=%d" % near
-        s_est, src, _k = sweep.estimate_s_per_step(ctx.case, n, ctx.ledger_dir, ctx.hardware_id)
+        s_est, src, _k = ctx.estimate_s_per_step(n)
         return s_est, src
 
     def cap_reason():
@@ -390,23 +416,27 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         sent.update(ns)
         state["waves"] += 1
         first_new = len(skipped)
+        halted = None
         try:
             got = _measure_anchor_wave(ctx, items, s_est_for, skipped)
-        except QueueCapExceeded as e:
-            if not meas:
-                raise
-            print("node sweep: %s; keeping the N measured so far" % e)
-            state["stopped"] = state["halt"] = str(e)
-            skipped.extend(dict(nodes=n, reason=str(e)) for n in ns)
-            return
+        except QueueCapExceeded as e:        # the wave's jobs that finished still count
+            got, halted = e.partial, e
         for n, r in got.items():
             meas[n], results[n], jobs[n], rss[n] = (r["agg"]["s_values"], r["agg"], r["job"],
                                                     r["maxrss_mb"])
             if mem:
                 mem.learn(n, anchors[n]["ranks"] // n, r["maxrss_mb"])
         for s in skipped[first_new:]:
+            if "state" in s:                   # submitted, measured nothing (isc21 N=1 rc=124)
+                print("node sweep: N=%d %s" % (s["nodes"], s["reason"]))
             if mem and s.get("state") == "OUT_OF_MEMORY":
                 mem.learn_oom(s["nodes"], anchors[s["nodes"]]["ranks"] // s["nodes"])
+        if halted:
+            if not meas:
+                raise halted
+            print("node sweep: %s; keeping the N measured so far" % halted)
+            state["stopped"] = state["halt"] = str(halted)
+            skipped.extend(dict(nodes=n, reason=str(halted)) for n in ns if n not in got)
 
     # phase 1: geometric seeds, early stop on the upward side
     for wave in waves:
@@ -605,8 +635,8 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
     outcomes = {}
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
-        if _queue_capped(ctx):
-            print("node search: queue cap reached; finalist N=%d not tuned" % n)
+        if _halt_reason(ctx):
+            print("node search: %s; finalist N=%d not tuned" % (_halt_reason(ctx), n))
             continue
         if remaining <= 0:
             print("node search: no budget left for finalist N=%d" % n)
@@ -720,7 +750,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
                         chooser=chooser, on_wave=on_wave, refine=lambda: lvl() >= 2)
     if not wtune.nodes.summarize(sw["measurements"]):
         return _proxy_fallback_report(ctx, profile, objective, nodes_policy, sw)
-    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+    if (lvl() >= 2 and sw["untried"] and not _halt_reason(ctx)
             and ctx.elapsed() < ctx.budget_s < math.inf):
         need = len(wtune.nodes.sweep_waves(sw["untried"], ctx.max_nodes)) * sw["wave_s"]
         left = ctx.budget_s - ctx.elapsed()
@@ -737,12 +767,15 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         on_sweep(rows, sw)
     print("node sweep: chose N=%d -- %s; finalists %s" % (chosen, note, finals))
     print_rows(tab)
+    if tab and tab[0]["nodes"] != 1:
+        print("node sweep: speedup and eff are relative to N=%d, the smallest N measured"
+              % tab[0]["nodes"])
 
     if core_options is None:
         core_options = wtune.nodes.default_core_options(ctx.cores_per_node)
     cores_info: dict = {}
     skipped_cores: list = []
-    if lvl() <= 1 or _queue_capped(ctx):  # O1: the t0 wave only -- no cores sweep, no finalists
+    if lvl() <= 1 or _halt_reason(ctx):  # O1: the t0 wave only -- no cores sweep, no finalists
         finals = []
     if lvl() >= 2 and any(c < ctx.cores_per_node for c in core_options):
         try:
@@ -752,12 +785,15 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
 
     layout_notes: dict = dict(untried=[], enumerated={})
     outcomes = _tune_finalists(ctx, finals, cores_info, sw, plan, lvl, layout_notes)
-    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+    if (lvl() >= 2 and sw["untried"] and not _halt_reason(ctx)
             and ctx.elapsed() < ctx.budget_s < math.inf):
         new = _measure_untried(ctx, sw, chooser, sweep_budget_frac)
         if new:
             rows, choices, chosen, note, tab = summary()
             print_rows(tab, only=new)
+            if tab[0]["nodes"] in new or tab[0]["nodes"] != 1:
+                print("node sweep: speedup and eff are relative to N=%d, the smallest N measured"
+                      % tab[0]["nodes"])
         if chosen in new:
             finals = finals + [chosen]
             print("node search: N=%d is now the fastest ANCHOR (%s); tuning it with the %s left"
@@ -777,7 +813,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         outcomes[chosen] = _sweep_anchor_outcome(ctx, chosen, note, cores_info, sw)
         final_n, final_note = chosen, note + (
             "; level O1: t0 sweep only -- ANCHOR config" if lvl() <= 1 else
-            "; queue cap reached -- ANCHOR config" if _queue_capped(ctx) else
+            "; %s -- ANCHOR config" % _halt_reason(ctx) if _halt_reason(ctx) else
             "; budget exhausted after the sweep -- ANCHOR config")
     else:
         by_sweep = {r["nodes"]: r for r in rows}

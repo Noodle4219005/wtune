@@ -1,0 +1,5 @@
+`event.yaml` is written and `wtune event check event.yaml` passes cleanly (0 errors, 0 warnings).
+
+I read the case as the Marshall Fire in Boulder County, Colorado on 30 Dec 2021: an extreme downslope (foehn/mountain-wave) windstorm off the Front Range that drove gusts near 100 mph and spread the fire. Types are `downslope_wind` and `fire_weather`; verification is the 10 m wind and gusts at surface stations, while the mountain wave / hydraulic jump is a model-only diagnose via cross-section. I did not add any storm id, extra datasets or obs requests, since the text names only default surface stations and no specific provider or local file.
+
+Questions: none blocking — but if you have a preferred cross-section orientation (e.g. along the Front Range through Boulder, or perpendicular to the ridge), say so before the plan is generated, since that shapes the diagnose figure.

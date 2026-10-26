@@ -1,0 +1,3 @@
+The case is the August 2018 Kerala (India) monsoon heavy-rain/flooding event, with terrain-forced rain on the Western Ghats windward side; I tagged it as heavy_rain, monsoon and orographic. Verification is the daily (precip_24h) and accumulated (precip_total) rainfall, while the 850 hPa southwest-monsoon intensity was recorded as a model-only diagnostic since no obs kind covers it. `wtune event check event.yaml` passes with 0 errors and 0 warnings, and no data was fetched (Part 2 not done).
+
+No questions — everything in event.txt mapped cleanly to the vocab.

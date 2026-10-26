@@ -1,0 +1,3 @@
+I read event.txt as the February 2021 Texas cold outbreak: Arctic air pushing south, temperatures in Houston dropping below freezing, with snow and freezing rain. I set the event to that cold wave with types `cold_air_outbreak`, `winter_storm` and `frontal`, and set the verification items to 2 m minimum temperature (`t2_min`), the 2 m temperature time series for cold-front timing (`t2`, against surface stations), and `snowfall`. `wtune event check event.yaml` passes with 0 errors and 0 warnings, and no data was fetched.
+
+Questions: none — the wording named the event, the phenomena, and the quantities clearly, so the observation plan can pick the datasets itself.

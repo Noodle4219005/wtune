@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: f34b516ad36510c6cada6931078b9b17a53af4fa27b77d3221a384e59c2235f5
+event:
+  value: 2021 年 6 月底太平洋西北熱浪（heat dome）
+  from: "2021 年 6 月底太平洋西北熱浪（heat dome）"
+types:
+  - {value: heat_wave, from: "太平洋西北熱浪（heat dome）"}
+  - {value: land_atmosphere, from: "土壤乾燥對升溫的貢獻"}
+storms: []
+region:
+  value: 太平洋西北
+  from: "太平洋西北"
+verify:
+  - {value: t2_max, from: "2 m 最高溫跟測站比"}
+  - {value: z500, from: "500 hPa 高壓脊的強度"}
+diagnose:
+  - {value: 土壤乾燥對升溫的貢獻, from: "土壤乾燥對升溫的貢獻"}
+obs_requests: []
+local_obs: []
+questions: []

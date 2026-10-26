@@ -1,0 +1,28 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 85db43ad1bc2947aeecb086fab916bf3fa5607d11b9485f7d4066682bf1cfb31
+event:
+  value: January 2023 atmospheric river series over California
+  from: "January 2023 atmospheric river series over California"
+types:
+  - {value: atmospheric_river, from: "atmospheric river series"}
+  - {value: heavy_rain, from: "24 h precipitation vs gauges/Stage IV"}
+  - {value: orographic, from: "the snow level in the Sierra Nevada"}
+storms: []
+region:
+  value: California, Sierra Nevada
+  from: "California"
+verify:
+  - {value: ivt, from: "IVT compared with ERA5"}
+  - {value: precip_24h, from: "24 h precipitation vs gauges/Stage IV"}
+  - {value: precip_gauge, from: "24 h precipitation vs gauges/Stage IV"}
+  - {value: snow_depth, from: "the snow level in the Sierra Nevada"}
+diagnose: []
+obs_requests:
+  - {kind: reanalysis, from: "IVT compared with ERA5"}
+  - {kind: gridded_precip, from: "24 h precipitation vs gauges/Stage IV"}
+  - {kind: rain_gauges, from: "24 h precipitation vs gauges/Stage IV"}
+local_obs: []
+questions:
+  - "Snow level: do you want it compared with observed snow depth / snowfall, or just a model field (e.g. 0 degC wet-bulb height) as a figure?"
+  - "Which exact storm or AR event(s) in January 2023 should the run cover (the text says 'series' but names no specific date or storm)?"

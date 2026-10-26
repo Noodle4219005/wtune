@@ -1,0 +1,7 @@
+`event.yaml` is written and `wtune event check event.yaml` passes with 0 errors, 0 warnings.
+
+我理解的內容：這是 2021 年 6 月底太平洋西北（heat dome）熱浪案例，重點是 2 m 最高溫與測站比較、500 hPa 高壓脊強度，以及土壤乾燥對升溫的貢獻，因此設定 type 為 `heat_wave` 與 `land_atmosphere`，verify 為 `t2_max`（測站）與 `z500`（再分析），土壤乾燥貢獻放在 diagnose（模型-only）。沒有颱風、使用者未指定額外資料來源，也沒有本地觀測檔，所以 storms、obs_requests、local_obs 都是空的。
+
+questions:
+- 「500 hPa 高壓脊的強度」是要與 ERA5 再分析比較（我已放在 verify 的 `z500`），還是只看模式自身的結構診斷（則應改放 diagnose）？
+- 2 m 最高溫的「測站」是指 WTune 預設的 ISD 表面測站嗎？

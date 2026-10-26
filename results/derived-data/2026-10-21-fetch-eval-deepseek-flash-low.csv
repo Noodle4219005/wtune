@@ -1,0 +1,26 @@
+run,model,skill,tasks,task,verdict,seconds,turns,input_tokens,output_tokens,cost_usd,note
+g2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,cmorph,pass,116,31,677154,10930,0.024866,
+g2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,radar,pass,342,73,3527758,30154,0.073255,
+g2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,satellite,pass,106,18,390822,8411,0.020954,
+g2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,stations,pass,134,37,838082,13053,0.028915,"162/162 reference rows matched, 0 extra rows"
+g2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,cmorph,pass,95,27,493567,9240,0.020258,
+g2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,radar,pass,117,26,557138,14101,0.026723,
+g2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,satellite,pass,83,15,489535,7629,0.025809,
+g2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",new skill (6d3bfdf),tasks2,stations,pass,175,51,1982237,21981,0.051977,"162/162 reference rows matched, 4 extra rows"
+c2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,cmorph,pass,77,23,449680,7783,0.019343,
+c2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,radar,pass,255,45,1546635,25536,0.050275,
+c2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,satellite,pass,135,33,832051,12972,0.029417,
+c2-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,stations,pass,105,29,703856,13644,0.028456,"162/162 reference rows matched, 386 extra rows"
+c2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,cmorph,pass,87,22,409822,7641,0.018166,
+c2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,radar,pass,185,36,1276052,21107,0.045108,
+c2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,satellite,pass,184,31,546270,11296,0.023032,
+c2-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks2,stations,pass,187,35,1156843,16545,0.037702,"162/162 reference rows matched, 318 extra rows"
+d1-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,cmorph,pass,72,16,271318,9714,0.019745,
+d1-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,radar,pass,132,24,705917,17392,0.033798,
+d1-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,satellite,pass,153,19,482487,10236,0.024489,
+d1-a,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,stations,pass,183,36,1886588,17239,0.051273,"266/266 reference rows matched, 148 extra rows"
+d1-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,cmorph,pass,100,30,723354,9450,0.024719,
+d1-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,radar,infra_fail,206,11,58075,2237,0.005882,DeepSeek API 'Connection error.' after 11 turns; replaced by d1-b2
+d1-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,satellite,pass,140,29,595320,9673,0.024021,
+d1-b,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,stations,pass,179,37,1157056,18903,0.041047,"266/266 reference rows matched, 144 extra rows"
+d1-b2,"deepseek/deepseek-flash (V4.1 Flash), thinking low",old skill (ac0dddf),tasks1,radar,fail_by_criterion,321,49,1902754,26135,0.055094,masked at 460 km (N0Q 248 nmi product range) instead of the reference's 230 km; dBZ decoding right

@@ -147,6 +147,19 @@ def _print_tc_summary(tc, summary: dict, out: str) -> None:
         print(tc.format_track_steps(label, st))
 
 
+def _project_bdeck(bdeck, project_dir, hurdat2, storm):
+    """--bdeck, else the project's `wtune post fetch bdeck` file, else None (tc downloads it,
+    outside a Slurm job)."""
+    if bdeck or not (project_dir and storm):
+        return bdeck
+    import wtune.post.tc as tc
+    from wtune.post.fetch import bdeck as fetched
+    try:
+        return fetched.local_path(project_dir, tc.resolve_storm(hurdat2, storm))
+    except tc.TCError:
+        return None
+
+
 def cmd_tc(args: argparse.Namespace) -> int:
     import wtune.post.tc as tc
     project_dir, project_doc = _project_context(args)
@@ -162,7 +175,8 @@ def cmd_tc(args: argparse.Namespace) -> int:
 
     out = _resolve_out(args, project_dir, "tc")
     summary = tc.run_tc_report(run_dirs, labels, hurdat2, storm, out,
-                               ebtrk_path=args.ebtrk, bdeck_path=args.bdeck,
+                               ebtrk_path=args.ebtrk,
+                               bdeck_path=_project_bdeck(args.bdeck, project_dir, hurdat2, storm),
                                smooth_km=args.track_smooth_km)
     _print_tc_summary(tc, summary, out)
     _record_manifest(project_dir, ["wtune", "post", "tc"] + run_dirs, out, run_dirs + [hurdat2])
@@ -268,7 +282,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
     result = recipe.run_recipe(
         run_dirs, out, types_override=types_override, ensemble=args.ensemble,
         spinup_hours=args.spinup_hours, hurdat2_path=hurdat2, storm_id=storm,
-        bdeck_path=args.bdeck, ebtrk_path=args.ebtrk, labels=labels,
+        bdeck_path=_project_bdeck(args.bdeck, project_dir, hurdat2, storm),
+        ebtrk_path=args.ebtrk, labels=labels,
         paraview=not args.no_paraview, decomposition_only=args.repro_pairs, title=args.title,
         every=args.every, times=_parse_vars(args.times) if args.times else None,
         cross_sections=cross_sections, animate=args.animate,

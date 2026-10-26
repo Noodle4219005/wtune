@@ -976,7 +976,7 @@ _FORWARDED_COMMANDS = (
                           'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
      'post/cli.py', 'wtune.post.cli'),
     ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune/geog.py): '
-                          'geog list | fetch | import-dem | verify | bounds | srtm-fetch',
+                          'geog list | fetch | import-dem | verify | bounds | srtm-fetch; wps | real',
      'wtune/geog.py', None),
     ('project', 'project_args', 'project folder holding case/input/config/runs/post '
                                 '(decision 0058; wtune/project.py): init | info | set',
@@ -985,6 +985,9 @@ _FORWARDED_COMMANDS = (
      'analysis/cli.py', 'wtune.analysis.cli'),
     ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune/rebuild_predict.py)',
      'wtune/rebuild_predict.py', 'wtune.rebuild_predict'),
+    ('stop', 'stop_args', 'stop a running wtune tune or run like Ctrl-C (it cancels its own jobs '
+     'and writes its report), or cancel the jobs a dead one left (wtune/stop.py)',
+     'wtune/stop.py', 'wtune.stop'),
     ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune/watch.py)',
      'wtune/watch.py', 'wtune.watch'),
     ('run', 'run_args', 'segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune/run/)',
@@ -994,6 +997,8 @@ _FORWARDED_COMMANDS = (
      'wtune/bp.py', 'wtune.bp'),
     ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune/advise.py)',
      'wtune/advise.py', 'wtune.advise'),
+    ('event', 'event_args', 'event.txt -> checked event.yaml -> observation plan '
+     '(wtune/event.py): init | vocab | check | plan', 'wtune/event.py', 'wtune.event'),
     ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune/calc.py)',
      'wtune/calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
@@ -1059,7 +1064,7 @@ _IN_PROCESS_COMMANDS = {
 # Forwarded commands that take project.yaml's exclude_nodes and case table, and the subset
 # whose full argv goes to manifest.jsonl here (post and project record their own).
 _PROJECT_AWARE = ('tune', 'run', 'post', 'watch', 'check', 'convert', 'advise', 'submit',
-                  'doctor')
+                  'doctor', 'prep')
 _RECORDED = ('tune', 'run', 'submit')
 
 

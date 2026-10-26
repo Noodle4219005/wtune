@@ -1,0 +1,264 @@
+"""wtune.run.space: the output-volume check before the first job and the shrunk-history check
+after each one (f1-arm marshall 2026-10-21: past the GPFS soft quota WRF+ADIOS2 printed SUCCESS
+with 17 KB history frames and run_report said completed)."""
+import glob
+import json
+import os
+import types
+
+from wtune import run as wr
+from wtune.run import cli as run_cli
+from wtune.run import space
+from wtune.run.geometry import HistoryStream
+
+import test_wtune_run as T
+from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune/bp.py)
+
+LAYOUT = ["--nodes", "1", "--nx", "8", "--ny", "9"]
+
+
+def test_estimate_counts_history_frames_and_restart_sets():
+    geo = types.SimpleNamespace(hist=[HistoryStream(iv_s=3600.0, begin_s=0.0), None,
+                                      HistoryStream(iv_s=60.0, begin_s=600.0)],
+                                points=[100, 10, 1000])
+    need, detail = space.estimate_output_bytes(geo, 1200.0, 1)
+    fb = space.frame_bytes
+    # d01: t=0 only; d02: no history, one restart; d03: 600..1200 s every 60 s = 11 frames
+    assert need == fb(100) * 2 + fb(10) + fb(1000) * 12
+    assert detail == "d01 1 x %s, d03 11 x %s" % (space._fmt_bytes(fb(100)),
+                                                  space._fmt_bytes(fb(1000)))
+
+
+def test_quota_headroom_reads_the_soft_limit(monkeypatch):
+    monkeypatch.setattr(space, "_gpfs_device", lambda p: "home2")
+    out = ("Filesystem type   KB  quota  limit in_doubt grace | files\n"
+           "home2      USR   85543152  104857600  209715200  2815232  none |  788266  0  0\n")
+    assert space.quota_headroom("/home/x", runner=lambda argv: out) == (104857600 - 85543152) * 1024.0
+    no_soft = out.replace("104857600", "0")
+    assert space.quota_headroom("/home/x", runner=lambda argv: no_soft) == (209715200 - 85543152) * 1024.0
+    monkeypatch.setattr(space, "_gpfs_device", lambda p: None)
+    assert space.quota_headroom("/tmp", runner=lambda argv: out) is None
+
+
+def test_writable_bytes_takes_the_smaller(monkeypatch, tmp_path):
+    monkeypatch.setattr(space, "quota_headroom", lambda p, r=None: 5e9)
+    assert space.writable_bytes(str(tmp_path)) == (5e9, "GPFS quota headroom")
+    monkeypatch.setattr(space, "quota_headroom", lambda p, r=None: None)
+    assert space.writable_bytes(str(tmp_path))[1] == "filesystem free space"
+
+
+def _write(path, n):
+    os.makedirs(path, exist_ok=True)
+    with open(os.path.join(path, "data.0"), "wb") as fh:
+        fh.write(b"x" * n)
+
+
+def test_shrunk_outputs_per_stream_and_kind(tmp_path):
+    for t, n in (("00", 1000), ("01", 990), ("02", 50)):
+        _write(str(tmp_path / ("wrfout_d01_2020-06-01_%s:00:00" % t)), n)
+    _write(str(tmp_path / "wrfout_d02_2020-06-01_00:00:00"), 20)          # its own stream
+    (tmp_path / "wrfout_d01_2020-06-01_03:00:00").write_bytes(b"x" * 5)  # netCDF: other kind
+    names = sorted(os.listdir(tmp_path)) + ["wrfout_d01_2020-06-01_04:00:00"]  # absent: ignored
+    assert space.shrunk_outputs(str(tmp_path), names) == ["wrfout_d01_2020-06-01_02:00:00"]
+
+
+class LosesWrites(T.Fakes):
+    """A job that ends SUCCESS but whose last history frames lost their data."""
+
+    def sbatch(self, cmd):
+        out = super().sbatch(cmd)
+        seg = os.path.dirname(cmd.split()[-1].strip("'"))
+        frames = sorted(glob.glob(os.path.join(seg, "wrfout_d01_*")))
+        for i, f in enumerate(frames):
+            _write(f, 10 if i >= len(frames) - 2 else 10000)
+        return out
+
+
+def _run(tmp_path, args, fakes):
+    case = T._make_case(tmp_path, T.NAMELIST_3DOM)
+    out, lines = tmp_path / "out", []
+    rc = wr.main([str(case), "--out", str(out), "--poll-interval", "0"] + LAYOUT + args,
+                 sbatch_runner=fakes.sbatch, sacct_runner=fakes.sacct,
+                 snapshot_fn=fakes.snapshot, sleep=lambda s: None, log=lines.append)
+    rep = out / "run_report.json"
+    return rc, lines, json.loads(rep.read_text()) if rep.exists() else None
+
+
+def test_segment_with_shrunk_history_fails_without_resume(tmp_path, capsys):
+    f = LosesWrites()
+    rc, _lines, rep = _run(tmp_path, [], f)
+    assert rc == 1 and len(f.submitted) == 1
+    assert "history outputs are under 10%" in rep["error"]
+    att = rep["segments"][0]["attempts"][0]
+    assert att["ok"] is False and len(att["shrunk"]) == 2
+
+
+def test_run_refuses_when_the_output_does_not_fit(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(run_cli, "writable_bytes", lambda p, r=None: (1e3, "GPFS quota headroom"))
+    f = T.Fakes()
+    rc, lines, _rep = _run(tmp_path, [], f)
+    assert rc == 2 and f.submitted == []
+    assert any(line.startswith("output estimate") for line in lines)
+    assert "only 0.0 GB is writable (GPFS quota headroom)" in capsys.readouterr().err
+    f = T.Fakes()
+    (tmp_path / "again").mkdir()
+    rc, _lines, _rep = _run(tmp_path / "again", ["--no-space-check"], f)
+    assert rc == 0 and f.submitted
+
+
+def test_plan_warns_about_debug_level(tmp_path):
+    case = T._make_case(tmp_path, T.NAMELIST_3DOM)
+    text = (case / "namelist.input").read_text()
+    (case / "namelist.input").write_text(text.replace("&time_control", "&time_control\n debug_level = 50,", 1))
+    lines = []
+    rc = wr.main([str(case), "--out", str(tmp_path / "out"), "--dry-run"] + LAYOUT, log=lines.append)
+    assert rc == 0 and any("debug_level=50" in ln for ln in lines)
+
+
+def test_rsl_fatal_names_the_rank_and_message(tmp_path):
+    """c34 2026-10-23: WRF-Fire stopped WRF on rank 39 only; the report said 'warnings none'."""
+    from wtune import resume
+    (tmp_path / "rsl.error.0000").write_text("Timing for main: ...\n")
+    (tmp_path / "rsl.error.0039").write_text(
+        "-------------- FATAL CALLED ---------------\n"
+        "FATAL CALLED FROM FILE:  <stdin>  LINE:     152\n"
+        "crash: wrf: SUCCESS COMPLETE WRF. Fire has reached domain boundary.\n")
+    assert resume.rsl_fatal(str(tmp_path)) == (
+        "rsl.error.0039: crash: wrf: SUCCESS COMPLETE WRF. Fire has reached domain boundary.")
+    assert resume.rsl_fatal(str(tmp_path / "none")) is None
+
+
+def test_input_bytes_counts_stale_conversions_and_one_per_record_copy(tmp_path, monkeypatch):
+    """elevconv 2026-10-23: converting 2.0 GB of netCDF inputs wrote 7.9 GB of BP and pushed
+    home2 past its quota; the output estimate had not counted inputs at all."""
+    case = tmp_path / "case"
+    case.mkdir()
+    for n in ("wrfinput_d01", "wrfbdy_d01"):
+        (case / n).write_bytes(b"x")
+    monkeypatch.setattr(space, "netcdf_data_bytes",
+                        lambda p: {"wrfinput_d01": 3e9, "wrfbdy_d01": 5e9}.get(os.path.basename(p), 0.0))
+    plan = {"convert": [str(case / "wrfinput_d01"), str(case / "wrfbdy_d01")],
+            "per_record": {"wrfbdy_d01": str(tmp_path / "cache" / "wrfbdy_d01")}}
+    stale = types.SimpleNamespace(cached_inputs=lambda d, c, names: None)
+    assert space.input_bytes(plan, str(tmp_path / "cache"), stale) == (8e9, 5e9)
+    cached = types.SimpleNamespace(cached_inputs=lambda d, c, names: {n: n for n in names})
+    assert space.input_bytes(plan, str(tmp_path / "cache"), cached) == (0.0, 5e9)
+    assert space.input_bytes(None, None, cached) == (0.0, 0.0)
+
+
+def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys):
+    """elevconv 2026-10-23: `wtune tune` converted the inputs without any space check."""
+    import pytest
+    from wtune.tune import jobs
+    monkeypatch.delenv("WTUNE_INPUT_FORMAT", raising=False)
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (8e9, 1e9, "/cache"))
+    with pytest.raises(SystemExit) as e:
+        jobs.check_input_space("elevconv", writable=lambda p: (5e9, "GPFS quota headroom"))
+    assert "needs 8.0 GB in /cache, only 5.0 GB is writable" in str(e.value)
+    jobs.check_input_space("elevconv", writable=lambda p: (12e9, "GPFS quota headroom"))
+    assert "input conversion 8.0 GB of 12.0 GB writable" in capsys.readouterr().out
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (_ for _ in ()).throw(KeyError(c)))
+    jobs.check_input_space("unknown", writable=lambda p: (0.0, "x"))     # not checked
+
+
+def test_gzip_rsl_keeps_rank_0_plain(tmp_path):
+    """sc26p1 debug_level=50: 17.6 GB of rsl in 22 minutes, 17x smaller with gzip -1."""
+    import gzip
+    for n in ("rsl.out.0000", "rsl.error.0000", "rsl.out.0001", "rsl.error.0039"):
+        (tmp_path / n).write_text("d01 2020-06-01_00:00:10 tile 1\n" * 1000)
+    n, before, after = space.gzip_rsl(str(tmp_path))
+    assert n == 2 and after < before / 10
+    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0039.gz", "rsl.out.0000",
+                                            "rsl.out.0001.gz"]
+    with gzip.open(tmp_path / "rsl.error.0039.gz", "rt") as fh:
+        assert fh.read() == "d01 2020-06-01_00:00:10 tile 1\n" * 1000
+    assert space.gzip_rsl(str(tmp_path)) == (0, 0, 0)
+
+
+class WritesTables(T.Fakes):
+    """WRF computes the Thompson tables into the segment; the case's own one is a link."""
+
+    def sbatch(self, cmd):
+        out = super().sbatch(cmd)
+        seg = os.path.dirname(cmd.split()[-1].strip("'"))
+        for n in ("freezeH2O.dat", "qr_acr_qg_V4.dat"):
+            with open(os.path.join(seg, n), "w") as fh:
+                fh.write("computed")
+        os.symlink(os.path.join(seg, "namelist.input"), os.path.join(seg, "qr_acr_qsV2.dat"))
+        return out
+
+
+def _tables(rep):
+    return [sorted(n for n in os.listdir(s["attempts"][-1]["dir"]) if n.endswith(".dat"))
+            for s in rep["segments"]]
+
+
+def test_segments_drop_the_tables_wrf_computed_whatever_the_outcome(tmp_path):
+    """f1-arm V3 2026-10-26: without --thompson-cache every segment kept 357 MiB of tables;
+    a segment interrupted by a signal never reached the end of its script."""
+    rc, _l, rep = _run(tmp_path, [], WritesTables())
+    assert rc == 0 and _tables(rep) == [["qr_acr_qsV2.dat"]] * len(rep["segments"])
+    (tmp_path / "failed").mkdir()
+    rc, _l, rep = _run(tmp_path / "failed", ["--resume", "0"], WritesTables(outcomes=["failed"]))
+    assert rc != 0 and _tables(rep) == [["qr_acr_qsV2.dat"]]
+    (tmp_path / "cached").mkdir()
+    rc, _l, rep = _run(tmp_path / "cached", ["--thompson-cache"], WritesTables())
+    assert _tables(rep)[0] == ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
+
+
+def test_a_stopped_segment_drops_its_tables_too(tmp_path, monkeypatch):
+    """1bc6509 review: `wtune stop` / Ctrl-C raise out of the job wait and skipped the delete."""
+    import wtune.stopping
+    stop = wtune.stopping.STOP
+    monkeypatch.setitem(stop, "reason", None)
+    f = WritesTables()
+
+    def sleep(_s):
+        stop["reason"] = "stopped by wtune stop"
+    case = T._make_case(tmp_path, T.NAMELIST_3DOM)
+    out = tmp_path / "out"
+    rc = wr.main([str(case), "--out", str(out), "--poll-interval", "0"] + LAYOUT,
+                 sbatch_runner=f.sbatch, scancel_runner=lambda j: None,
+                 sacct_runner=lambda cmd: "%s|RUNNING|00:01:00\n" % cmd[cmd.index("-j") + 1],
+                 snapshot_fn=f.snapshot, sleep=sleep, log=lambda s: None)
+    rep = json.loads((out / "run_report.json").read_text())
+    assert rc == 130 and rep["status"] == "stopped"
+    assert _tables(rep) == [["qr_acr_qsV2.dat"]]
+
+
+def test_gzip_rsl_on_a_full_quota_keeps_the_rest_plain(tmp_path, monkeypatch, capsys):
+    """dbbf82d review: EDQUOT from gzip raised out of the run controller after a good segment."""
+    import errno
+    import gzip
+    for n in ("rsl.out.0001", "rsl.out.0002", "rsl.out.0003"):
+        (tmp_path / n).write_text("line\n" * 100)
+    real, opened = gzip.open, []
+
+    def full(path, *a, **k):
+        opened.append(path)
+        if len(opened) == 2:
+            raise OSError(errno.EDQUOT, "Disk quota exceeded")
+        return real(path, *a, **k)
+    monkeypatch.setattr(gzip, "open", full)
+    n, _b, _a = space.gzip_rsl(str(tmp_path))
+    assert n == 1 and sorted(os.listdir(tmp_path)) == ["rsl.out.0001.gz", "rsl.out.0002",
+                                                       "rsl.out.0003"]
+    assert "rsl gzip stopped at rsl.out.0002" in capsys.readouterr().err
+
+
+def test_probe_input_copy_needs_one_copy_not_one_per_run(monkeypatch, tmp_path):
+    """dbbf82d review: fresh_probe_inputs makes reflinks or a single full copy, but the space
+    check asked for one copy per run (17 x 1.5 GB for a 5-config, 3-rep confirm job)."""
+    from wtune.tune import jobs
+    made = []
+    monkeypatch.setattr(jobs, "_submits_for_real", lambda ctx: True)
+    monkeypatch.setattr(jobs, "_BP_READY", {("c", None)})
+    monkeypatch.setattr(jobs.wtune.machine, "copy_probe_inputs", lambda: True)
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (0.0, 1.5e9, "/cache"))
+    monkeypatch.setattr(jobs, "_writable_at", lambda p: (20e9, "GPFS quota headroom"))
+    monkeypatch.setattr(jobs.sweep.campaign_configs, "fresh_probe_inputs",
+                        lambda case, d, runs, cases_json=None: made.append(runs) or d)
+    assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == [
+        ("WTUNE_BP_FRESH_DIR", str(tmp_path / "bp_fresh"))] and made == [17]
+    monkeypatch.setattr(jobs, "_writable_at", lambda p: (1e9, "GPFS quota headroom"))
+    assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == []

@@ -1,0 +1,3 @@
+我理解的事件是：2018 年 11 月南加州 Santa Ana 強風情境，乾燥離岸風助長 Woolsey 野火快速擴散，屬於 fire_weather 與 downslope_wind 兩類。event.yaml 已建立，`wtune event check event.yaml` 通過（0 errors, 0 warnings），類型取自「野火在乾燥的離岸風下快速擴散」與「乾燥的離岸風」，驗證項目為測站陣風 (gust) 與相對濕度 (rh2)，下坡風剖面因是單一模式的模型量而放在 diagnose。
+
+問題：文字提到 Woolsey 野火，但未說明是否要與野火蔓延或燃燒面積等資料比較——若需要，可另行指定資料來源；目前我未加入任何 obs_requests。

@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+**Summary:** I read the case as the July 2021 Zhengzhou, Henan extreme rainfall event (a `heavy_rain` case, no tropical cyclone, region 河南鄭州). Verification items are `precip_24h` (24-hour accumulated rainfall) and `precip_1h` (hourly rainfall placement), and ground-level wind is recorded as a model-only `diagnose` item. Your CMA hourly station rainfall file is registered as `local_obs` with the path exactly as written (`~/obs/cma_rain.csv`, kind `rain_gauges`); no data was fetched.
+
+**Questions:** For 地面風 — do you want it compared against surface-station observations (which would make it a `wind10` verify item) rather than just shown from the model? Also, is 逐時雨量 meant as a point/grid comparison of hourly accumulation fields, or as accumulation at the CMA stations (a `precip_gauge` verify item)?

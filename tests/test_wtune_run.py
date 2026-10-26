@@ -1739,3 +1739,18 @@ def test_segment_links_and_caches_the_thompson_tables(tmp_path):
     seg3.mkdir()
     sh(seg3, "\n".join(link))
     assert os.listdir(seg3) == []
+
+
+def test_output_dir_names_only_on_the_domains_time_step(tmp_path):
+    # haitang2017 (2026-10-26): d01 dt 270 s, history 60 min -> WRF wrote wrfout_d01_..._21:04:30
+    # while the pre-created on-hour directories stayed empty (left behind by a stopped run)
+    nl = _nl(tmp_path, time_step="270,", history_interval="60, 60, 60", restart_interval="180",
+             io_form_history="14", io_form_restart="14")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1)
+    assert [n for n in got if n.startswith("wrfout")] == [
+        "wrfout_d01_2020-06-01_00:00:00", "wrfout_d01_2020-06-01_03:00:00",
+        "wrfout_d01_2020-06-01_06:00:00"]
+    assert [n for n in got if n.startswith("wrfrst")] == [
+        "wrfrst_d01_2020-06-01_03:00:00", "wrfrst_d01_2020-06-01_06:00:00"]
+    nl["domains"]["use_adaptive_time_step"] = [True]
+    assert wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1) == []

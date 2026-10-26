@@ -12,7 +12,6 @@ import shlex
 import subprocess
 
 DEFAULTS = {"cores_per_node": 72,       # cores of one compute node WRF may use (scc GH200: all)
-            "hardware_cores_per_node": 0,   # cores Slurm bills for an --exclusive node; 0 = the same
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
             "partition": "compute",     # Slurm partition, or a list tried in order
             "login_nodes": ("head",),   # nodes no job is sent to
@@ -29,6 +28,7 @@ DEFAULTS = {"cores_per_node": 72,       # cores of one compute node WRF may use 
             "node_preflight": True,     # one srun per node before a tune (wtune.tune.preflight)
             "node_memory_gib": 0,       # memory of one compute node; 0 = unknown, no memory check
             "copy_probe_inputs": True,  # each probe job reads its own copy of the BP inputs
+            "hardware_cores_per_node": 0,   # cores Slurm bills for an --exclusive node; 0 = the same
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "hardware_cores_per_node": "WTUNE_HARDWARE_CORES_PER_NODE",

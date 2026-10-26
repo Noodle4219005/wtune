@@ -756,7 +756,10 @@ def build_parser():
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
     p_set.add_argument("--cores-per-node", type=int, default=None,
-                       help="hardware cores of one compute node (built-in 72)")
+                       help="cores of one compute node WRF may use (built-in 72)")
+    p_set.add_argument("--hardware-cores-per-node", type=int, default=None,
+                       help="cores Slurm bills for an --exclusive node when WRF uses fewer "
+                            "(built-in 0: the same as --cores-per-node)")
     p_set.add_argument("--max-nodes", type=int, default=None,
                        help="compute nodes one job may use (built-in 13)")
     p_set.add_argument("--partition", default=None,

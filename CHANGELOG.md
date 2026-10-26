@@ -3,6 +3,47 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## Unreleased
+
+Fixes from the 2026-10-26 mock competition on f1-arm (haitang2017, MeiYu-2020), and the agent
+half of `wtune post` (decision 0078).
+
+**`wtune post` with an agent.** `wtune post brief POST_DIR` writes `brief.json` (case, runs,
+the observations that pass obs-check, drawn figures with the question each answers, missing
+ones with the reason, the rain core and peak hour, the lowest sea-level pressure). The agent
+(skill `wtune-post`) writes `review.json`, its own `analysis/*.py` figures, and
+`assessment.md`; `wtune post check POST_DIR` fails on a missing section, a paragraph that
+cites no existing figure or CSV, or a decimal beside a CSV link that the CSV does not hold.
+Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
+box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
+recipe` now also writes `figures.json`.
+
+**Standard figures.**
+- The domain map is drawn in the model projection, one colour and a `dx`/size label per
+  domain, cropped to d01; a d01 across the date line no longer draws a ring round the globe.
+- Rain over Taiwan uses CWA's 16-level scale (the WPC one stops at 203.2 mm).
+- SLP charts: grey coastlines under the black isobars; no H/L within half a window of the
+  edge or 2 cells of terrain above 500 m.
+- Cross-section, time-height, skew-T and max-reflectivity map: at the heaviest post-spin-up
+  rain (30 km mean, off the boundary zone) and its peak hour, not the last frame's wettest
+  cell at F072. `post.focus: [lat_min, lat_max, lon_min, lon_max]` in project.yaml limits the
+  search to the study area.
+- Wind barbs: ~15 along the short side, the 700 hPa set between the 10 m one, none where the
+  level is underground.
+
+**Other fixes.**
+- A truncated, unreadable or dangling-link history frame is left out and listed in the report
+  instead of stopping the whole recipe (a frame written past a full quota gave 0 figures).
+- `wtune post preview` works before `prep real`: domains from `geo_em` or `namelist.wps`.
+- `wtune post tc` and the recipe's tc set accept a b-deck without `--hurdat2`.
+- `wtune post fetch` without `--run-dir` uses the project's newest run.
+- `prep real` fits `plan.json`'s ranks to the machine's cores; the default layout is
+  near-square.
+- `wtune run` pre-creates only the ADIOS2 output directories WRF will write (an off-step
+  history time, e.g. d01 dt 270 s with hourly output, left empty on-hour directories behind),
+  and links an `--out` outside the project into `runs/` so `wtune stop` and `wtune post` find
+  it.
+
 ## 0.9.3 — 2026-10-26
 
 **`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or

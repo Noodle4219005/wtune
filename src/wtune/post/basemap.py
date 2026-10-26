@@ -307,12 +307,28 @@ def interior_mask(shape, bdy_width=0, fill=None):
     return m
 
 
-def masked_barbs(ax, lons, lats, u, v, stride, mask=None, **kw):
-    """ax.barbs on every `stride`-th point, but ONLY where `mask` (plotted interior), u and v
-    are valid -- no barb is ever drawn outside the filled interior. Returns the Barbs or None
-    when nothing is left."""
+BARBS_ACROSS = 15           # barbs along a map's shorter side
+
+
+def barb_stride(shape, across=BARBS_ACROSS, minimum=4) -> int:
+    """Grid stride giving about `across` barbs along the shorter side (haitang2017 d03's 25,
+    with a second set on the same points, read as a solid fill)."""
+    return max(minimum, min(shape) // across)
+
+
+def above_ground(ds, level_hpa, timeidx=0):
+    """True where the surface pressure is above level_hpa: wind interpolated to that level is
+    not underground (850/700 hPa barbs drawn over the Central Mountain Range)."""
     import numpy as np
-    s = slice(None, None, stride)
+    return np.asarray(ds.variables["PSFC"][timeidx], dtype="f8") / 100.0 > level_hpa
+
+
+def masked_barbs(ax, lons, lats, u, v, stride, mask=None, offset=0, **kw):
+    """ax.barbs on every `stride`-th point (from `offset`, to interleave a second set), but
+    ONLY where `mask` (plotted interior), u and v are valid -- no barb is ever drawn outside
+    the filled interior. Returns the Barbs or None when nothing is left."""
+    import numpy as np
+    s = slice(offset, None, stride)
     lo, la = np.asarray(lons)[s, s], np.asarray(lats)[s, s]
     uu, vv = np.asarray(u, dtype="f8")[s, s], np.asarray(v, dtype="f8")[s, s]
     # wrf.interplevel marks below-ground points with a ~9.97e36 fill value, not NaN

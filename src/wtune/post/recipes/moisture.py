@@ -102,7 +102,7 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
     import cartopy.crs as ccrs
     wrf_mod = __import__("wrf")
     from wtune.post.ivt import IVT_LEVELS_HPA, ivt_field
-    from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir)
+    from wtune.post.plotting import _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
@@ -156,15 +156,15 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
                          transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, label="IVT (kg m$^{-1}$ s$^{-1}$)")
         _coastline(ax, ds, ccrs, natural_earth_ok)
-        # see post/recipes/terrain.py's _terrain_wind_map: a fine nest has far more grid
-        # points than WIND_SUBSAMPLE was tuned for, so scale the stride to this domain.
-        stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        # barbs only inside the plotted interior: finite IVT fill, spec_bdy_width edge cells out
-        from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
+        # barbs only inside the plotted interior (finite IVT fill, spec_bdy_width edge cells
+        # out) and where 850 hPa is above ground; stride from the domain's own size
+        from wtune.post.basemap import (above_ground, barb_stride, bdy_width_of, interior_mask,
+                                        masked_barbs)
         from wtune.post.conventions import KT_PER_MS, ds_time_label
         masked_barbs(ax, lons, lats, np.asarray(u850) * KT_PER_MS, np.asarray(v850) * KT_PER_MS,
-                     stride, mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag),
-                     length=5, transform=ccrs.PlateCarree())
+                     barb_stride(lons.shape),
+                     mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag)
+                     & above_ground(ds, 850.0, ti), length=5, transform=ccrs.PlateCarree())
         scale_note = ("AR scale, 250 = AR threshold" if ar_scale else
                       "max %.0f, below the AR scale (100+)" % ivt_max)
         ax.set_title("%s  d%02d  IVT (shaded; %s) + 850 hPa wind (kt)\n%s"

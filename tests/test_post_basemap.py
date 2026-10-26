@@ -152,3 +152,25 @@ def test_rain_over_taiwan_uses_the_cwa_scale_past_203_mm():
     us_lat, us_lon = lat + 10, lon - 200
     lev, _cm, name = rainscale.rain_scale(us_lat, us_lon, 12.0)
     assert name == "WPC" and lev[-1] > 12.0
+
+
+def test_barbs_thinned_interleaved_and_never_underground():
+    # haitang2017 terrain_wind_d03 (2026-10-26): two barb sets on the same points, ~25 across,
+    # and 700 hPa barbs over the Central Mountain Range
+    import numpy as np
+    from types import SimpleNamespace
+    from wtune.post import basemap
+    assert basemap.barb_stride((301, 221)) == 14 and basemap.barb_stride((40, 40)) == 4
+    psfc = np.full((1, 30, 30), 1000e2)
+    psfc[0, 10:20, 10:20] = 650e2
+    ds = SimpleNamespace(variables={"PSFC": psfc})
+    ok = basemap.above_ground(ds, 700.0)
+    assert ok[0, 0] and not ok[15, 15]
+    drawn = []
+    ax = SimpleNamespace(barbs=lambda lo, la, u, v, **kw: drawn.append(list(zip(la, lo))))
+    lat, lon = np.meshgrid(np.arange(30.0), np.arange(30.0), indexing="ij")
+    u = np.ones((30, 30))
+    basemap.masked_barbs(ax, lon, lat, u, u, 6, mask=ok)
+    basemap.masked_barbs(ax, lon, lat, u, u, 6, mask=ok, offset=3)
+    assert not set(drawn[0]) & set(drawn[1])
+    assert not [p for p in drawn[0] + drawn[1] if 10 <= p[0] < 20 and 10 <= p[1] < 20]

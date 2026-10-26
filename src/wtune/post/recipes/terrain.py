@@ -89,7 +89,7 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
     import numpy as np
     import cartopy.crs as ccrs
     wrf_mod = __import__("wrf")
-    from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir)
+    from wtune.post.plotting import _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
@@ -124,20 +124,19 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
         fig.colorbar(cf, ax=ax, label="terrain height (m)")
         _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False)   # the fill already is terrain
 
-        # WIND_SUBSAMPLE (post/plotting.py) is tuned for the coarser regional domains that
-        # module usually plots; a 1 km nest has far more grid points across the same
-        # displayed extent, so the fixed stride left barbs dense enough to look like a solid
-        # colour fill (maria1km d02, 2026-09-29 scc T1 run). Scale the stride to the domain's
-        # own grid size instead, aiming for roughly 25 barbs across the shorter axis.
-        stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
+        # stride from the domain's own size (a 1 km nest looked like a solid fill, maria1km
+        # d02, 2026-09-29); the 700 hPa set sits between the 10 m one, and not underground
+        from wtune.post.basemap import (above_ground, barb_stride, bdy_width_of, interior_mask,
+                                        masked_barbs)
+        stride = barb_stride(lons.shape)
         interior = interior_mask(lons.shape, bdy_width_of(ds), fill=np.asarray(ter))
         from wtune.post.conventions import KT_PER_MS, ds_time_label
         masked_barbs(ax, lons, lats, np.asarray(u10) * KT_PER_MS, np.asarray(v10) * KT_PER_MS,
                      stride, mask=interior, length=5, color="black",
                      transform=ccrs.PlateCarree(), label="10 m wind")
         masked_barbs(ax, lons, lats, np.asarray(u700) * KT_PER_MS, np.asarray(v700) * KT_PER_MS,
-                     stride, mask=interior, length=5, color="red",
+                     stride, mask=interior & above_ground(ds, 700.0, ti), offset=stride // 2,
+                     length=5, color="red",
                      transform=ccrs.PlateCarree(), label="700 hPa wind")
         ax.set_title("%s  d%02d  terrain + 10 m (black) / 700 hPa (red) wind, barbs in kt\n%s"
                      % (run_label, domain, ds_time_label(ds, time0)), fontsize=9)

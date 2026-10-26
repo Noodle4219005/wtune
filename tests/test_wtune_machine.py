@@ -233,6 +233,27 @@ def test_a_refused_partition_moves_the_job_to_the_next(scc, monkeypatch):
     assert seen[-1] == "sbatch -p large /x/nc2bp.sbatch"
 
 
+def test_a_job_pending_on_a_size_limit_moves_to_the_next_partition(scc):
+    # f1-arm: arm144 takes 2 x 72 tasks --exclusive (288 CPUs) and leaves it pending for ever
+    wtune.machine.export(dict(partition="arm144,arm576,arm1440"))
+    ids = iter(["11", "12"])
+    submitted, cancelled = [], []
+
+    def sbatch_runner(cmd):
+        submitted.append(cmd.split()[2])
+        return "Submitted batch job %s\n" % next(ids)
+
+    reasons = {"11": "QOSMaxCpuPerJobLimit", "12": "Priority"}
+    assert scc_sweep.submit_job("sbatch /x.sbatch", sbatch_runner,
+                                pending_reason=reasons.get, cancel=cancelled.append) == "12"
+    assert submitted == ["arm144", "arm576"] and cancelled == ["11"]
+
+    with pytest.raises(RuntimeError, match="arm1440: job 3 pending on PartitionNodeLimit"):
+        scc_sweep.submit_job("sbatch /x.sbatch", lambda c: "Submitted batch job 3\n",
+                             pending_reason=lambda j: "PartitionNodeLimit", cancel=cancelled.append)
+    assert cancelled == ["11", "3", "3", "3"]
+
+
 def test_every_partition_refusing_is_reported(scc):
     wtune.machine.export(dict(partition="small,mid"))
 

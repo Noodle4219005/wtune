@@ -125,7 +125,7 @@ def test_bp_history_is_converted_once_and_reused(tmp_path, fake_bp, monkeypatch)
     fake_bp.require_adios2_python = _no_adios2                       # a valid cache needs no
     _fresh_process(monkeypatch)                                      # adios2 at all
     assert extract.list_frame_refs(str(run)) == refs
-    assert extract.prepare_history(str(run)) == dict(n_bp=2, cache=_cache(run), failed=[])
+    assert extract.prepare_history(str(run)) == dict(n_bp=2, cache=_cache(run), failed=[], bad=[])
 
 
 def test_a_rewritten_bp_is_reconverted_alone(tmp_path, fake_bp, monkeypatch):

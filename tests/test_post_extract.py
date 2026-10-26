@@ -118,3 +118,25 @@ def test_extract_box_netcdf(run_dir, tmp_path):
         assert "slp" in ds.variables
         assert "z_850hPa" in ds.variables
         assert ds.variables["slp"].shape[0] == 2
+
+
+def test_truncated_and_unreadable_frames_are_left_out_and_reported(tmp_path):
+    # haitang2017 / meiyu2020 (2026-10-26): frames written past a full quota were a few KB;
+    # wrf-python's Fortran stopped the whole recipe on one of them (0 figures)
+    run = tmp_path / "run"
+    run.mkdir()
+    good = ["2005-08-25_00:00:00", "2005-08-25_01:00:00", "2005-08-25_02:00:00"]
+    for t in good:
+        _write_wrfout(str(run / ("wrfout_d01_" + t)), [t])
+        with netCDF4.Dataset(str(run / ("wrfout_d01_" + t)), "a") as d:     # real-size frames
+            d.createDimension("pad", 400000)
+            d.createVariable("PAD", "f4", ("pad",))[:] = np.ones(400000, dtype=np.float32)
+    (run / "wrfout_d01_2005-08-25_03:00:00").write_bytes(b"\x89HDF\r\n\x1a\n" + b"\0" * 3000)
+    big_garbage = run / "wrfout_d01_2005-08-25_04:00:00"
+    big_garbage.write_bytes(b"not netcdf" * (os.path.getsize(run / ("wrfout_d01_" + good[0])) // 10))
+    assert [t for t, _p in extract.list_frames(str(run), 1)] == good
+    bad = dict(extract.prepare_history(str(run))["bad"])
+    assert set(os.path.basename(p) for p in bad) == {
+        "wrfout_d01_2005-08-25_03:00:00", "wrfout_d01_2005-08-25_04:00:00"}
+    assert bad[str(run / "wrfout_d01_2005-08-25_03:00:00")].startswith("truncated")
+    assert "not readable" in bad[str(big_garbage)]

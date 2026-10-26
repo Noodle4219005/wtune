@@ -220,6 +220,8 @@ def run_recipe(run_dirs, out_dir, **kwargs) -> dict:
             for bp, err in prep["failed"]:
                 bp_notes.append(note("history", "%s: %s not converted to netCDF, its frames "
                                      "are left out: %s" % (label, bp, err)))
+            for path, why in prep.get("bad", []):
+                bp_notes.append(note("history", "%s: %s left out (%s)" % (label, path, why)))
         if gaps:
             os.makedirs(out_dir, exist_ok=True)
             from wtune.post.report import build_recipe_report

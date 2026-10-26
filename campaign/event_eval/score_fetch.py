@@ -10,7 +10,9 @@ right, every requested time is there, and the values agree with the reference:
 - radar: at reference echo cells (>= 15 dBZ) 80 % within 6 dBZ (the reference is max-reduced
   to 0.02 deg), and cells the reference marks out of radar range are NaN in at least half;
 - satellite_ir: at least 95 % of the reference cells valid, median |diff| <= 1 K;
-- stations_extra: at least 90 % of the reference (station, time, var) rows, values within 0.11.
+- stations_extra: at least 90 % of the reference (station, time, var) rows, values within 0.11;
+- rain_gauges: every reference gauge found (by id, else the nearest gauge within 3 km), and at
+  least 95 % of its reference hours present with |diff| <= 0.05 mm (hours keyed by end time).
 """
 import argparse
 import csv
@@ -143,6 +145,42 @@ def _stations(task, folder, ref):
     return recall >= 0.9, notes
 
 
+def _gauges(task, folder, ref):
+    t0, t1 = (datetime.strptime(x, FMT) for x in task["window"])
+
+    def hourly(path):
+        out = {}
+        for r in agent_obs.read_gauges(path):
+            if t0 < r["end"] <= t1 and r["end"] - r["start"] == timedelta(hours=1):
+                g = out.setdefault(r["id"].upper(), dict(lat=r["lat"], lon=r["lon"], v={}))
+                g["v"][r["end"]] = r["precip_mm"]
+        return out
+    try:
+        cand = hourly(os.path.join(folder, agent_obs.GAUGE_FILE))
+    except (OSError, ValueError) as e:
+        return False, ["unreadable: %s" % e]
+    refg = hourly(os.path.join(ref, agent_obs.GAUGE_FILE))
+    ok, notes = True, []
+    for gid, g in sorted(refg.items()):
+        c = cand.get(gid)
+        if c is None:                       # another id scheme: the nearest gauge within 3 km
+            near = [(np.hypot(x["lat"] - g["lat"], (x["lon"] - g["lon"]) * np.cos(np.radians(g["lat"]))), k)
+                    for k, x in cand.items()]
+            d, k = min(near) if near else (1.0, None)
+            c = cand[k] if k is not None and d * 111.0 <= 3.0 else None
+        if c is None:
+            ok = False
+            notes.append("%s: not found" % gid)
+            continue
+        good = sum(1 for t, v in g["v"].items() if t in c["v"] and abs(c["v"][t] - v) <= 0.05)
+        frac = good / len(g["v"])
+        if frac < 0.95:
+            ok = False
+            notes.append("%s: %d/%d hours match" % (gid, good, len(g["v"])))
+    notes.append("%d reference gauges, %d in the run" % (len(refg), len(cand)))
+    return ok, notes
+
+
 def score_run(run_dir, task, refs):
     r = dict(found=False, check=False, kind=False, values=False, passed=False, note="")
     folder, note = _folder(run_dir, task["name"])
@@ -163,6 +201,8 @@ def score_run(run_dir, task, refs):
             ok, n = _grids(task, folder, ref)
         elif task["kind"] in agent_obs.SNAPSHOTS:
             ok, n = _snapshots(task, folder, ref)
+        elif task["kind"] == "rain_gauges":
+            ok, n = _gauges(task, folder, ref)
         else:
             ok, n = _stations(task, folder, ref)
     except Exception as e:  # noqa: BLE001 -- a malformed run is a failed run, not a crash

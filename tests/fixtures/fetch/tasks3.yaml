@@ -1,0 +1,9 @@
+# Third fetch set (2026-10-26): a source outside the US that is hard to find -- Typhoon Morakot
+# (SC26-WRF morakot2009). Station names only: the agent has to find the source, the station ids
+# (one renamed, one closed since), the time convention and the units.
+morakot:
+  kind: rain_gauges
+  need: "hourly rainfall at these Central Weather Administration (Taiwan) stations, every hour of the window, to compare with the model (precip_gauge): 阿里山 Alishan, 尾寮山 Weiliaoshan, 奮起湖 Fenqihu, 石磐龍 Shipanlong, 豐山 Fengshan (Chiayi County), 臺北 Taipei"
+  source: "Central Weather Administration (CWA, Taiwan) surface station observations, hourly"
+  window: [2009-08-07 00:00, 2009-08-10 00:00]
+  name: cwa_gauges

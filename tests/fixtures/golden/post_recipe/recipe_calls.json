@@ -854,7 +854,7 @@
    ],
    [
     "report",
-    "({'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'tc_figure', 'missing': True, 'dataset': 'HURDAT2/--storm', 'reason': 'tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison', 'run': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
+    "({'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'tc_figure', 'missing': True, 'dataset': 'HURDAT2 or b-deck, and --storm', 'reason': 'tc was detected but --storm with --hurdat2 or --bdeck is required to build the a-deck/b-deck comparison', 'run': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
    ]
   ],
   "out_exists": true,
@@ -901,10 +901,10 @@
      "valid_time": null
     },
     {
-     "dataset": "HURDAT2/--storm",
+     "dataset": "HURDAT2 or b-deck, and --storm",
      "id": "tc_figure",
      "missing": true,
-     "reason": "tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison",
+     "reason": "tc was detected but --storm with --hurdat2 or --bdeck is required to build the a-deck/b-deck comparison",
      "run": null
     },
     {

@@ -149,7 +149,7 @@
   },
   "tc-no-storm": {
    "calls": [],
-   "rc": "SystemExit(\"--hurdat2/--storm required (or set them in project.yaml's storm:)\")",
+   "rc": "SystemExit(\"--storm with --hurdat2 or --bdeck required (or set them in project.yaml's storm:)\")",
    "stderr": "",
    "stdout": ""
   },

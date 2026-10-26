@@ -36,17 +36,25 @@ def pooled_levels(arrays, lo_pct=2.0, hi_pct=98.0, nbins=14, floor=None):
     return nice_levels(lo, hi, nbins)
 
 
+EXCLUDE_MARGIN = 2          # grid cells around an excluded cell that get no H/L either
+
+
 def highs_lows(field, window=None, edge=5, exclude=None):
     """[(j, i, 'H'|'L')] local maxima/minima of a 2-D field in a window x window neighbourhood
     (default ~1/6 of the shorter side), skipping `edge` boundary cells and flat plateaus -- the
     H/L letters of a classic surface-pressure chart. exclude: bool array, True cells never get
-    a letter (e.g. terrain above ~500 m, where sea-level pressure is an extrapolation)."""
+    a letter (e.g. terrain above ~500 m, where sea-level pressure is an extrapolation), nor do
+    cells within EXCLUDE_MARGIN of one. The skipped edge is at least half the window: the filter
+    pads the boundary with its own values, so a boundary cell would otherwise win its window."""
     import numpy as np
-    from scipy.ndimage import maximum_filter, minimum_filter
+    from scipy.ndimage import binary_dilation, maximum_filter, minimum_filter
     a = np.asarray(field, dtype="f8")
     if a.ndim != 2 or not np.isfinite(a).any():
         return []
     w = window or max(5, min(a.shape) // 6)
+    edge = max(edge, w // 2)
+    if exclude is not None:
+        exclude = binary_dilation(np.asarray(exclude, dtype=bool), iterations=EXCLUDE_MARGIN)
     filled = np.where(np.isfinite(a), a, np.nanmean(a))
     hi = (filled == maximum_filter(filled, size=w, mode="nearest"))
     lo = (filled == minimum_filter(filled, size=w, mode="nearest"))

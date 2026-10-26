@@ -413,14 +413,13 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
         lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=ti), as_np=True)
         crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=ti))
         out_path = os.path.join(out_dir, "terrain_rain_d%02d.png" % domain)
-        # WPC isohyet thresholds in mm, same scale as precip_accum (decision 0064)
+        # same scale as precip_accum: CWA over Taiwan, else WPC (post/rainscale.py)
         from wtune.post.conventions import ds_time_label
-        from wtune.post.obs_figs import PRECIP_LEVELS, precip_cmap
+        from wtune.post.rainscale import rain_scale
         hi = float(np.nanmax(rain)) if np.isfinite(rain).any() else 0.0
-        lev = [lv for lv in PRECIP_LEVELS if lv <= hi]
-        lev = PRECIP_LEVELS[:max(2, len(lev) + 1)]
-        cm = precip_cmap()
-        colors = [cm(x) for x in np.linspace(0, 1, len(lev))]
+        lev, cm, _name = rain_scale(lats, lons, hi)
+        colors = ([*cm.colors, cm.get_over()] if len(getattr(cm, "colors", ())) == len(lev) - 1
+                  else [cm(x) for x in np.linspace(0, 1, len(lev))])
         save_map(out_path, lats, lons,
                 "%s  d%02d  accumulated precipitation since init (shaded) + terrain (brown, 500 m)\n%s"
                 % (run_label, domain, ds_time_label(ds, time0)),

@@ -163,11 +163,16 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                     ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
                             fontsize=13, fontweight="bold", ha="center", va="center", **tkw)
             else:
+                norm = None
+                if levels is not None and cmap is not None and not isinstance(cmap, str):
+                    from matplotlib.colors import BoundaryNorm     # one colour per bin
+                    norm = BoundaryNorm(levels, cmap.N, extend=extend
+                                        if cmap.N > len(levels) - 1 else "neither")
                 cf = ax.contourf(lons, lats, data, levels=20 if levels is None else levels,
-                                 cmap=cmap or "viridis", extend=extend, **tkw)
+                                 cmap=cmap or "viridis", norm=norm, extend=extend, **tkw)
                 cbar = fig.colorbar(cf, ax=ax)
                 cbar.set_label(MAP_UNITS.get(field, ""))
-            _coastline(ax, ds, ccrs)
+            _coastline(ax, ds, ccrs, muted=field == "slp" and level_hpa is None)
 
             if overlay_wind:
                 from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs

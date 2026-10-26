@@ -89,3 +89,15 @@ def test_reflectivity_table_fits_boundarynorm_with_overflow():
     cm = reflectivity_cmap()
     BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")      # raises if the table is one colour short
     assert DBZ_LEVELS[0] == 5 and DBZ_LEVELS[-1] == 75 and DBZ_LEVELS[1] - DBZ_LEVELS[0] == 5
+
+
+def test_highs_lows_none_at_the_boundary_or_beside_high_terrain():
+    # haitang2017 slp_d03 (2026-10-26): L/H letters along the domain edge and at the foot of the
+    # Central Mountain Range
+    y, x = np.mgrid[0:60, 0:80]
+    slp = 1012 - 15 * np.exp(-((x - 73) ** 2 + (y - 30) ** 2) / 120.0)   # 6 cells from the edge
+    assert mapfig.highs_lows(slp, window=21) == []
+    slp = 1012 - 15 * np.exp(-((x - 40) ** 2 + (y - 30) ** 2) / 120.0)
+    mask = np.zeros(slp.shape, bool)
+    mask[29:32, 42:45] = True                      # terrain one cell east of the low
+    assert mapfig.highs_lows(slp, window=21, exclude=mask) == []

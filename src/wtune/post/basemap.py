@@ -27,6 +27,7 @@ LAYERS = (
     ("cultural", "admin_0_boundary_lines_land", "country borders", "0.2", 0.6),
     ("cultural", "admin_1_states_provinces_lakes", "state/province borders", "0.35", 0.4),
 )
+MUTED = "0.6"                # every layer's colour with muted=True
 FINE_SPAN_DEG = 8.0          # use 10 m below this domain span when cached
 TERRAIN_STEPS_M = (50, 100, 200, 250, 500, 1000, 2000)
 TERRAIN_MAX_LINES = 12
@@ -184,13 +185,14 @@ def caption_rect(fig):
 
 
 def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, labels=True,
-                 nest_rings=None, terrain=True, caption=True):
+                 nest_rings=None, terrain=True, caption=True, muted=False):
     """Draw the base layers on `ax`. ccrs_mod: cartopy.crs module (None = plain lon/lat axes).
     ds: open wrfout Dataset of THIS domain (gives XLAT/XLONG/HGT/LANDMASK and the nest rings);
     alternatively pass lats/lons (+ hgt) arrays. nest_rings: explicit [(dom, lons, lats)] (None =
     derive from ds; [] = none). terrain=False skips the HGT contours (the field already IS
-    terrain). Returns dict(layers=[labels drawn], resolution, terrain_interval_m, gridliner,
-    caption)."""
+    terrain). muted: grey coastlines and borders, for a map whose own black lines (isobars)
+    must not be mistaken for them. Returns dict(layers=[labels drawn], resolution,
+    terrain_interval_m, gridliner, caption)."""
     import numpy as np
     from matplotlib.collections import LineCollection
     if ds is not None:
@@ -229,15 +231,16 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
         if segs is None:
             continue
         if segs:
-            ax.add_collection(LineCollection(segs, colors=color, linewidths=lw, zorder=3,
-                                             **transform_kw), autolim=False)
+            ax.add_collection(LineCollection(segs, colors=MUTED if muted else color,
+                                             linewidths=lw, zorder=3, **transform_kw),
+                              autolim=False)
         drawn.append(label)
         used_res = used_res or res
     landmask_fallback = False
     if "coastline" not in drawn and ds is not None and "LANDMASK" in ds.variables \
             and lats is not None:
         ax.contour(lons, lats, np.asarray(ds.variables["LANDMASK"][0]), levels=[0.5],
-                   colors="k", linewidths=0.6, zorder=3, **transform_kw)
+                   colors=MUTED if muted else "k", linewidths=0.6, zorder=3, **transform_kw)
         landmask_fallback = True
 
     interval = None

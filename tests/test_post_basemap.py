@@ -137,3 +137,18 @@ def test_no_private_coastline_drawing(rel):
     text = open(os.path.join(SRC, "wtune", rel)).read()
     assert not re.search(r"cfeature\.(COASTLINE|BORDERS)|\.coastlines\(", text), rel
     assert "add_base_map" in text or "_coastline(" in text, rel
+
+
+def test_rain_over_taiwan_uses_the_cwa_scale_past_203_mm():
+    # haitang2017 d03 (2026-10-26): the WPC scale topped out at 8 in = 203.2 mm and saturated
+    import numpy as np
+    from wtune.post import rainscale
+    lat, lon = np.meshgrid(np.linspace(21, 27, 5), np.linspace(118, 123, 5), indexing="ij")
+    lev, cm, name = rainscale.rain_scale(lat, lon, 640.0)
+    assert name == "CWA" and lev == [float(v) for v in rainscale.CWA_LEVELS]
+    assert cm.N == 15 and tuple(cm.get_over()[:3]) != tuple(cm(14)[:3])
+    lev, cm, name = rainscale.rain_scale(lat, lon, 12.0)
+    assert lev[-1] == 15.0 and cm.N == len(lev) - 1
+    us_lat, us_lon = lat + 10, lon - 200
+    lev, _cm, name = rainscale.rain_scale(us_lat, us_lon, 12.0)
+    assert name == "WPC" and lev[-1] > 12.0

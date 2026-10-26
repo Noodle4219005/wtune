@@ -4,6 +4,7 @@ No job is ever submitted: sbatch/sacct/snapshot are fakes, every directory is a 
 from conftest import swap_wtune_module
 import datetime
 import json
+import glob
 import os
 import re
 import shlex
@@ -1754,3 +1755,29 @@ def test_output_dir_names_only_on_the_domains_time_step(tmp_path):
         "wrfrst_d01_2020-06-01_03:00:00", "wrfrst_d01_2020-06-01_06:00:00"]
     nl["domains"]["use_adaptive_time_step"] = [True]
     assert wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1) == []
+
+
+def test_an_out_outside_the_project_is_linked_into_runs(tmp_path, monkeypatch):
+    # mock competition 2026-10-26: `wtune run --out /work2/...` from the project; `wtune stop`
+    # (project runs/*/run.state.json) then found nothing to stop
+    import wtune.run.cli as run_cli
+    import wtune.stop
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "project.yaml").write_text("name: p\n")
+    out = tmp_path / "work2" / "restart-run"
+    out.mkdir(parents=True)
+    (out / "run.state.json").write_text("{}")
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    opts = type("O", (), dict(project=None, out=str(out)))()
+    link = run_cli.link_into_project(opts, str(out), lambda *a: None)
+    assert link == str(project / "runs" / "restart-run")
+    assert os.path.realpath(link) == str(out)
+    assert run_cli.link_into_project(opts, str(out), lambda *a: None) == link
+    found = [p for pat in wtune.stop.STATES for p in glob.glob(str(project / pat))]
+    assert found == [str(project / "runs" / "restart-run" / "run.state.json")]
+    inside = project / "runs" / "20261026"
+    inside.mkdir()
+    assert run_cli.link_into_project(type("O", (), dict(project=None, out=str(inside)))(),
+                                     str(inside), lambda *a: None) is None

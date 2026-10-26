@@ -189,6 +189,31 @@ def _resolve_out(opts: RunOptions) -> str:
     return wtune.project.default_out_dir(project_dir, "runs")
 
 
+def link_into_project(opts: RunOptions, out: str, log: Callable) -> Optional[str]:
+    """An --out outside the project gets a <project>/runs/<name> symlink to it, so `wtune stop`
+    and `wtune post` (which look in runs/*/) find the run. Returns the link, or None."""
+    import wtune.project
+    try:
+        project_dir = wtune.project.find_project(explicit=opts.project)
+    except wtune.project.ProjectError:
+        return None
+    if not project_dir:
+        return None
+    runs = os.path.join(os.path.realpath(project_dir), "runs")
+    if os.path.realpath(out).startswith(runs + os.sep):
+        return None
+    link = os.path.join(runs, os.path.basename(os.path.normpath(out)))
+    if os.path.lexists(link):
+        if os.path.realpath(link) != os.path.realpath(out):
+            log("WARNING: %s exists; not linking the run there" % link)
+            return None
+        return link
+    os.makedirs(runs, exist_ok=True)
+    os.symlink(out, link)
+    log("linked %s -> %s" % (link, out))
+    return link
+
+
 def case_restarts(nl: dict) -> bool:
     """restart = .true.: segment 0 starts from the case's own wrfrst_dNN_<start>."""
     return wp.g(nl, "time_control", "restart", False) is True
@@ -612,6 +637,8 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
             return _fail(e)
         return 0
     os.makedirs(out, exist_ok=True)
+    if opts.out:
+        link_into_project(opts, out, log)
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
                       snapshot_fn=snapshot_fn or wtune.watch.snapshot,

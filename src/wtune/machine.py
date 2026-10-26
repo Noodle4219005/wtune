@@ -11,7 +11,8 @@ import os
 import shlex
 import subprocess
 
-DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (scc GH200)
+DEFAULTS = {"cores_per_node": 72,       # cores of one compute node WRF may use (scc GH200: all)
+            "hardware_cores_per_node": 0,   # cores Slurm bills for an --exclusive node; 0 = the same
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
             "partition": "compute",     # Slurm partition, or a list tried in order
             "login_nodes": ("head",),   # nodes no job is sent to
@@ -30,6 +31,7 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "copy_probe_inputs": True,  # each probe job reads its own copy of the BP inputs
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
+       "hardware_cores_per_node": "WTUNE_HARDWARE_CORES_PER_NODE",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
        "account": "WTUNE_ACCOUNT", "hardware_id": "WTUNE_HARDWARE_ID",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
@@ -112,6 +114,10 @@ def check(block, where="machine") -> dict:
         elif key == "max_omp":
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MachineError("%s: %r must be a number of threads, 0 for no cap"
+                                   % (at, value))
+        elif key == "hardware_cores_per_node":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MachineError("%s: %r must be a number of cores, 0 for cores_per_node"
                                    % (at, value))
         elif key == "measured":
             if not isinstance(value, dict):
@@ -221,6 +227,23 @@ def _positive_int(key: str) -> int:
 
 def cores_per_node() -> int:
     return _positive_int("cores_per_node")
+
+
+def hardware_cores_per_node() -> int:
+    raw = os.environ.get(ENV["hardware_cores_per_node"], "").strip() or "0"
+    if not raw.isdigit():
+        raise MachineError("%s=%r: must be a number of cores"
+                           % (ENV["hardware_cores_per_node"], raw))
+    return int(raw) or cores_per_node()
+
+
+def cpus_per_task_arg(tasks_per_node: int) -> str:
+    """'--cpus-per-task=K' when a node has more cores than its tasks use, so the CPUs a job
+    requests match the whole nodes --exclusive bills: f1-arm's partitions are tiered by CPU count
+    (arm576 needs >= 145 requested, arm144 bills <= 144), and 2 x 72 tasks of a 144-core node fit
+    neither without it. '' when K would be 1."""
+    k = hardware_cores_per_node() // max(1, tasks_per_node)
+    return "--cpus-per-task=%d" % k if k > 1 else ""
 
 
 def max_nodes() -> int:

@@ -329,3 +329,20 @@ def test_a_node_count_no_partition_takes_is_skipped_not_fatal(monkeypatch):
     skipped, jobs = [], {}
     assert ns._anchor_wave(C(), items, lambda n: (1.0, "test"), skipped, 1, jobs) == {1: "51", 4: "54"}
     assert skipped == [{"nodes": 2, "reason": "no partition took the job -- arm576: refused"}]
+
+
+def test_hardware_cores_per_node_makes_jobs_request_the_billed_cpus(scc, tmp_path):
+    # f1-arm with 72 of 144 cores used: N x 72 tasks --exclusive is billed N x 144 CPUs
+    assert wtune.machine.cpus_per_task_arg(72) == ""          # scc: hardware = cores_per_node
+    wtune.machine.export(wtune.machine.check({"cores_per_node": 72,
+                                              "hardware_cores_per_node": 144}))
+    assert wtune.machine.hardware_cores_per_node() == 144
+    assert [wtune.machine.cpus_per_task_arg(t) for t in (72, 70, 48, 36, 100, 144)] == [
+        "--cpus-per-task=2", "--cpus-per-task=2", "--cpus-per-task=3", "--cpus-per-task=4", "", ""]
+    cmd = scc_sweep.build_sbatch_command("c", 7, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    assert " -N 7 --ntasks-per-node=72 --cpus-per-task=2 --exclusive " in cmd
+    from wtune.run import sbatch as run_sbatch
+    head = run_sbatch._header_lines(str(tmp_path), 2, "01:00:00", "seg", "/env.sh", str(tmp_path))
+    assert "-N 2 --exclusive --ntasks-per-node=72 --cpus-per-task=2 --time=01:00:00" in head[2]
+    with pytest.raises(wtune.machine.MachineError, match="number of cores"):
+        wtune.machine.check({"hardware_cores_per_node": -1})

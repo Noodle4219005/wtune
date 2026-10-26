@@ -16,9 +16,10 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
                   campaign_dir: str) -> list[str]:
     return ["#!/usr/bin/env bash",
             "#SBATCH --job-name=%s" % job_name,
-            ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
-             % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(), time_limit,
-                sweep.scheduler_args())).rstrip(),
+            ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d %s--time=%s %s"
+             % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(),
+                (wtune.machine.cpus_per_task_arg(wtune.machine.cores_per_node()) + " ").lstrip(),
+                time_limit, sweep.scheduler_args())).rstrip(),
             "#SBATCH --signal=B:USR1@90",
             "#SBATCH --no-requeue",        # a requeued job would rerun beside the resume
             "#SBATCH --output=%s/segment-%%j.out" % seg_dir,

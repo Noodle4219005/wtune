@@ -79,6 +79,7 @@ measured:
 | 欄位 | 為什麼是這個值 |
 |---|---|
 | `max_nodes: 8` | 測試時自訂的上限；`arm1440` 最多 10 節點 |
+| `hardware_cores_per_node` | 只用部分核心時（例如 `cores_per_node: 72`）設成 144：job 會加 `--cpus-per-task`，讓申請的 CPU 數等於 `--exclusive` 計費的整節點數。f1-arm 的 partition 依 CPU 數分層，不設的話 2 節點與 5–7 節點的 72 核 job 沒有 partition 能跑 |
 | `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
 | `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |

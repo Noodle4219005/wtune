@@ -486,7 +486,7 @@
   },
   "pipeline": {
     "B_s": null,
-    "T_cold_compute_s": 180.0,
+    "T_cold_compute_s": 50.0,
     "T_cold_s": 300.0,
     "T_updated_compute_s": 300.0,
     "T_updated_s": 420.0,

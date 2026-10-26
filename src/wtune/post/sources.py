@@ -76,7 +76,7 @@ REGISTRY = {
     "stations": {
         "dataset": "NOAA Integrated Surface Database (ISD-Lite hourly)",
         "provider": "NOAA National Centers for Environmental Information (NCEI)",
-        "url": "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/ ; station list "
+        "url": "https://noaa-isd-pds.s3.amazonaws.com/isd-lite/data/ ; station list "
                "https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv",
         "license": "public domain (NOAA/NCEI open data)",
         "citation": "Smith, A., N. Lott, and R. Vose, 2011: The Integrated Surface Database: "

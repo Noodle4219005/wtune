@@ -28,7 +28,8 @@ HELP = "NOAA ISD-Lite hourly surface stations (T, Td, MSLP, wind, precip)"
 PROVENANCE = dict(sources.REGISTRY["stations"])
 
 HISTORY = "https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv"
-LITE = "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/%d/%s-%s-%d.gz"
+# NCEI's pub/data/noaa/isd-lite/ now answers 301 to the AWS bucket's index page (2026-10-26)
+LITE = "https://noaa-isd-pds.s3.amazonaws.com/isd-lite/data/%d/%s-%s-%d.gz"
 
 
 def add_arguments(parser):
@@ -68,6 +69,11 @@ def station_id(r):
     return "%s-%s" % (r["usaf"], r["wban"])
 
 
+def _is_gzip(path):
+    with open(path, "rb") as fh:
+        return fh.read(2) == b"\x1f\x8b"
+
+
 def run(args):
     try:
         start, end, bbox = sources.resolve_window(args)
@@ -94,8 +100,14 @@ def run(args):
         for y in years:
             url = LITE % (y, r["usaf"], r["wban"], y)
             dest = os.path.join(base, "%s-%s-%d.gz" % (r["usaf"], r["wban"], y))
+            if os.path.isfile(dest) and not _is_gzip(dest):
+                os.remove(dest)                 # an HTML page an earlier fetch kept
             sha, dl = sources.download(url, dest, known_sha=known.get(os.path.basename(dest)))
             if sha is None:
+                continue
+            if not _is_gzip(dest):
+                print("stations: %s is not a gzip file (a moved or error page?) -- skipped" % url)
+                os.remove(dest)
                 continue
             got = True
             written.append(dest)

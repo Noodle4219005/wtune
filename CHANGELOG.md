@@ -157,6 +157,12 @@ tunes in `~/wtune-runs/campaign` are still read for the estimate and the `-O3` p
 came first, so on f1-arm (144 cores, no calibration of its own) scc's 72 made predict warn that
 90 ranks per node exceed 72 cores. The machine setting now wins when it is set.
 
+**ISD-Lite moved to AWS.** NCEI's `pub/data/noaa/isd-lite/` now answers 301 with the
+`noaa-isd-pds` bucket's index page, and `wtune post fetch stations` saved that page as every
+station's `.gz` (f1-arm c34: `terrain_point_stat` and `terrain_leeward_station` failed with "Not a
+gzipped file"). It now fetches from `noaa-isd-pds.s3.amazonaws.com/isd-lite/data/`, skips a
+download that is not gzip, and replaces such a file left by an earlier fetch.
+
 **`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
 every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote
 17.6 GB in 22 minutes). A failed segment keeps them plain for the diagnosis. When the quota is

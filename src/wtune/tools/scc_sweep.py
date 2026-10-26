@@ -506,7 +506,12 @@ def _submit_once(cmd_str, sbatch_runner, pending_reason=None, cancel=default_can
             return job_id
         cancel(job_id)
         refused.append("%s: job %s pending on %s (cancelled)" % (p, job_id, reason))
-    raise RuntimeError("no partition took the job -- " + "; ".join(refused))
+    raise NoPartitionError("no partition took the job -- " + "; ".join(refused))
+
+
+class NoPartitionError(RuntimeError):
+    """Every partition refused the job (or left it pending on a size limit): its shape cannot
+    run on this machine, e.g. f1-arm 2 nodes x 72 tasks --exclusive."""
 
 
 def _job_id(out):

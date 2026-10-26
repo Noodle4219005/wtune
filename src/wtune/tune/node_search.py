@@ -224,8 +224,14 @@ def _anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable, skipped: list
             skipped.append(dict(it["tag"], reason=why))
             print("node sweep: %s skipped -- %s" % (it["suffix"], why))
             continue
-        job_id, _p, _te = submit_configs_job(cn, [it["anchor"]], reps=reps,
-                                               name_suffix=it["suffix"], s_est=s_est, time_est=est)
+        try:
+            job_id, _p, _te = submit_configs_job(cn, [it["anchor"]], reps=reps,
+                                                   name_suffix=it["suffix"], s_est=s_est,
+                                                   time_est=est)
+        except sweep.NoPartitionError as e:
+            skipped.append(dict(it["tag"], reason=str(e)))
+            print("node sweep: %s skipped -- %s" % (it["suffix"], e))
+            continue
         jobs[it["key"]] = job_id
         a = it["anchor"]
         print("node sweep: %s submitted job %s (ANCHOR ranks=%d omp=%d %dx%d, REPS=%d, "

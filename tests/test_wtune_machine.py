@@ -297,3 +297,35 @@ def test_probe_input_copies_can_be_turned_off(scc, monkeypatch):
     with pytest.raises(wtune.machine.MachineError, match="true or false"):
         wtune.machine.check({"copy_probe_inputs": "no"})
 
+
+
+def test_a_node_count_no_partition_takes_is_skipped_not_fatal(monkeypatch):
+    import dataclasses
+    from wtune.tune import node_search as ns
+
+    @dataclasses.dataclass
+    class C:
+        nodes: int = 1
+        steps: int = 10
+        budget_s: float = 1800.0
+
+        def elapsed(self):
+            return 0.0
+
+    def submit(cn, configs, **kw):
+        if cn.nodes == 2:
+            raise scc_sweep.NoPartitionError("no partition took the job -- arm576: refused")
+        return "5%d" % cn.nodes, "/c.json", {}
+
+    monkeypatch.setattr(ns, "submit_configs_job", submit)
+    monkeypatch.setattr(ns, "_sweep_steps", lambda ctx, s: 10)
+    monkeypatch.setattr(ns, "_job_time_est", lambda *a: {"total_run_s": 60})
+    monkeypatch.setattr(ns, "_cold_budget_s_per_step", lambda *a: (1.0, "test"))
+    monkeypatch.setattr(ns._jobs, "wait_for_jobs", lambda ctx, ids, label: {})
+    monkeypatch.setattr(ns, "_anchor_results", lambda ctx, items, jobs, states, skipped: dict(jobs))
+    anchor = dict(ranks=72, omp=1, nx=8, ny=9)
+    items = [dict(nodes=n, key=n, tag={"nodes": n}, suffix="nodes-n%d" % n, anchor=anchor)
+             for n in (1, 2, 4)]
+    skipped, jobs = [], {}
+    assert ns._anchor_wave(C(), items, lambda n: (1.0, "test"), skipped, 1, jobs) == {1: "51", 4: "54"}
+    assert skipped == [{"nodes": 2, "reason": "no partition took the job -- arm576: refused"}]

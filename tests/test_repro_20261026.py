@@ -526,3 +526,28 @@ def test_d6_predict_calibration_used_when_machine_unset(monkeypatch):
     monkeypatch.delenv("WTUNE_CORES_PER_NODE", raising=False)
     assert predict.cores_per_node({"cores_per_node": 72}) == 72
     assert predict.cores_per_node({}) == 72
+
+
+def _launch_retry_block():
+    """The probe launch loop of campaign/strict_campaign.sbatch (`for ATTEMPT in 1 2` .. done)."""
+    lines = open(os.path.join(CAMPAIGN, "strict_campaign.sbatch")).read().splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == "for ATTEMPT in 1 2; do")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "  done")
+    return "\n".join(lines[start:end + 1])
+
+
+@pytest.mark.parametrize("crashes,rc,retries", [(1, 0, 1), (2, 139, 1), (0, 0, 0)])
+def test_a_probe_killed_by_sigsegv_runs_once_more(tmp_path, crashes, rc, retries):
+    # haitang2017 (2026-10-27): Open MPI 5.0.10 crashed intermittently in ob1/btl_sm; the same
+    # configuration ran on the next try, but tune had dropped every node-sweep anchor
+    fake = tmp_path / "fake_mpirun.sh"
+    fake.write_text("n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count\n"
+                    "if [ $n -le %d ]; then echo 'rank 54 exited on signal 11'; exit 139; fi\n"
+                    "echo 'd01 SUCCESS COMPLETE WRF' > rsl.error.0000\n" % crashes)
+    script = ("site_launch () { SITE_LAUNCH_CMD=(bash %s); }\n"
+              "ranks=4 ntasks_per_node=4 omp=1 dist=block cid=c rep=1 CASE=x J=1 TIMEOUT_EFF=60\n"
+              "%s\necho RC=$RC\n" % (fake, _launch_retry_block()))
+    p = _bash(script, _env(tmp_path), cwd=str(tmp_path))
+    assert "RC=%d" % rc in p.stdout
+    assert p.stdout.count("RETRY cfg=c") == retries
+    assert os.path.exists(tmp_path / "wrf.out.attempt1") == bool(retries)

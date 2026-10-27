@@ -2118,6 +2118,17 @@ _RSL_WRITE_RE = re.compile(r"Timing for Writing (.+?) for domain\s+(\d+):\s+([\d
 _RSL_MAIN_RE = re.compile(r"Timing for main: time (\S+) on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
 
 
+def rsl_rank0_only_line(ranks: int) -> str:
+    """Shell line linking rsl.out/rsl.error of ranks >= 1 to /dev/null (strict_campaign's
+    rsl_rank0_only): on 16 MiB-block GPFS each open rsl file holds a full block against the
+    quota, and 4 rebuild points at 216 ranks (real + wrf) held ~29 GB -- every rank of the
+    later points died on "Disk quota exceeded" (haitang2017 tune, 2026-10-28). Scoring and
+    the I/O probe read rsl.error.0000 only. WTUNE_KEEP_ALL_RSL=1 keeps every rank's files."""
+    return ("  [ \"${WTUNE_KEEP_ALL_RSL:-0}\" = 1 ] || for ((r = 1; r < %d; r++)); do "
+            "printf -v n '%%04d' \"$r\"; ln -sf /dev/null \"rsl.out.$n\"; "
+            "ln -sf /dev/null \"rsl.error.$n\"; done" % ranks)
+
+
 def parse_rsl_write_seconds(path: str, history_prefix: str = "wrfout_d") -> dict:
     """{'history': {dom: [s, ...]}, 'restart': {dom: [s, ...]}, 'other': [(name, dom, s), ...]}
     from WRF's 'Timing for Writing <name> for domain N: <s> elapsed seconds' lines, in file order.
@@ -2816,6 +2827,7 @@ def _run_window_real_lines(ranks, real_tpn):
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
     # real.exe hangs at some decompositions (3x3, 5x5; sc26p1/severe2023): the config's own under
     # REAL_TIMEOUT_S, then serial (nproc 1x1) under REAL_SERIAL_TIMEOUT_S on rc=124 or no output.
+    lines.append(rsl_rank0_only_line(ranks))
     lines.append("  timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
                   % (REAL_TIMEOUT_S, ranks, real_tpn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
@@ -2885,6 +2897,7 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     # measuring the same conditions the prediction will be compared against.
     lines.append("  export OMP_NUM_THREADS=%d" % omp)
     lines.append("  unset OMP_PLACES OMP_PROC_BIND")
+    lines.append(rsl_rank0_only_line(ranks))
     lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
     lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
     lines.append("  WRF_PID=$!")

@@ -314,17 +314,20 @@ link_wrf_inputs() {
 check_disk_guard () {
   local ctx="$1" q_text free_gib
   [ -n "${QUOTA_FS:-}" ] || return 0      # the site has no per-user GPFS quota
-  if ! q_text=$(mmlsquota -u "$USER" "$QUOTA_FS" 2>&1); then
+  # the filesystem this run writes on (f1-arm: a project on work2 under QUOTA_FS=home2)
+  local fs; fs=$(findmnt -no SOURCE,FSTYPE -T . 2>/dev/null | awk '$2 == "gpfs" {print $1}')
+  fs=${fs:-$QUOTA_FS}
+  if ! q_text=$(mmlsquota -u "$USER" "$fs" 2>&1); then
     echo "WARNING: mmlsquota unavailable ($q_text) -- skipping disk guard for $ctx" >&2
     return 0
   fi
-  free_gib=$(printf '%s\n' "$q_text" | "$PYBIN" "$CAMPAIGN/configs.py" quota-free-gib)
+  free_gib=$(printf '%s\n' "$q_text" | "$PYBIN" "$CAMPAIGN/configs.py" quota-free-gib --filesystem "$fs")
   if [ -z "$free_gib" ] || [ "$free_gib" = "NA" ]; then
     echo "WARNING: could not parse mmlsquota output -- skipping disk guard for $ctx" >&2
     return 0
   fi
   if awk -v f="$free_gib" -v m="$MIN_FREE_GIB" 'BEGIN { exit !(f < m) }'; then
-    echo "ABORT: $QUOTA_FS free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
+    echo "ABORT: $fs free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
     RUN_ID="${CASE}_${ctx}_${J}" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
       HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx} $NODE_DIRTY_NOTE" \
       python3 - "$LEDGER" <<'PY'

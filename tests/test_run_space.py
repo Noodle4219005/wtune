@@ -33,9 +33,12 @@ def test_quota_headroom_reads_the_soft_limit(monkeypatch):
     monkeypatch.setattr(space, "_gpfs_device", lambda p: "home2")
     out = ("Filesystem type   KB  quota  limit in_doubt grace | files\n"
            "home2      USR   85543152  104857600  209715200  2815232  none |  788266  0  0\n")
-    assert space.quota_headroom("/home/x", runner=lambda argv: out) == (104857600 - 85543152) * 1024.0
+    # in_doubt (open files' 16 MiB blocks) counts as used: writes fail at used + in_doubt
+    assert space.quota_headroom("/home/x", runner=lambda argv: out) == \
+        (104857600 - 85543152 - 2815232) * 1024.0
     no_soft = out.replace("104857600", "0")
-    assert space.quota_headroom("/home/x", runner=lambda argv: no_soft) == (209715200 - 85543152) * 1024.0
+    assert space.quota_headroom("/home/x", runner=lambda argv: no_soft) == \
+        (209715200 - 85543152 - 2815232) * 1024.0
     monkeypatch.setattr(space, "_gpfs_device", lambda p: None)
     assert space.quota_headroom("/tmp", runner=lambda argv: out) is None
 
@@ -262,3 +265,14 @@ def test_probe_input_copy_needs_one_copy_not_one_per_run(monkeypatch, tmp_path):
         ("WTUNE_BP_FRESH_DIR", str(tmp_path / "bp_fresh"))] and made == [17]
     monkeypatch.setattr(jobs, "_writable_at", lambda p: (1e9, "GPFS quota headroom"))
     assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == []
+
+
+def test_campaign_quota_free_gib_counts_in_doubt():
+    # haitang2017 (2026-10-28): 75 G used + ~29 GB in_doubt from open rsl files hit 100 G
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "campaign"))
+    from run_reports import quota_free_gib
+    out = ("home2      USR   94093120  104857600  209715200    1040256     none |   834220 0 0\n"
+           "work2      USR   78643200  104857600  209715200   30408704     none |    87387 0 0\n")
+    assert quota_free_gib(out, filesystem="work2") == (104857600 - 78643200 - 30408704) / 1048576.0
+    assert quota_free_gib(out, filesystem="home1") is None

@@ -1199,7 +1199,8 @@ with open(ledger, "a", newline="") as f:
 PY
 
   # ---- cleanup: keep rsl.out.0000, rsl.error.0000, namelist.input, steps.txt; delete everything else.
-  find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
+  [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ] || \
+    find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
   # (window_frame keeps its converted wrfout_d01_<Times>.nc: the orchestrator reads it afterwards)
   WF_FIND_ARGS=()
   for k in "${WF_KEEP[@]}"; do WF_FIND_ARGS+=(! -name "$k"); done

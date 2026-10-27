@@ -43,6 +43,13 @@ no measurement and tune fell back to its uncalibrated proxy. The f1-arm site now
 with `btl=self,tcp` (3 of 3 such probes ran; ~3 % more s/step on one node); a probe that still
 dies on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
 
+**Tune measures one start point, then predicts with rebuilt points.** By default `wtune tune` no
+longer rebuilds prediction points before the layout search: phase 1 compares layouts on the t0
+window alone, the winner's time decides how many points the precision needs, and phase 2
+rebuilds only those points at the winner, `wtune predict-rebuild`'s way (the case's own forcing,
+60 min spin-up, 40 steps), in waves within `max_nodes`. `--physics-advice` keeps the earlier
+flow, whose shared spun-up restarts the physics candidates need.
+
 **Whole-run prediction for short runs.** `wtune tune --precision` defaults to +-10 % of the run
 (it was a fixed +-15 min, which on a 30 min run accepted any estimate: haitang2017 got no
 prediction point and ran 38 % over). The tc bands follow that run's own step times (t0 only

@@ -36,11 +36,8 @@
   "cores_per_node": 72,
   "cores_used_per_node": 72,
   "elapsed_minutes": 0.0,
-  "full_run_prediction": "=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===\ncompute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)\nr_rad: night=1.000 day=3.900 source=fake\nwhole run: compute 1020s + init 17s = 1037s (run-length I/O NOT included)  [init: measured round0 startup (16 runs)]",
+  "full_run_prediction": "=== full-run prediction (phase 2: ANCHOR at 3 rebuilt point(s): 2026-01-01T01:00:00, 2026-01-01T03:00:00, 2026-01-01T05:00:00) ===\nTOTAL: 17:00 (range 15:50 - 18:10)\nwhole run: compute 1000s + init 20s = 1020s (run-length I/O NOT included)",
   "job_ids": [
-    "9000",
-    "9001",
-    "9002",
     "7001",
     "7002",
     "7003",
@@ -77,8 +74,7 @@
     "7034",
     "7035",
     "7036",
-    "7037",
-    "8040"
+    "7037"
   ],
   "layout_table": {
     "comparison": {
@@ -1691,33 +1687,15 @@
         "end_s": 0.0,
         "job_run_s_max": null,
         "job_run_s_sum": null,
-        "jobs": [
-          "9000",
-          "9001",
-          "9002"
-        ],
+        "jobs": [],
         "limit_s": 18000.0,
         "name": "plan",
-        "notes": [],
-        "points": [
-          "2026-01-01T01:00:00",
-          "2026-01-01T03:00:00",
-          "2026-01-01T05:00:00"
-        ],
-        "points_source": "wtune.cost_drivers",
-        "prediction_points": 3,
         "queue_s_max": null,
         "queue_s_sum": null,
         "queue_wait_s": 0.0,
-        "rebuild_jobs": [
-          "9000",
-          "9001",
-          "9002"
-        ],
         "running_s": 0.0,
-        "spinup_min": 20,
         "start_s": 0.0,
-        "status": "ok",
+        "status": "deferred (points planned and rebuilt after the layout search, at its winner)",
         "wall_s": 0.0
       },
       {
@@ -1781,9 +1759,7 @@
         "end_s": 0.0,
         "job_run_s_max": null,
         "job_run_s_sum": null,
-        "jobs": [
-          "8040"
-        ],
+        "jobs": [],
         "limit_s": 360000.0,
         "name": "predict",
         "queue_s_max": null,
@@ -1791,7 +1767,7 @@
         "queue_wait_s": 0.0,
         "running_s": 0.0,
         "start_s": 0.0,
-        "status": "ok",
+        "status": "ok (3 rebuilt point(s) at the winner, jobs 7700,7701,7702)",
         "wall_s": 0.0
       },
       {
@@ -1812,39 +1788,12 @@
       }
     ],
     "physics_advice": null,
-    "predict_plan": {
-      "chosen": "winner only x all 3 points",
-      "degraded": false,
-      "left_s": 360000.0,
-      "startup_s": 17.319209368530018,
-      "tried": [
-        {
-          "estimate_s": 82.78972308488612,
-          "plan": "winner only x all 3 points"
-        }
-      ]
-    },
-    "predicted_real_s": 1037.31920936853,
+    "predicted_real_s": 1020.0,
     "predicted_real_source": "phase 2 combine()",
     "prediction": {
       "band": 0.07,
-      "breakdown": "compute 1020s + init 17s = 1037s (run-length I/O NOT included)",
-      "candidates": [
-        {
-          "config": {
-            "numtiles": 1,
-            "nx": 16,
-            "ny": 18,
-            "omp": 1,
-            "ranks": 288
-          },
-          "cores": 72,
-          "nodes": 4,
-          "pid": "W0",
-          "predicted_total_s": 1037.31920936853
-        }
-      ],
-      "compute_s": 1020.0,
+      "breakdown": "compute 1000s + init 20s = 1020s (run-length I/O NOT included)",
+      "compute_s": 1000.0,
       "config": {
         "dist": "block",
         "numtiles": 1,
@@ -1855,26 +1804,27 @@
       },
       "cores_per_node": 72,
       "degraded": false,
-      "error_min": 1.210205744263285,
-      "init_s": 17.319209368530018,
-      "init_source": "measured round0 startup (16 runs)",
+      "error_min": 1.1900000000000002,
+      "init_s": 20.0,
+      "init_source": "t",
       "io": null,
       "io_s": 0.0,
       "layout_id": "ANCHOR",
       "nodes": 4,
       "points_used": 3,
       "predicted_range_s": [
-        985.81920936853,
-        1088.81920936853
+        950.0,
+        1090.0
       ],
-      "predicted_total_hms": "17:17",
-      "predicted_total_s": 1037.31920936853,
+      "predicted_total_hms": "17:00",
+      "predicted_total_s": 1020.0,
       "segment_note": null,
+      "source": "phase 2: the phase-1 winner at 3 rebuilt point(s) (combine())",
       "time_suggestion": "00:32:00"
     },
     "prediction_band": {
       "band": 0.07,
-      "error_min": 1.210205744263285,
+      "error_min": 1.1900000000000002,
       "method": "common: fake case-type plan"
     },
     "prediction_plan": {
@@ -1892,21 +1842,7 @@
     },
     "queue_cap_hit": false,
     "rebuild": {
-      "notes": [],
-      "points": [
-        "2026-01-01T01:00:00",
-        "2026-01-01T03:00:00",
-        "2026-01-01T05:00:00"
-      ],
-      "points_source": "wtune.cost_drivers",
-      "prediction_points": 3,
-      "rebuild_jobs": [
-        "9000",
-        "9001",
-        "9002"
-      ],
-      "spinup_min": 20,
-      "status": "ok"
+      "status": "deferred (points planned and rebuilt after the layout search, at its winner)"
     },
     "shares": {
       "layout": 0.6333333333333333,
@@ -2018,7 +1954,7 @@
   "ranking_start_note": null,
   "summary": [
     "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)",
-    "run:      predicted 17:17 for the whole simulation (phase 2 combine())",
+    "run:      predicted 17:00 for the whole simulation (phase 2 combine())",
     "margin:   N=4 c/n=72 288 ranks x 1 threads 8x36 tiles=3 is 9.1% faster per step; the pick ranks by predicted whole-run time",
     "tuning:   running 0:00, queue 0:00 (not counted)"
   ],

@@ -2139,6 +2139,27 @@ class _PipeEnv:
         mp.setattr(wtune.tune.points, "finish_rebuilt_points", finish)
         mp.setattr(wtune.tune.points, "measure_candidates_at_points", measure)
         mp.setattr(wtune.tune.points, "rank_by_predicted_total", rank)
+        # default phase 2 (2026-10-27): predict-rebuild's procedure at the phase-1 winner
+        from wtune import probe_plan as _pp_mod, rebuild_predict as _rp_mod
+        mp.setattr(_rp_mod, "plan",
+                   lambda case_dir, forcing, spinup_min, max_points, namelist_path=None, **k:
+                   (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10, list(self.pts)[:max_points],
+                    []))
+        self.rebuild_winner = []
+
+        def rebuild_winner(ctx, points, best, nodes, case_dir, out_dir, run_start, **k):
+            ev.append("rebuild_winner")
+            self.rebuild_winner.append(dict(best=best, nodes=nodes, n=len(points),
+                                            measure_steps=k.get("measure_steps"),
+                                            forcing=k.get("forcing"),
+                                            spinup=k.get("spinup_min")))
+            return ([_types.SimpleNamespace(at=p.at, s_normal=0.3) for p in points],
+                    ",".join("77%02d" % i for i in range(len(points))))
+        mp.setattr(wtune.tune.pipeline, "run_rebuild_points", rebuild_winner)
+        mp.setattr(_pp_mod, "combine",
+                   lambda meas, *a, **k: dict(compute_total_s=1000.0, init_s=20.0, init_note="t",
+                                              total_s=1020.0, range_low_s=950.0,
+                                              range_high_s=1090.0))
         mp.setattr(wtune.tune.prediction, "_prediction_context",
                    lambda ctx: (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10, {}, [], "/x"))
         mp.setattr(wtune.tune.physics_phase, "physics_runner_supported", lambda script: runner_ok)
@@ -3048,17 +3069,22 @@ def test_levels_only_change_the_layout_search_and_physics(monkeypatch, tmp_path)
     assert len(r3["node_selection"]["finalists"]) == 2                      # top-2 layouts at O3
     assert not (tmp_path / "b" / "out" / "n4" / "confirm").exists()          # no confirm at O2
     assert (tmp_path / "c" / "out" / "n4" / "confirm").exists()
-    # prediction points: the SAME for every level (the planner decides), here all 3
-    for e in (e1, e2, e3):
-        assert [m[3] for m in e.events if isinstance(m, tuple)][0] == [0, 1, 2]
+    # prediction points: the SAME count for every level (the planner decides), here all 3.
+    # O1/O2 (no physics advice): nothing rebuilt before the layout search; phase 2 rebuilds the
+    # points at the phase-1 winner only, predict-rebuild's way (2026-10-27)
+    for e in (e1, e2):
+        assert "rebuild_submit" not in e.events and not e.measure_modes
+        rw = e.rebuild_winner
+        assert len(rw) == 1 and rw[0]["n"] == 3 and rw[0]["forcing"] is None
+        assert rw[0]["spinup"] == 60 and rw[0]["measure_steps"] >= 40
+    # O3 + physics advice keeps phase 0/2 (the physics candidates share its spun-up restarts)
+    assert [m[3] for m in e3.events if isinstance(m, tuple)][0] == [0, 1, 2]
+    assert not e3.rebuild_winner
     # physics advice only at O3
     assert _status(r1)["physics"].startswith("not run (physics advice needs -O3)")
     assert _status(r2)["physics"].startswith("not run (physics advice needs -O3)")
     assert _status(r3)["physics"] == "ok"
-    # O1/O2 (and O3 without --physics-advice would too) predict the winner layout only: ONE fused
-    # point job per point
-    assert all(m[2] == ["W0"] for m in e1.events if isinstance(m, tuple))
-    assert set(e1.measure_modes) == {"fused"} and set(e2.measure_modes) == {"fused"}
+    assert r1["pipeline"]["prediction"]["points_used"] == 3
 
 
 def test_case_type_planner_decides_points_and_surplus_rebuilds_are_cancelled(monkeypatch,
@@ -3534,9 +3560,9 @@ def test_phase2_uses_fused_for_winner_only_and_default_for_physics(monkeypatch, 
     # alone, drift gate off; the physics job has 3+ configs and keeps ANCHOREND
     assert modes[0] == ([], "no_end")
     assert modes[-1][1] in (None, "default") and modes[-1][0][0].startswith("PH")
-    # without physics the same plan is ONE fused wrf.exe per point
+    # without physics the points are rebuilt at the phase-1 winner after the layout search
     report, env = _pipe_run(monkeypatch, tmp_path / "np", physics_advice=False)
-    assert set(env.measure_modes) == {"fused"}
+    assert not env.measure_modes and len(env.rebuild_winner) == 1
 
 
 def test_layout_row_keeps_the_rank_order_it_was_measured_with():

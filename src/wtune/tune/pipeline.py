@@ -28,6 +28,7 @@ from .pipeline_state import (NOT_RUN_BUDGET, ColdEstimate, LevelInfo, MeasuredLa
 from .points import (_predicted_winner_text, choose_point_mode, fit_stage2, pick_points,
                      predicted_spinup_min, rebuilt_steps)
 from .prediction import (WholeRunPrediction, plan_prediction_points, precision_label,
+                         run_rebuild_points,
                          prediction_init, time_suggestion_s)
 from .report import _assert_report_is_strict_only, local_param_table
 from . import candidates as _candidates
@@ -120,13 +121,22 @@ def run_pipeline_full(ctx: Ctx, profile: dict, *, minutes: float | None = None, 
     st = _pipeline_start(ctx, minutes, level, physics, stop_if_short, max_queue_hours,
                          total_steps, extension)
     _pipeline_pre_estimate(st, profile, nodes_policy, precision_min)
-    _pipeline_phase0_plan(st, precision_min)
+    # phase 3 (physics advice) needs phase 0's shared spun-up restarts (decision 0055); without
+    # it the points are planned and rebuilt after the layout search, at its winner only
+    rank_at_points = physics
+    if rank_at_points:
+        _pipeline_phase0_plan(st, precision_min)
+    else:
+        _pipeline_phase0_deferred(st)
     report, layouts = _pipeline_phase1_layout(st, profile, objective, deadline_s, min_efficiency,
                                               k_finalists, nodes_policy, sweep_budget_frac,
                                               core_options)
     health_checks = _pipeline_recheck_nodes(st, recheck)
     pplan, T_dec = _pipeline_replan_points(st, precision_min)
-    _pipeline_phase2_predict(st, layouts, pplan, precision_min)
+    if rank_at_points:
+        _pipeline_phase2_predict(st, layouts, pplan, precision_min)
+    else:
+        _pipeline_phase2_rebuild_winner(st, layouts, pplan, precision_min)
     pred, band_eff, io_run = _pipeline_prediction(st, report, layouts, pplan, T_dec)
     _pipeline_phase3_physics(st, layouts, physics_max_candidates)
     return _pipeline_finish(st, report, pred, pplan, band_eff, io_run, health_checks, keep_frames)
@@ -325,6 +335,72 @@ def _pipeline_phase0_plan(st: PipelineRun, precision_min: Any) -> None:
     st.cut("plan")
 
 
+def _pipeline_phase0_deferred(st: PipelineRun) -> None:
+    """Default phase 0: nothing submitted -- the prediction points are planned from phase 1's
+    measured time and rebuilt at its winner (_pipeline_phase2_rebuild_winner), so no rebuild
+    job competes with the layout probes for the nodes."""
+    ctx = st.ctx
+    m0 = _mark(ctx)
+    status = "deferred (points planned and rebuilt after the layout search, at its winner)"
+    st.pipe.phases.append(_phase_record("plan", m0, _mark(ctx), st.limit("plan"), status))
+    st.pipe.rebuild = RebuildInfo(status=status)
+    st.cut("plan")
+
+
+PREDICT_REBUILD_FORCING = "auto"   # the case's own forcing chain (GFS for haitang2017); era5 needs envs/ai
+PREDICT_REBUILD_SPINUP_MIN = 60    # wtune predict-rebuild's default for --forcing auto
+
+
+def _pipeline_phase2_rebuild_winner(st: PipelineRun, layouts: list[dict], pplan: dict | None,
+                                    precision_min: Any) -> None:
+    """Phase 2 (default, 2026-10-27): the phase-1 winner measured at as many rebuilt points as
+    the precision needs, by `wtune predict-rebuild`'s procedure (rebuild + spin-up + measure per
+    point, in waves within max_nodes) and combine(). haitang2017: one 40-step t0 window missed
+    the run by 19-29 %, five points by 4 % (replay of its own 960 steps)."""
+    from wtune import probe_plan as pp
+    from wtune import rebuild_predict as rp
+    from .points import REBUILT_MIN_STEPS
+    ctx = st.ctx
+    m2 = _mark(ctx)
+    if st.cap_hit():
+        status = "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
+    elif not layouts:
+        status = "not run (no layout)"
+    elif pplan is None or not pplan["selected"]:
+        status = ("not run (the t0 anchor suffices for this case at %s: %s, band ±%.0f%%)"
+                  % (precision_label(precision_min), pplan["method"] if pplan else "-",
+                     (pplan["band"] if pplan else 0) * 100))
+    else:
+        lay0 = layouts[0]
+        cfg = lay0["cfg"]
+        try:
+            case_dir = sweep._expand(ctx.case_json["prep_dir"])
+            _nl, run_start, _end, _dt, stepra, points, _notes = rp.plan(
+                case_dir, PREDICT_REBUILD_FORCING, PREDICT_REBUILD_SPINUP_MIN,
+                len(pplan["selected"]), namelist_path=getattr(ctx, "namelist_path", None))
+            best = dict(ranks=cfg["ranks"], omp=cfg.get("omp", 1), nx=cfg["nx"], ny=cfg["ny"],
+                        numtiles=cfg.get("numtiles", 1))
+            meas, job_ids = run_rebuild_points(
+                ctx, points, best, lay0["nodes"], case_dir, os.path.join(ctx.out_dir, "rebuilt"),
+                run_start, spinup_min=PREDICT_REBUILD_SPINUP_MIN, forcing=None,
+                measure_steps=max(REBUILT_MIN_STEPS, int(stepra) + 1))
+            (st.nl, st.run_start, st.run_end, st.dt, st.stepra, st.calibration,
+             st.sample_points, st.case_dir) = _prediction._prediction_context(ctx)
+            st.pc_ok = True
+            res = pp.combine(meas, st.run_start, st.run_end, st.dt, st.stepra,
+                             calibration=st.calibration, sample_points=st.sample_points,
+                             case_dir=st.case_dir, nl=st.nl, ranks=best["ranks"],
+                             nodes=lay0["nodes"])
+            st.rebuild_pred = dict(result=res, layout=lay0, job_ids=job_ids,
+                                   points=[p.at.isoformat() for p in points])
+            status = "ok (%d rebuilt point(s) at the winner, jobs %s)" % (len(points), job_ids)
+        except Exception as e:                              # noqa: BLE001 -- reported
+            status = "failed: %s: %s" % (type(e).__name__, e)
+            print("pipeline: phase 2 rebuild at the winner FAILED -- %s" % status)
+    st.pipe.phases.append(_phase_record("predict", m2, _mark(ctx), st.limit("predict"), status))
+    st.cut("predict")
+
+
 def _pipeline_on_sweep(st: PipelineRun, rows: list[dict], _sw: dict) -> None:
     """Phase-1 sweep callback, informational: the whole run implied by the best measured s/step
     (an upper bound: anchor config) -> pipe.T_updated_s, printed. B is NOT changed."""
@@ -444,10 +520,11 @@ def _pipeline_replan_points(st: PipelineRun, precision_min: Any) -> tuple[dict |
     pipe = st.pipe
     T_dec = pipe.T_updated_s or if_set(pipe.T_cold_s)
     pipe.level.effective = st.plan["level"]
-    pplan = (plan_prediction_points(st.ctx, st.sub.wrapped, precision_min, T_dec,
-                                    pipe.T_updated_s is not None, st.sub.sample_points,
-                                    **st.pre.pkw)
-             if (st.sub and T_dec) else st.pplan0)
+    wrapped = st.sub.wrapped if st.sub else (st.pre.wrapped if st.pre and st.pre.ok else None)
+    pplan = (plan_prediction_points(st.ctx, wrapped, precision_min, T_dec,
+                                    pipe.T_updated_s is not None,
+                                    st.sub.sample_points if st.sub else None, **st.pre.pkw)
+             if (wrapped is not None and T_dec) else st.pplan0)
     if pplan is not None:
         pipe.prediction_plan = PredictionPlanRecord(
             points=[w["index"] for w in pplan["selected"]], band=pplan["band"],
@@ -720,6 +797,34 @@ def _prediction_from_winner(st: PipelineRun, report: dict, layouts: list[dict],
     return pred
 
 
+def _prediction_from_rebuild(st: PipelineRun, report: dict, band_eff: float,
+                             io_run: dict | None) -> WholeRunPrediction:
+    """Phase 2 rebuild-winner: combine()'s compute + init at the rebuilt points, plus run-length
+    I/O; the range is combine()'s, shifted by the I/O. Also sets report["full_run_prediction"]."""
+    rp, lay = st.rebuild_pred, st.rebuild_pred["layout"]
+    res = rp["result"]
+    T = float(res["total_s"])
+    pred = WholeRunPrediction(
+        layout_id=lay.get("cid"), nodes=lay["nodes"], cores_per_node=lay["cores"],
+        config={k: lay["cfg"].get(k) for k in _PRED_CONFIG_KEYS},
+        predicted_total_s=T, predicted_total_hms=_fmt_hms(T),
+        predicted_range_s=[float(res["range_low_s"]), float(res["range_high_s"])],
+        time_suggestion=_fmt_sbatch_time(time_suggestion_s(T, band_eff)),
+        points_used=len(rp["points"]), degraded=False,
+        source="phase 2: the phase-1 winner at %d rebuilt point(s) (combine())" % len(rp["points"]))
+    pred.add_run_length_io(io_run, float(res["compute_total_s"]), float(res["init_s"]), band_eff,
+                           res.get("init_note"))
+    report["full_run_prediction"] = "\n".join(
+        ["=== full-run prediction (phase 2: %s at %d rebuilt point(s): %s) ==="
+         % (lay.get("cid"), len(rp["points"]), ", ".join(rp["points"])),
+         "TOTAL: %s (range %s - %s)" % (_fmt_hms(pred.predicted_total_s),
+                                       _fmt_hms(pred.predicted_range_s[0]),
+                                       _fmt_hms(pred.predicted_range_s[1])),
+         "whole run: " + (pred.breakdown if is_set(pred.breakdown) and pred.breakdown else
+                          "compute %.0fs + init %.0fs" % (pred.compute_s, pred.init_s))])
+    return pred
+
+
 def _prediction_from_t0_anchor(st: PipelineRun, lay0: dict, T_dec: float, band_eff: float,
                                io_run: dict | None) -> WholeRunPrediction:
     """No rebuilt point needed: phase 1's t0 anchor s/step x steps + startup (+ run-length I/O),
@@ -757,6 +862,8 @@ def _pipeline_prediction(st: PipelineRun, report: dict, layouts: list[dict], ppl
               if (winner is not None or T_dec or pipe.T_updated_s) else None)
     if winner is not None:
         pred = _prediction_from_winner(st, report, layouts, pplan, band_eff, io_run)
+    elif st.rebuild_pred is not None:
+        pred = _prediction_from_rebuild(st, report, band_eff, io_run)
     if pred is not None:
         pred.band = band_eff
         pred.error_min = band_eff * pred.predicted_total_s / 60.0

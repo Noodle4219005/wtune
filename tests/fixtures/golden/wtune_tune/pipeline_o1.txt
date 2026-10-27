@@ -25,13 +25,13 @@ pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such
 
 === summary ===
 best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (4 runs)
-run:      predicted 17:10 for the whole simulation (phase 2 combine())
+run:      predicted 17:00 for the whole simulation (phase 2 combine())
 not run:  N=13 early stop; N=3,5,7,9-12 not measured
 tuning:   running 0:00, queue 0:00 (not counted)
 
 === wtune tune: matthew ===
 nodes=4 (objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; level O1: t0 sweep only -- ANCHOR config)
-budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,8010
+budget=no cap  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED    288    1    16    18     1   block     0.3000  0.3000-0.3000  1.000x        -    4 -           False
@@ -44,10 +44,9 @@ BEST: ANCHOR
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
   NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
-=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===
-compute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)
-r_rad: night=1.000 day=3.900 source=fake
-whole run: compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
+=== full-run prediction (phase 2: ANCHOR at 3 rebuilt point(s): 2026-01-01T01:00:00, 2026-01-01T03:00:00, 2026-01-01T05:00:00) ===
+TOTAL: 17:00 (range 15:50 - 18:10)
+whole run: compute 1000s + init 20s = 1020s (run-length I/O NOT included)
 
 --- node selection (measured, ANCHOR config per node count) ---
 nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB
@@ -87,15 +86,14 @@ skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
 === wtune tune -O1 (decision 0059) ===
 level O1; time cap: none (no time cap)  whole run implied by the t0 anchor (info): 7:00
 tuning time, estimated at start: O1 ≈ 84 min <-  O2 ≈ 122 min  O3 ≈ 150 min  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O1 ≈ 84.0 min
-phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      deferred (points planned and rebuilt after the layout search, at its winner)
 phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
-phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok (3 rebuilt point(s) at the winner, jobs 7700,7701,7702)
 phase physics  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      not run (physics advice needs -O3)
 whole-run time ±7% = ±1.2 min (common: fake case-type plan)
 suggested --time=00:32:00 (T rounded up to 15 min plus one band, >= 1.2x T)
-phase 2 plan: winner only x all 3 points (none left; startup 120s/run); tried: winner only x all 3 points ~4:50
-predicted whole run: 17:10 (range 16:18 - 18:01) at N=4 cores/node=72 {'ranks': 288, 'omp': 1, 'nx': 16, 'ny': 18, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:32:00
-  compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
-tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 17:10 (phase 2 combine())
+predicted whole run: 17:00 (range 15:50 - 18:10) at N=4 cores/node=72 {'ranks': 288, 'omp': 1, 'nx': 16, 'ny': 18, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:32:00
+  compute 1000s + init 20s = 1020s (run-length I/O NOT included)  [init: t]
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 17:00 (phase 2 combine())
 
 advice: 1 stub item(s)

@@ -160,6 +160,7 @@ def _slp_thickness_chart(c: _Chart, fig: Callable) -> dict:
     """Classic surface chart (decision 0064): isobars every 4 hPa with H/L + thickness
     (z500 - z1000 differenced here; wrf-python has no thickness getvar)."""
     np = c.np
+    from wtune.post.recipes.mapfig import slp_isobar_field
     slp = np.asarray(c.wrf.getvar(c.ds, "slp", timeidx=c.ti, units="hPa"), dtype="f8")
     thickness_dam = (c.z500_ext - c.z1000_ext) / 10.0
     slp_levels = np.arange(4.0 * np.floor(np.nanmin(slp) / 4.0), np.nanmax(slp) + 4.0, 4.0)
@@ -169,7 +170,8 @@ def _slp_thickness_chart(c: _Chart, fig: Callable) -> dict:
                "%s d01 SLP (isobars every 4 hPa) + 1000-500 hPa thickness (dashed, dam)  %s\n"
                "1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)"
                % (c.run_label, c.tlabel),
-               contour_field=slp, contour_levels=slp_levels, contour_label_fmt="%d",
+               contour_field=slp_isobar_field(slp, c.ds.variables["HGT"][0]),
+               contour_levels=slp_levels, contour_label_fmt="%d",
                contours=th_sets, hl_field=slp,
                hl_exclude=np.asarray(c.ds.variables["HGT"][0]) > _HGT_HIGH_TERRAIN_M,
                ds=c.ds, crs=c.crs, gridline_labels=True,

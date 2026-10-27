@@ -149,15 +149,11 @@ def draw(crs, doms, out_path, title, terrain=None, caption=None):
     from wtune.post.basemap import add_base_map
     lat_span = (float(np.nanmax(terrain[0])) - float(np.nanmin(terrain[0]))
                 if terrain is not None else h / 111e3)
-    step = 2 if lat_span < 12 else 5 if lat_span < 30 else 10
     base = add_base_map(ax, ccrs, lats=None if terrain is None else terrain[0],
                         lons=None if terrain is None else terrain[1], labels=True,
                         nest_rings=[], terrain=False, caption=False)
-    gl = base.get("gridliner")
-    if gl is not None:
-        import matplotlib.ticker as mticker
-        gl.xlocator = mticker.FixedLocator(range(-180, 181, step))
-        gl.ylocator = mticker.FixedLocator(range(-90, 91, step))
+    from wtune.post.basemap import gridline_step
+    gridline_step(base.get("gridliner"), lat_span)
     for i, d in enumerate(doms):
         colour = DOMAIN_COLOURS[i % len(DOMAIN_COLOURS)]
         ax.add_patch(Rectangle((d["x0"], d["y0"]), d["x1"] - d["x0"], d["y1"] - d["y0"],

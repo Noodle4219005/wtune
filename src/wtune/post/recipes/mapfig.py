@@ -36,6 +36,19 @@ def pooled_levels(arrays, lo_pct=2.0, hi_pct=98.0, nbins=14, floor=None):
     return nice_levels(lo, hi, nbins)
 
 
+SLP_TERRAIN_MAX_M = 1500.0  # no isobars over higher ground: sea-level pressure there is extrapolated
+
+
+def slp_isobar_field(slp, hgt):
+    """slp with the cells above SLP_TERRAIN_MAX_M set to NaN, for drawing isobars: over the
+    Tibetan Plateau the reduction draws a tangle of closed contours (haitang2017 preview)."""
+    import numpy as np
+    out = np.array(slp, dtype="f8")
+    if hgt is not None:
+        out[np.asarray(hgt) > SLP_TERRAIN_MAX_M] = np.nan
+    return out
+
+
 EXCLUDE_MARGIN = 2          # grid cells around an excluded cell that get no H/L either
 
 
@@ -197,8 +210,11 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
             handles.append(Line2D([], [], color="k", marker=r"$\rightarrow$", ls="none",
                                   label=barb_label))
     # line charts (isobars, heights): grey coastlines, so the two cannot be confused
-    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt, terrain=terrain,
-               muted=contour_field is not None or bool(contours))
+    base = _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt,
+                      terrain=terrain, muted=contour_field is not None or bool(contours))
+    if basemap == "cartopy" and base:
+        from wtune.post.basemap import gridline_step
+        gridline_step(base.get("gridliner"), float(np.nanmax(lats) - np.nanmin(lats)))
     if handles:
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)

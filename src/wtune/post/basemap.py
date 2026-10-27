@@ -307,6 +307,17 @@ def interior_mask(shape, bdy_width=0, fill=None):
     return m
 
 
+def gridline_step(gl, lat_span):
+    """Lat/lon gridlines every 2, 5 or 10 degrees by the map's latitude span: cartopy's own
+    choice on a Lambert map labelled one meridian (120E) on haitang2017's d01."""
+    import matplotlib.ticker as mticker
+    if gl is None:
+        return
+    step = 2 if lat_span < 12 else 5 if lat_span < 30 else 10
+    gl.xlocator = mticker.FixedLocator(range(-180, 181, step))
+    gl.ylocator = mticker.FixedLocator(range(-90, 91, step))
+
+
 BARBS_ACROSS = 15           # barbs along a map's shorter side
 
 

@@ -101,3 +101,13 @@ def test_highs_lows_none_at_the_boundary_or_beside_high_terrain():
     mask = np.zeros(slp.shape, bool)
     mask[29:32, 42:45] = True                      # terrain one cell east of the low
     assert mapfig.highs_lows(slp, window=21, exclude=mask) == []
+
+
+def test_no_isobars_over_high_ground():
+    # haitang2017 preview: a tangle of closed isobars over the Tibetan Plateau
+    slp = np.full((4, 4), 1008.0)
+    hgt = np.zeros((4, 4))
+    hgt[0, 0] = 4500.0
+    hgt[1, 1] = 900.0
+    out = mapfig.slp_isobar_field(slp, hgt)
+    assert np.isnan(out[0, 0]) and out[1, 1] == 1008.0 and slp[0, 0] == 1008.0

@@ -155,10 +155,12 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                 # surface chart convention (decision 0064): black isobars every 4 hPa with H/L
                 # (none over terrain > 500 m, where SLP is a reduction), not a colour fill
                 from wtune.post.recipes.mapfig import highs_lows
+                from wtune.post.recipes.mapfig import slp_isobar_field
                 iso = np.arange(4.0 * np.floor(np.nanmin(data) / 4.0), np.nanmax(data) + 4.0, 4.0)
-                cs = ax.contour(lons, lats, data, levels=iso, colors="k", linewidths=0.8, **tkw)
-                ax.clabel(cs, inline=True, fontsize=7, fmt="%d")
                 hgt = np.asarray(ds.variables["HGT"][0]) if "HGT" in ds.variables else None
+                cs = ax.contour(lons, lats, slp_isobar_field(data, hgt), levels=iso, colors="k",
+                                linewidths=0.8, **tkw)
+                ax.clabel(cs, inline=True, fontsize=7, fmt="%d")
                 for j, i, kind in highs_lows(data, exclude=None if hgt is None else hgt > 500.0):
                     ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
                             fontsize=13, fontweight="bold", ha="center", va="center", **tkw)

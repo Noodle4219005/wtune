@@ -84,9 +84,15 @@ def _write_data(out, fig_path, title, source, grids, valid_time=None):
 STAGE4_BOX = (19.8, 57.7, -134.1, -59.9)    # lat_min, lat_max, lon_min, lon_max of NCEP Stage IV
 
 
-def _overlaps(a, b):
-    """Two (lat_min, lat_max, lon_min, lon_max) boxes intersect (longitudes in -180..180)."""
-    return a[0] <= b[1] and b[0] <= a[1] and a[2] <= b[3] and b[2] <= a[3]
+def _grid_in_box(path, box):
+    """True when any grid cell of the file's XLAT/XLONG lies in box. Cells, not the lat/lon
+    bounding box: a d01 across the date line (haitang2017) has a -180..180 box."""
+    import netCDF4
+    import numpy as np
+    with netCDF4.Dataset(path) as ds:
+        lat = np.asarray(ds.variables["XLAT"][0])
+        lon = np.asarray(ds.variables["XLONG"][0])
+    return bool(np.any((lat >= box[0]) & (lat <= box[1]) & (lon >= box[2]) & (lon <= box[3])))
 
 
 def _geo_em_files(project_dir):
@@ -165,11 +171,13 @@ def _slp_wind_t0(case_dir, out, start):
         slp = wrf.getvar(ds, "slp", timeidx=0)
         lats, lons = wrf.latlon_coords(slp, as_np=True)
         u, v = (np.asarray(ds.variables[k][0]) for k in ("U10", "V10"))
+        from wtune.post.recipes.mapfig import slp_isobar_field
+        isobars = slp_isobar_field(slp, ds.variables["HGT"][0])
         save_map(path, lats, lons, "wrfinput d01 SLP (every 4 hPa) + 10 m wind (kt)  t=0 %s"
                  % start.strftime("%Y-%m-%d %HZ"),
                  fill_field=np.hypot(u, v) * KT_PER_MS, fill_label="10 m wind (kt)",
                  fill_cmap="YlOrRd", fill_levels=list(range(0, 75, 5)), fill_extend="max",
-                 contour_field=np.asarray(slp), contour_levels=list(range(900, 1060, 4)),
+                 contour_field=isobars, contour_levels=list(range(900, 1060, 4)),
                  contour_label_fmt="%d", u=u, v=v, barb_factor=KT_PER_MS,
                  barb_label="wind barbs in kt", ds=ds, crs=wrf.get_cartopy(var=slp),
                  gridline_labels=True, terrain=False)
@@ -274,9 +282,8 @@ def run_preview(project_dir, project_doc, out) -> dict:
     if has_state:
         info = caseinfo.detect_types([case_dir], hurdat2_path=hurdat2, storm_id=storm_id,
                                      bdeck_path=bdeck)
-        bbox_window = caseinfo._d01_bbox_and_window(case_dir)
-        window = bbox_window[4:]
-        over_conus = _overlaps(bbox_window[:4], STAGE4_BOX)
+        window = caseinfo._d01_bbox_and_window(case_dir)[4:]
+        over_conus = _grid_in_box(caseinfo.initial_state(case_dir), STAGE4_BOX)
     else:                       # before `wtune prep real`: namelists (and geo_em) only
         info = dict(types=["common"], evidence={}, run_length_h=0.0, domains=[])
         window = _namelist_window(case_dir)

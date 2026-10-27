@@ -91,7 +91,8 @@ def test_check_passes_a_cited_assessment_and_a_complete_review(tmp_path):
     (post / "assessment.md").write_text(GOOD)
     (post / "review.json").write_text(json.dumps(dict(schema="wtune-post-review/1", figures=[
         dict(path="precip/rain.png", verdict="ok", issues=[]),
-        dict(path="precip/other.png", verdict="fix", issues=["colour bar saturates"])])))
+        dict(path="precip/other.png", verdict="fix", issues=["colour bar saturates"],
+             action=dict(kind="wtune_defect", text="rain scale tops at 203.2 mm"))])))
     assert check.check(str(post)) == ([], [])
 
 
@@ -121,3 +122,91 @@ def test_brief_lists_figures_with_their_questions(tmp_path):
     assert [s["step"] for s in doc["agent_steps"]] == ["review", "analysis", "assessment", "check"]
     with pytest.raises(FileNotFoundError, match="figures.json"):
         brief.build_brief(str(tmp_path))
+
+
+def _preview_dir(tmp_path, project):
+    post = project / "post" / "preview"
+    (post / "figures").mkdir(parents=True)
+    (post / "figures" / "common_domain_map.png").write_bytes(b"png")
+    with open(post / "figures.json", "w") as fh:
+        json.dump(dict(schema="wtune-post-figures/1", kind="preview", runs=[], case_info={},
+                       notes=[], figures=[dict(id="common_domain_map", missing=False,
+                                               path="figures/common_domain_map.png")]), fh)
+    return post
+
+
+def _project(tmp_path):
+    project = tmp_path / "p"
+    (project / "analysis").mkdir(parents=True)
+    (project / "project.yaml").write_text("name: p\npost:\n  types: auto\n")
+    return project
+
+
+def test_a_preview_review_needs_a_plan_and_valid_fix_actions(tmp_path):
+    # user 2026-10-27: the agent gives drawing instructions and fixes, the preview's too
+    project = _project(tmp_path)
+    post = _preview_dir(tmp_path, project)
+    review = dict(schema="wtune-post-review/1", figures=[dict(
+        path="figures/common_domain_map.png", verdict="fix", issues=["d03 misses SW Taiwan"],
+        action=dict(kind="project_set", args=["--post-focus", "21.8,25.4,119.9,122.1"]))],
+        plan=[dict(figure="12 h rain, gauges vs model", why="paper Fig. 4",
+                   how="CWA scale, 4 panels",
+                   action=dict(kind="analysis", script="analysis/rain12h.py"))])
+    (post / "review.json").write_text(json.dumps(review))
+    errors, warnings = check.check(str(post), project_dir=str(project))
+    assert errors == [] and any("rain12h.py does not exist yet" in w for w in warnings)
+    review["plan"] = []
+    review["figures"][0]["action"] = dict(kind="project_set", args=["--max-nodes", "8"])
+    (post / "review.json").write_text(json.dumps(review))
+    text = "\n".join(check.check(str(post), project_dir=str(project))[0])
+    assert "needs `plan`" in text and "project_set args must use" in text
+    review["figures"][0]["action"] = dict(kind="project_set",
+                                          args=["--post-focus", "25.4,21.8,119.9,122.1"])
+    review["figures"].append(dict(path="figures/common_domain_map.png", verdict="fix",
+                                  issues=["x"]))
+    (post / "review.json").write_text(json.dumps(review))
+    text = "\n".join(check.check(str(post), project_dir=str(project))[0])
+    assert "rejected" in text and "verdict fix without an action" in text
+
+
+def test_project_set_drawing_options(tmp_path):
+    from wtune import project as wp
+    project = _project(tmp_path)
+    assert wp.main(["set", "--project", str(project), "--post-focus", "21.8,25.4,119.9,122.1",
+                    "--cross-section", "moisture=22,119.5,23.5,121.5"]) == 0
+    doc = wp.load_project(str(project))
+    assert doc["post"]["focus"] == [21.8, 25.4, 119.9, 122.1] and doc["post"]["types"] == "auto"
+    assert doc["cross_sections"]["moisture"] == dict(lat0=22.0, lon0=119.5, lat1=23.5, lon1=121.5)
+    assert wp.main(["set", "--project", str(project), "--post-focus", "none"]) == 0
+    assert wp.load_project(str(project))["post"]["focus"] is None
+    assert wp.main(["set", "--project", str(project), "--cross-section", "x=1,2,3,4"]) == 1
+
+
+def test_preview_writes_its_figure_index(tmp_path):
+    pytest.importorskip("cartopy")
+    import shutil
+    from wtune.post import brief, preview
+    here = os.path.join(os.path.dirname(__file__), "fixtures", "namelists", "haitang2017")
+    project = tmp_path / "p"
+    (project / "case").mkdir(parents=True)
+    for n in ("namelist.wps", "namelist.input"):
+        shutil.copy(os.path.join(here, n), project / "case" / n)
+    out = project / "post" / "preview"
+    preview.run_preview(str(project), {}, str(out))
+    index = json.load(open(out / "figures.json"))
+    assert index["kind"] == "preview"
+    assert [f["path"] for f in index["figures"]] == ["common_domain_map.png"]
+    doc = brief.build_brief(str(out))
+    assert doc["kind"] == "preview" and [s["step"] for s in doc["agent_steps"]][:2] == [
+        "review", "plan"] and doc["figures"]["after_the_run"]
+
+
+def test_projects_point_agents_at_the_instructions(tmp_path):
+    from wtune import project as wp
+    path = wp.init_project(str(tmp_path / "new"))
+    text = open(os.path.join(path, "AGENTS.md")).read()
+    for name in ("AGENT.md", "wtune-event", "wtune-post", "bin/wtune"):
+        assert name in text
+    old = _project(tmp_path)
+    assert wp.main(["set", "--project", str(old), "--agents-md"]) == 0
+    assert os.path.isfile(old / "AGENTS.md")

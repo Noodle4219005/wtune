@@ -3,7 +3,12 @@ post-processing. The agent writes post/<id>/review.json (its verdict on every re
 and post/<id>/assessment.md (the layered judgement); this checks that
 
 - review.json is wtune-post-review/1, every reviewed figure exists, a non-ok verdict says why,
-  and (warning) no drawn figure was left unreviewed;
+  a `fix` names its action (ACTIONS: a `wtune project set` drawing option, an analysis/*.py
+  script that redraws it, or a WTune defect report), and (warning) no drawn figure was left
+  unreviewed;
+- for `wtune post preview` (figures.json kind "preview"): review.json also carries the
+  figure plan for after the run (`plan`: what to draw, how, from which script), and there is
+  no assessment yet;
 - assessment.md has the six sections, every paragraph cites at least one existing figure or
   CSV as a markdown link, and every decimal number in a paragraph that cites a CSV appears in
   one of those CSVs at the precision written (so numbers come from WTune or a script's output,
@@ -22,6 +27,9 @@ REVIEW_FILE = "review.json"
 REVIEW_SCHEMA = "wtune-post-review/1"
 ASSESSMENT_FILE = "assessment.md"
 VERDICTS = ("ok", "fix", "drop")
+ACTIONS = ("project_set", "analysis", "wtune_defect")
+# `wtune project set` flags a figure fix may use (drawing options, never machine or run ones)
+DRAWING_FLAGS = ("--post-focus", "--cross-section", "--post-types", "--post-every")
 # section -> heading words that satisfy it (English or Traditional Chinese)
 SECTIONS = {
     "setup": ("setup", "configuration", "設定"),
@@ -44,7 +52,37 @@ def _resolve(target, post_dir, project_dir):
     return None
 
 
-def check_review(post_dir, errors, warnings):
+def _check_action(where, action, project_dir, preview, errors, warnings):
+    kind = (action or {}).get("kind")
+    if kind not in ACTIONS:
+        errors.append("%s: action.kind must be one of %s" % (where, "|".join(ACTIONS)))
+    elif kind == "project_set":
+        args = action.get("args") or []
+        flags = [a.split("=")[0] for a in args if a.startswith("--")]
+        bad = [f for f in flags if f not in DRAWING_FLAGS]
+        if not flags or bad:
+            errors.append("%s: project_set args must use %s (got %s)"
+                          % (where, ", ".join(DRAWING_FLAGS), args))
+        else:
+            import wtune.project
+            try:
+                ns = wtune.project.build_parser().parse_args(["set"] + list(args))
+                wtune.project.apply_drawing_options({}, ns.post_focus, ns.cross_section)
+            except (SystemExit, wtune.project.ProjectError) as e:
+                errors.append("%s: project_set args %s rejected: %s" % (where, args, e))
+    elif kind == "analysis":
+        script = action.get("script") or ""
+        found = project_dir and os.path.isfile(os.path.join(project_dir, script))
+        if not script.startswith("analysis/") or not script.endswith(".py"):
+            errors.append("%s: analysis action needs script analysis/<name>.py" % where)
+        elif not found:
+            (warnings if preview else errors).append(
+                "%s: %s does not exist yet in the project" % (where, script))
+    elif not (action.get("text") or "").strip():
+        errors.append("%s: wtune_defect needs text" % where)
+
+
+def check_review(post_dir, errors, warnings, project_dir=None, preview=False):
     path = os.path.join(post_dir, REVIEW_FILE)
     if not os.path.isfile(path):
         errors.append("%s: missing" % REVIEW_FILE)
@@ -68,6 +106,21 @@ def check_review(post_dir, errors, warnings):
             errors.append("%s: verdict must be one of %s" % (where, "|".join(VERDICTS)))
         elif e.get("verdict") != "ok" and not e.get("issues"):
             errors.append("%s: verdict %s without issues" % (where, e["verdict"]))
+        if e.get("verdict") == "fix" and not e.get("action"):
+            errors.append("%s: verdict fix without an action" % where)
+        if e.get("action"):
+            _check_action(where, e["action"], project_dir, preview, errors, warnings)
+    if preview:
+        plan = doc.get("plan") or []
+        if not plan:
+            errors.append("%s: a preview review needs `plan`, the figures to draw after the "
+                          "run" % REVIEW_FILE)
+        for k, p in enumerate(plan):
+            where = "%s plan[%d]" % (REVIEW_FILE, k)
+            if not (p.get("figure") and p.get("how")):
+                errors.append("%s: needs figure and how" % where)
+            if p.get("action"):
+                _check_action(where, p["action"], project_dir, True, errors, warnings)
     index = os.path.join(post_dir, "figures.json")
     if os.path.isfile(index):
         with open(index) as fh:
@@ -148,10 +201,21 @@ def check_assessment(post_dir, project_dir, errors, warnings):
                     ", ".join(os.path.basename(c) for c in csvs)))
 
 
+def index_kind(post_dir):
+    """figures.json's kind ("recipe" or "preview"), None without one."""
+    path = os.path.join(post_dir, "figures.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path) as fh:
+        return json.load(fh).get("kind", "recipe")
+
+
 def check(post_dir, project_dir=None) -> tuple[list, list]:
-    """(errors, warnings) of an agent's post/<id>/ outputs."""
+    """(errors, warnings) of an agent's post/<id>/ (or post/preview/) outputs."""
     post_dir = os.path.abspath(post_dir)
     errors, warnings = [], []
-    check_review(post_dir, errors, warnings)
-    check_assessment(post_dir, project_dir, errors, warnings)
+    preview = index_kind(post_dir) == "preview"
+    check_review(post_dir, errors, warnings, project_dir=project_dir, preview=preview)
+    if not preview:
+        check_assessment(post_dir, project_dir, errors, warnings)
     return errors, warnings

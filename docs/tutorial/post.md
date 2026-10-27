@@ -200,6 +200,14 @@ wtune post check post/<id>              # 有 error 就 exit 1
 - `review.json`：每張圖的判定 `ok`、`fix`、`drop`；不是 `ok` 的要寫出問題。
 - `assessment.md`：依序有設定、大尺度、目標變數、分數、機制、結論與限制六節；每段至少用 markdown 連結引用一張圖或一個 CSV；引用 CSV 的段落裡的小數，必須在該 CSV 以同樣位數出現。
 
-`project.yaml` 的 `post.focus: [lat_min, lat_max, lon_min, lon_max]` 指定研究區域。剖面、時高圖、探空和最大回波圖會改在這個區域內 spin-up 後雨量最大的地方取點，並畫在該處降雨高峰的時刻。沒設定時，取點範圍是整個最內層網域（避開邊界）。
+preview 也走同樣的流程：`wtune post preview` 之後跑 `wtune post brief post/preview`，agent 審 preview 的圖，在 `review.json` 寫出跑完後要畫的圖（`plan`），再跑 `wtune post check post/preview`。每個 `fix` 都要附上修正方式（`action`），共三種：
+
+- `project_set`：用 `wtune project set --post-focus/--cross-section/--post-types/--post-every` 調整標準圖。
+- `analysis`：交給 `analysis/*.py` 重畫。
+- `wtune_defect`：WTune 本身畫錯，回報給使用者。
+
+agent 的完整說明在 repo 根目錄的 `AGENT.md`，裡面也說明了怎麼把任何 agent 或 harness 接到 WTune。`wtune project init` 會在專案寫一份 `AGENTS.md` 指向它；舊專案可以用 `wtune project set --agents-md` 補上。
+
+`project.yaml` 的 `post.focus: [lat_min, lat_max, lon_min, lon_max]` 指定研究區域，也可以用 `wtune project set --post-focus 21.8,25.4,119.9,122.1` 設定。剖面、時高圖、探空和最大回波圖會改在這個區域內 spin-up 後雨量最大的地方取點，並畫在該處降雨高峰的時刻。沒設定時，取點範圍是整個最內層網域（避開邊界）。
 
 教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

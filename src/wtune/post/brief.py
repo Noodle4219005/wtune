@@ -16,10 +16,22 @@ SCHEMA = "wtune-post-brief/1"
 BRIEF_FILE = "brief.json"
 HIGH_TERRAIN_M = 500.0      # SLP over higher ground is a reduction: no minimum taken there
 
+REVIEW_WHAT = ("every drawn figure: verdict ok|fix|drop, its issues (clarity, colour scale, "
+               "units, extent, valid time, where a point/line was sampled) and, for a fix, the "
+               "action: project_set (a `wtune project set` drawing flag), analysis (the "
+               "analysis/*.py that redraws it) or wtune_defect (a WTune bug report)")
+PREVIEW_STEPS = [
+    dict(step="review", output="review.json", what=REVIEW_WHAT + "; check the domains against "
+         "the case description (where the target area and the storm are)"),
+    dict(step="plan", output="review.json `plan`",
+         what="the figures to draw after the run: figure, why (the question), how (fields, "
+              "times, area, colour scale, observations), and the action that makes it -- "
+              "project_set for post.focus/cross-sections, analysis for the case's own figures"),
+    dict(step="apply", output="`wtune project set ...` for every project_set action now"),
+    dict(step="check", output="`wtune post check post/preview` exits 0"),
+]
 AGENT_STEPS = [
-    dict(step="review", output="review.json",
-         what="every drawn figure: verdict ok|fix|drop and its issues (clarity, colour scale, "
-              "units, extent, valid time, where a point/line was sampled)"),
+    dict(step="review", output="review.json", what=REVIEW_WHAT),
     dict(step="analysis", output="<project>/analysis/*.py, run by `wtune post custom`",
          what="the case's own figures: observation and model side by side on one scale, "
               "box-mean time series, threshold scores, Hovmoller, track vs best track "
@@ -112,7 +124,14 @@ def build_brief(post_dir, project_dir=None, project_doc=None, spinup_hours=6.0):
                                 "into it first" % (post_dir, INDEX_FILE))
     with open(index_path) as fh:
         index = json.load(fh)
+    kind = index.get("kind", "recipe")
     catalog = load_catalog()
+    expected = []
+    exp_path = os.path.join(post_dir, "expected_figures.csv")
+    if os.path.isfile(exp_path):
+        import csv
+        with open(exp_path, newline="") as fh:
+            expected = list(csv.DictReader(fh))
     case = index.get("case_info") or {}
     runs = index.get("runs") or []
     run_dir = runs[0]["path"] if runs else None
@@ -146,7 +165,7 @@ def build_brief(post_dir, project_dir=None, project_doc=None, spinup_hours=6.0):
         if storm_id:
             storm = dict(id=storm_id, hurdat2=hurdat2)
     return dict(
-        schema=SCHEMA, post_dir=post_dir, project=project_dir,
+        schema=SCHEMA, kind=kind, post_dir=post_dir, project=project_dir,
         case=dict(types=case.get("types"), evidence=case.get("evidence"),
                   run_length_h=case.get("run_length_h"), domains=case.get("domains"),
                   spinup_hours=spinup_hours, focus_box=focus_box),
@@ -154,9 +173,9 @@ def build_brief(post_dir, project_dir=None, project_doc=None, spinup_hours=6.0):
         event=_event(project_dir) if project_dir else None,
         observations=_observations(project_dir, run_dir) if project_dir else None,
         key_numbers=key,
-        figures=dict(drawn=drawn, missing=missing),
+        figures=dict(drawn=drawn, missing=missing, after_the_run=expected),
         notes=[n.get("text") for n in index.get("notes") or []],
-        agent_steps=AGENT_STEPS)
+        agent_steps=PREVIEW_STEPS if kind == "preview" else AGENT_STEPS)
 
 
 def write_brief(post_dir, **kw) -> str:

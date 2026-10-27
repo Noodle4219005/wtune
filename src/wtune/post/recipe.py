@@ -459,16 +459,16 @@ INDEX_FILE = "figures.json"
 INDEX_SCHEMA = "wtune-post-figures/1"
 
 
-def write_index(out_dir, run_dirs, labels, case_info, figures, notes) -> str:
-    """out_dir/figures.json: what the recipe drew and could not draw, with paths relative to
-    out_dir -- the machine-readable half of report.html that `wtune post brief` and
-    `wtune post check` read (decision 0078)."""
+def write_index(out_dir, run_dirs, labels, case_info, figures, notes, kind="recipe") -> str:
+    """out_dir/figures.json: what the recipe (kind "recipe") or `wtune post preview` (kind
+    "preview") drew and could not draw, with paths relative to out_dir -- the machine-readable
+    half of report.html that `wtune post brief` and `wtune post check` read (decision 0078)."""
     def rel(entry):
         e = dict(entry)
         if e.get("path") and os.path.isabs(e["path"]):
             e["path"] = os.path.relpath(e["path"], out_dir)
         return e
-    doc = dict(schema=INDEX_SCHEMA, runs=[dict(label=lb, path=os.path.abspath(d))
+    doc = dict(schema=INDEX_SCHEMA, kind=kind, runs=[dict(label=lb, path=os.path.abspath(d))
                                           for d, lb in zip(run_dirs, labels)],
                case_info=case_info, figures=[rel(f) for f in figures], notes=notes)
     path = os.path.join(out_dir, INDEX_FILE)

@@ -623,10 +623,31 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     example_path = os.path.join(path, "analysis", "example_tc_track.py")
     with open(example_path, "w") as fh:
         fh.write(_EXAMPLE_SCRIPT)
+    write_agents_pointer(path)
 
     manifest_append(path, ["wtune", "project", "init", path], out_dir=path, exit_code=0,
                     key_paths=[case_dir] if case_dir else [])
     return path
+
+
+def write_agents_pointer(project_dir) -> str:
+    """<project>/AGENTS.md: where this WTune's agent instructions are (AGENT.md and the skills,
+    absolute paths). Agent harnesses read AGENTS.md from the directory they work in."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    skills = os.path.join(repo, ".claude", "skills")
+    text = ("# WTune project\n\n"
+            "Before any WTune work in this project, read %s.\n\n"
+            "- events and observations: %s\n"
+            "- figures, preview, post-processing, assessment: %s\n\n"
+            "Run WTune as `%s`.\n"
+            % (os.path.join(repo, "AGENT.md"),
+               os.path.join(skills, "wtune-event", "SKILL.md"),
+               os.path.join(skills, "wtune-post", "SKILL.md"),
+               os.path.join(repo, "bin", "wtune")))
+    out = os.path.join(project_dir, "AGENTS.md")
+    with open(out, "w") as fh:
+        fh.write(text)
+    return out
 
 
 def set_project(project_dir, storm=None, hurdat2=None, argv=None):
@@ -656,11 +677,43 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
     return block
 
 
+def _floats(text, n, flag):
+    try:
+        vals = [float(v) for v in text.split(",")]
+    except ValueError:
+        vals = []
+    if len(vals) != n:
+        raise ProjectError("%s expects %d comma-separated numbers, got %r" % (flag, n, text))
+    return vals
+
+
+def apply_drawing_options(doc, post_focus=None, cross_sections=None):
+    """--post-focus and --cross-section onto a project document (in place); raises ProjectError
+    on a malformed value. Also what `wtune post check` validates a review's fix with."""
+    if post_focus is not None:
+        focus = None if post_focus.lower() == "none" else _floats(post_focus, 4, "--post-focus")
+        post = dict(doc.get("post") or {}, focus=focus)
+        project_post_defaults(dict(post=post))          # validates the box
+        doc["post"] = post
+    for spec in cross_sections or []:
+        kind, _, line = spec.partition("=")
+        if kind not in ("terrain", "moisture"):
+            raise ProjectError("--cross-section KIND=lat0,lon0,lat1,lon1 with KIND terrain or "
+                               "moisture, got %r" % spec)
+        sections = dict(doc.get("cross_sections") or {})
+        sections[kind] = None if line.lower() == "none" else dict(
+            zip(("lat0", "lon0", "lat1", "lon1"), _floats(line, 4, "--cross-section")))
+        doc["cross_sections"] = sections
+    return doc
+
+
 def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
-                         post_fetch=None, register_case=False, argv=None, machine=None):
-    """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/
-    --register-case` and the machine flags: updates those keys in place. "none" clears
-    post_every and post_fetch. Returns the updated document."""
+                         post_fetch=None, register_case=False, argv=None, machine=None,
+                         post_focus=None, cross_sections=None):
+    """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/--post-focus/
+    --cross-section/--register-case` and the machine flags: updates those keys in place. "none"
+    clears post_every, post_fetch, post_focus and a cross-section. Returns the updated
+    document."""
     doc = load_project(project_dir)
     if machine:
         doc["machine"] = project_machine(
@@ -677,6 +730,7 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
         doc["case"] = case
     if exclude_nodes is not None:
         doc["exclude_nodes"] = project_exclude_nodes(dict(exclude_nodes=exclude_nodes))
+    apply_drawing_options(doc, post_focus, cross_sections)
     if post_every is not None or post_types is not None or post_fetch is not None:
         post = dict(doc.get("post") or {})
         if post_every is not None:
@@ -815,6 +869,16 @@ def build_parser():
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,
                        help="observations `wtune submit` fetches, e.g. era5,stage4; 'none' clears")
+    p_set.add_argument("--post-focus", default=None, metavar="LAT0,LAT1,LON0,LON1",
+                       help="study area the point figures and peak time look at (post.focus: "
+                            "lat_min,lat_max,lon_min,lon_max); 'none' clears")
+    p_set.add_argument("--cross-section", action="append", default=None,
+                       metavar="KIND=LAT0,LON0,LAT1,LON1",
+                       help="fixed cross-section line, KIND terrain or moisture; KIND=none clears;"
+                            " repeatable")
+    p_set.add_argument("--agents-md", action="store_true",
+                       help="(re)write <project>/AGENTS.md, the pointer to WTune's agent "
+                            "instructions (projects made before it existed)")
     p_set.add_argument("--register-case", action="store_true",
                        help="register case/ in <project>/cases.json for `wtune tune` "
                             "(projects made before this existed)")
@@ -871,11 +935,16 @@ def main(argv=None):
                 raise ProjectError("no project found (--project, $WTUNE_PROJECT, or a "
                                    "project.yaml above the current directory)")
             full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
+            if args.agents_md:
+                print(write_agents_pointer(project_dir))
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
             machine = _machine_flags(args)
-            if any(v is not None for v in defaults) or args.register_case or machine:
+            if (any(v is not None for v in defaults) or args.register_case or machine
+                    or args.post_focus is not None or args.cross_section):
                 doc = set_project_defaults(project_dir, *defaults, machine=machine,
-                                           register_case=args.register_case, argv=full_argv)
+                                           register_case=args.register_case, argv=full_argv,
+                                           post_focus=args.post_focus,
+                                           cross_sections=args.cross_section)
                 if machine:
                     print(machine_line(doc))
                 post = project_post_defaults(doc)
@@ -885,6 +954,8 @@ def main(argv=None):
                          post["every"] or "-"))
                 if not (args.storm or args.hurdat2):
                     return 0
+            if args.agents_md and not (args.storm or args.hurdat2):
+                return 0
             block = set_project(project_dir, storm=args.storm, hurdat2=args.hurdat2,
                                 argv=full_argv)
         except ProjectError as e:

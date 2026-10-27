@@ -14,6 +14,12 @@ ones with the reason, the rain core and peak hour, the lowest sea-level pressure
 (skill `wtune-post`) writes `review.json`, its own `analysis/*.py` figures, and
 `assessment.md`; `wtune post check POST_DIR` fails on a missing section, a paragraph that
 cites no existing figure or CSV, or a decimal beside a CSV link that the CSV does not hold.
+The preview goes through the same loop: `post/preview/figures.json`, `wtune post brief` and
+`wtune post check post/preview`, whose review also carries the figure plan for after the run.
+Every `fix` names how: `project_set` (new `wtune project set --post-focus` and
+`--cross-section`), an `analysis/*.py` script, or a `wtune_defect` report. `AGENT.md` is the
+agent's guide to all of it, including how to connect any agent or harness; projects get an
+`AGENTS.md` pointing to it (`wtune project set --agents-md` for older ones).
 Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
 box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
 recipe` now also writes `figures.json`.

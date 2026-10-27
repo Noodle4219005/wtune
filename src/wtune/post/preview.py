@@ -294,6 +294,9 @@ def run_preview(project_dir, project_doc, out) -> dict:
     earlier = sorted(d for d in glob.glob(os.path.join(project_dir, "post", "*", "report.html"))
                      if os.path.dirname(d) != os.path.abspath(out))
     report_path = _write_html(out, info, window, expected, figures, summary, earlier, notes)
+    from wtune.post.recipe import write_index
+    write_index(out, [case_dir], ["preview"], info, figures,
+                [dict(source="preview", level="info", text=n) for n in notes], kind="preview")
     return dict(out_dir=out, figures=figures, expected=expected, notes=notes,
                 report_path=report_path, figures_dir=figures_folder(out, figures))
 

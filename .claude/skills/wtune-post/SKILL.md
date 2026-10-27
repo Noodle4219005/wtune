@@ -1,15 +1,27 @@
 ---
 name: wtune-post
-description: Review and finish the post-processing of a WTune WRF run after `wtune post recipe` -- check every standard figure, write the case's own observation-vs-model figures as analysis/*.py scripts, and write a layered, cited assessment that `wtune post check` accepts. Use when the user asks for post-processing, figures, verification or an assessment of a WRF run in a WTune project.
+description: Review and fix WTune's figures before and after a WRF run -- the `wtune post preview` figures and their figure plan, then every `wtune post recipe` figure, the case's own observation-vs-model figures as analysis/*.py scripts, and a layered, cited assessment that `wtune post check` accepts. Use when the user asks for a preview, post-processing, figures, verification or an assessment of a WRF run in a WTune project.
 ---
 
 # wtune-post
 
 WTune draws the standard figures and computes the numbers. You judge the figures, add the
-figures this case needs, and write the assessment. WTune checks your files with a program
-(decision 0078). You never change WRF output or the namelist.
+figures this case needs, and write the assessment. WTune checks your files with a program.
+You never change WRF output or the namelist. The figure checklist and the fix actions are in
+`AGENT.md` at the repository root; read it first.
 
-## Steps
+## Before the run: the preview
+
+1. `wtune post preview`, then `wtune post brief post/preview`; read `post/preview/brief.json`.
+2. Review every preview figure against the checklist in AGENT.md, and check the domains (the
+   target area well inside the innermost domain, the storm inside d01), the initial state and
+   the observation coverage.
+3. Write `post/preview/review.json` with `figures` (verdicts) and `plan` (each figure the case
+   needs after the run: `figure`, `why`, `how`, `action`).
+4. Run every `project_set` action now (`wtune project set --post-focus ...`).
+5. `wtune post check post/preview` until it exits 0.
+
+## After the run
 
 1. `wtune post recipe` (writes `post/<id>/` with `figures.json` and `report.html`).
    Over Taiwan set `post.focus: [lat_min, lat_max, lon_min, lon_max]` in project.yaml
@@ -22,15 +34,21 @@ figures this case needs, and write the assessment. WTune checks your files with 
 
    ```json
    {"schema": "wtune-post-review/1",
-    "figures": [{"path": "precip/rain_acc_d03_....png", "verdict": "ok|fix|drop",
-                 "issues": ["colour bar saturates at 203 mm"]}]}
+    "figures": [{"path": "precip/rain_acc_d03_....png", "verdict": "fix",
+                 "issues": ["cross-section on the domain edge, not over the rain"],
+                 "action": {"kind": "project_set",
+                            "args": ["--post-focus", "21.8,25.4,119.9,122.1"]}}]}
    ```
+
+   A `fix` needs an `action`: `project_set` (a drawing flag of `wtune project set`; then rerun
+   the recipe and review again), `analysis` (the analysis/*.py that redraws it) or
+   `wtune_defect` (WTune draws it wrong and no option fixes it; tell the user).
 
    Look for: unreadable text or overlapping labels; a colour scale that saturates or is in
    the wrong units; an extent cut at the domain edge; a valid time after the event (F072
    when the rain ended at F048); a cross-section, sounding or box placed away from the
    phenomenon; barbs too dense or under the ground; letters (H/L) over mountains. `fix` and
-   `drop` need issues. A `fix` that is a WTune defect goes to the user as a bug report.
+   `drop` need issues.
 4. Write the case's own figures as `<project>/analysis/*.py`, each with `run(ctx)`, and run
    `wtune post custom`. Use `ctx.kit` instead of rewriting:
    - `ctx.kit.obs_model_panels(obs, model, levels, title)`: observation and model side by

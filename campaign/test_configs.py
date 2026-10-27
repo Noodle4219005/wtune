@@ -1841,11 +1841,13 @@ scratch    USR           12672          0          0          0     none |      
 
 class TestQuotaFreeGib(unittest.TestCase):
     def test_home1_free_gib_matches_known_sample(self):
-        # 1048576000 KB quota - 978611440 KB used = 69964560 KB free = 66.72... GiB
+        # 1048576000 KB quota - 978611440 KB used - 5725280 KB in_doubt = 61.26... GiB
+        # (in_doubt counts as used: open files on 16 MiB-block GPFS sit there)
         free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="home1")
         self.assertIsNotNone(free)
-        self.assertAlmostEqual(free, (1048576000 - 978611440) / (1024.0 * 1024.0), places=3)
-        self.assertAlmostEqual(free, 66.72, places=1)
+        self.assertAlmostEqual(free, (1048576000 - 978611440 - 5725280) / (1024.0 * 1024.0),
+                               places=3)
+        self.assertAlmostEqual(free, 61.26, places=1)
 
     def test_ignores_header_banner_and_noquota_rows(self):
         # the header/banner lines and 'work2 USR none' (no numeric columns) must not
@@ -1859,7 +1861,8 @@ class TestQuotaFreeGib(unittest.TestCase):
         # exists to catch (a used > quota row would work the same way and go negative,
         # this sample is the observed near-full case from the mmlsquota wiki notes)
         free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work1")
-        self.assertAlmostEqual(free, (104857600 - 100004448) / (1024.0 * 1024.0), places=3)
+        self.assertAlmostEqual(free, (104857600 - 100004448 - 1997808) / (1024.0 * 1024.0),
+                               places=3)
         self.assertLess(free, 60)
 
     def test_quota_zero_is_no_limit_not_free_gib(self):
@@ -1903,7 +1906,7 @@ class TestQuotaFreeGibCLI(unittest.TestCase):
     def test_cli_prints_free_gib_for_home1(self):
         rc, out = self._run_cli(MMLSQUOTA_SAMPLE)
         self.assertEqual(rc, 0)
-        self.assertAlmostEqual(float(out), 66.72, places=1)
+        self.assertAlmostEqual(float(out), 61.26, places=1)
 
     def test_cli_prints_na_and_nonzero_rc_when_unparseable(self):
         rc, out = self._run_cli("mmlsquota: command not found\n")

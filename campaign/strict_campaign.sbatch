@@ -1031,6 +1031,7 @@ for cid in "${ORDER[@]}"; do
   if [ "$ATTEMPT" = 1 ] && { [ "$RC" = 139 ] || grep -qa "exited on signal 11" wrf.out; }; then
     echo "RETRY cfg=$cid rep=$rep rc=$RC: a rank died on signal 11; running it once more"
     mv wrf.out wrf.out.attempt1
+    if [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ]; then mkdir -p attempt1 && mv rsl.* attempt1/; fi
     rm -rf wrfout_d* wrfrst_d* rsl.out.0000 rsl.error.0000
     continue
   fi

@@ -192,6 +192,40 @@ def _probe_plan_preview(ctx: Ctx, nodes: int, best_config: dict) -> tuple | None
         return None
 
 
+REBUILD_WPS_PER_GRIB = 4.7          # haitang2017: wps/ (ungrib + met_em) 2.4 GB per 514 MB of GRIB
+REBUILD_WINDOW_BYTES = 0.25e9       # win_*/ (real.exe output, WRF run dir): 158 MB measured
+
+
+def _check_rebuild_space(out_dir: str, grib_bytes: list) -> None:
+    """Refuse to submit when the points' WPS and WRF files will not fit where they are written
+    (GPFS quota or free space, wtune.run.space): past a soft quota ungrib dies on "Disk quota
+    exceeded" and the point is silently lost (haitang2017 tune, 2026-10-27, 3 of 5 points)."""
+    from wtune.run import space
+    need = sum(REBUILD_WPS_PER_GRIB * b + REBUILD_WINDOW_BYTES for b in grib_bytes)
+    where = os.path.abspath(out_dir)
+    while not os.path.isdir(where) and os.path.dirname(where) != where:
+        where = os.path.dirname(where)
+    free, src = space.writable_bytes(where)
+    if need > free:
+        raise RuntimeError("rebuilt points need ~%.1f GB under %s but only %.1f GB is writable "
+                           "(%s) -- free space or move --out" % (need / 1e9, out_dir, free / 1e9,
+                                                                  src))
+
+
+def _clean_rebuild_points(plans: list) -> None:
+    """Drop each scored point's grib/ and wps/ (3 GB per point on haitang2017; reproducible),
+    keeping plan.json, the logs and win_*/ (rsl files, the I/O probe). WTUNE_KEEP_REBUILD=1 keeps
+    everything."""
+    import shutil
+    if os.environ.get("WTUNE_KEEP_REBUILD") == "1":
+        return
+    for plan in plans:
+        pdir = plan.get("_plan_dir")
+        for sub_dir in ("grib", "wps"):
+            if pdir:
+                shutil.rmtree(os.path.join(pdir, sub_dir), ignore_errors=True)
+
+
 def rebuild_wave(nodes: int, max_nodes: int | None = None) -> int:
     """How many rebuild points run at once: as many `nodes`-node jobs as fit in max_nodes
     (default the machine's), at least one."""
@@ -235,7 +269,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         plan["_plan_dir"] = pdir
-        return plan, sbatch_path
+        return plan, sbatch_path, total_bytes
 
     # ERA5 fetches are network-bound (~3.5 min per point): fetch and stage concurrently; the
     # submissions go in waves that keep the points' nodes within the machine's max_nodes (a
@@ -243,9 +277,10 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
         done = list(pool.map(lambda ip: _prepare(*ip), enumerate(points)))
     plans = [d[0] for d in done]
+    _check_rebuild_space(out_dir, [d[2] for d in done])
     wave = rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
     job_ids = []
-    for i, (_plan, sbatch_path) in enumerate(done):
+    for i, (_plan, sbatch_path, _b) in enumerate(done):
         dep = (" --dependency=afterany:%s" % job_ids[i - wave]) if i >= wave else ""
         _jobs.stop_before_submit()
         job_id = sweep.submit_job("sbatch%s %s" % (dep, sbatch_path),
@@ -262,15 +297,25 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
                            "and diagnose read-only" % bad)
     sample_points, _geom_src = predict.read_wrfinput_sample_points(case_dir)
     calibration = predict.load_calibration(predict.calibration_path())
-    measurements = []
-    for plan in plans:
-        windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
-                                                                          calibration)
+    measurements, failed = [], []
+    for i, plan in enumerate(plans):
+        try:
+            windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(
+                plan, sample_points, calibration)
+        except Exception as e:                              # noqa: BLE001 -- one point, not all
+            failed.append("point %d (%s): %s: %s" % (i, points[i].at, type(e).__name__, e))
+            continue
         for w, (anchor_s, _s_k) in zip(windows_out, anchors):
             at = run_start + datetime.timedelta(seconds=anchor_s)
             measurements.append(probe_plan.PointMeasurement(
                 at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
                 n_rad=w["n_rad"], r=w["r_local"]))
+    _clean_rebuild_points(plans)
+    if failed:
+        print("WARNING: %d of %d rebuilt point(s) gave no measurement -- predicting from the "
+              "rest: %s" % (len(failed), len(plans), "; ".join(failed)), flush=True)
+    if failed and not measurements:
+        raise RuntimeError("no rebuilt point gave a measurement: %s" % "; ".join(failed))
     return measurements, ",".join(job_ids)
 
 

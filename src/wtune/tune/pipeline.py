@@ -393,7 +393,12 @@ def _pipeline_phase2_rebuild_winner(st: PipelineRun, layouts: list[dict], pplan:
                              nodes=lay0["nodes"])
             st.rebuild_pred = dict(result=res, layout=lay0, job_ids=job_ids,
                                    points=[p.at.isoformat() for p in points])
-            status = "ok (%d rebuilt point(s) at the winner, jobs %s)" % (len(points), job_ids)
+            n_ok = len({m.at for m in meas})
+            st.rebuild_pred["points"] = [m.at.isoformat() for m in meas]
+            status = ("ok (%d rebuilt point(s) at the winner, jobs %s)" % (n_ok, job_ids)
+                      if n_ok == len(points) else
+                      "degraded (%d of %d rebuilt point(s) measured at the winner, jobs %s)"
+                      % (n_ok, len(points), job_ids))
         except Exception as e:                              # noqa: BLE001 -- reported
             status = "failed: %s: %s" % (type(e).__name__, e)
             print("pipeline: phase 2 rebuild at the winner FAILED -- %s" % status)

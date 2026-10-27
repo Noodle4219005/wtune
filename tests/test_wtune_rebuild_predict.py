@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 import types
 
 import pytest
@@ -233,3 +234,64 @@ def test_rebuild_points_stay_within_max_nodes(monkeypatch, tmp_path):
             for c in cmds]
     assert deps == [None, None, "101", "102", "103"]
     assert wtune.tune.prediction.rebuild_wave(3, 8) == 2 and wtune.tune.prediction.rebuild_wave(9, 8) == 1
+
+
+def _rebuild_env(monkeypatch, tmp_path, score):
+    import wtune.tune
+    monkeypatch.setenv("WPS_DIR", "/x")
+    monkeypatch.setenv("WRF_TREE", "/x")
+
+    def plan_seg(case_dir, pts, cfg, pdir, **k):
+        for d in ("grib", "wps", "win_0"):
+            os.makedirs(os.path.join(pdir, d), exist_ok=True)
+        return {"windows": [], "pdir": pdir}
+    monkeypatch.setattr(wtune.tune.probe_plan, "plan_rebuild_segments", plan_seg)
+    monkeypatch.setattr(wtune.tune.coldstart, "resolve_and_fetch_forcing",
+                        lambda plan, pdir, cache, grib_dir=None: (514e6, {}))
+    monkeypatch.setattr(wtune.tune.budget, "rebuild_segment_timeout_min", lambda *a, **k: 45)
+    monkeypatch.setattr(wtune.tune.coldstart, "stage_plan",
+                        lambda pdir, site="scc", per_window_min=None: pdir + "/run.sbatch")
+    monkeypatch.setattr(wtune.tune.sweep, "submit_job", lambda cmd, sbatch_runner=None: "1")
+    monkeypatch.setattr(wtune.tune.jobs, "wait_for_jobs",
+                        lambda ctx, ids, label: {j: ("COMPLETED", "") for j in ids})
+    monkeypatch.setattr(wtune.tune.predict, "read_wrfinput_sample_points", lambda d: ([], None))
+    monkeypatch.setattr(wtune.tune.predict, "load_calibration", lambda p: {})
+    monkeypatch.setattr(wtune.tune.coldstart, "score_windows_from_rsl", score)
+
+
+def test_rebuild_points_refuse_to_overrun_the_quota(monkeypatch, tmp_path):
+    # haitang2017 tune (2026-10-27): work2 past its soft quota, ungrib died on "Disk quota
+    # exceeded" and 3 of 5 points were lost without a word
+    import datetime as _dt
+    import wtune.tune
+    from wtune.run import space
+    _rebuild_env(monkeypatch, tmp_path, lambda plan, sp, cal: ([], None, []))
+    monkeypatch.setattr(space, "writable_bytes", lambda path, runner=None: (5e9, "quota"))
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=8)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, h)) for h in (1, 6, 11)]
+    with pytest.raises(RuntimeError, match="writable"):
+        wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
+                                      str(tmp_path), str(tmp_path / "out"),
+                                      _dt.datetime(2017, 7, 31))
+
+
+def test_rebuild_points_predict_from_the_points_that_ran_and_clean_up(monkeypatch, tmp_path,
+                                                                     capsys):
+    import datetime as _dt
+    import wtune.tune
+    from wtune.tools.coldstart_sample import ColdstartError
+
+    def score(plan, sp, cal):
+        if plan["pdir"].endswith("pt_1"):
+            raise ColdstartError("score: no usable windows")
+        return [dict(reason="t", s_k=1.6, n_rad=4, r=1.0, r_local=1.0)], None, [(3600.0, 1.6)]
+    _rebuild_env(monkeypatch, tmp_path, score)
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=8)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, h)) for h in (1, 6, 11)]
+    meas, _jobs = wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12),
+                                                3, str(tmp_path), str(tmp_path / "out"),
+                                                _dt.datetime(2017, 7, 31))
+    assert len(meas) == 2 and "1 of 3 rebuilt point(s) gave no measurement" in capsys.readouterr().out
+    for i in range(3):
+        d = tmp_path / "out" / ("pt_%d" % i)
+        assert not (d / "grib").exists() and not (d / "wps").exists() and (d / "win_0").exists()

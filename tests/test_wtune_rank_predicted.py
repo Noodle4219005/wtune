@@ -103,7 +103,7 @@ def test_rebuilt_case_entry(tmp_path):
                                              17, ANCHOR)
     assert cid == "mycasep3" and "_" not in cid
     assert entry["prep_dir"] == str(pdir / "win_0" / "real")
-    assert entry["steps"] == max(30, 2 * 17) + 2 == 36
+    assert entry["steps"] == max(40, 2 * 17) + 2 == 42     # 40-step floor (haitang2017, 2026-10-27)
     assert entry["bp_dir"] == "" and entry0["prep_dir"] == str(case_dir)   # original untouched
     tpl = Path(entry["namelist_template"]).read_text()
     assert re.search(r"run_seconds\s*=\s*0,", tpl)

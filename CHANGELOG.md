@@ -37,7 +37,18 @@ recipe` now also writes `figures.json`.
 - Wind barbs: ~15 along the short side, the 700 hPa set between the 10 m one, none where the
   level is underground.
 
+**Probe crashes on f1-arm.** 30 of 40 haitang2017 tune probes died on SIGSEGV about 5 s in
+(Open MPI 5.0.10, shared-memory BTL, while reading the d01 ADIOS2 input), so the node sweep had
+no measurement and tune fell back to its uncalibrated proxy. The f1-arm site now runs Open MPI
+with `btl=self,tcp` (3 of 3 such probes ran; ~3 % more s/step on one node); a probe that still
+dies on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
+
 **Other fixes.**
+- Maps keep to the grid's own box in the map projection (a Lambert d01 reaching 7 S drew to the
+  pole), have 2/5/10-degree gridlines, and draw no isobars over ground above 1500 m.
+- `wtune project set --bdeck FILE`: a storm outside HURDAT2 (e.g. a JMA track) is a project
+  setting the preview, recipe, tc and brief use; the preview offers Stage IV only for a grid
+  with cells over the contiguous US.
 - A truncated, unreadable or dangling-link history frame is left out and listed in the report
   instead of stopping the whole recipe (a frame written past a full quota gave 0 figures).
 - `wtune post preview` works before `prep real`: domains from `geo_em` or `namelist.wps`.

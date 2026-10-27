@@ -192,6 +192,13 @@ def _probe_plan_preview(ctx: Ctx, nodes: int, best_config: dict) -> tuple | None
         return None
 
 
+def rebuild_wave(nodes: int, max_nodes: int | None = None) -> int:
+    """How many rebuild points run at once: as many `nodes`-node jobs as fit in max_nodes
+    (default the machine's), at least one."""
+    cap = max_nodes or wtune.machine.max_nodes()
+    return max(1, int(cap) // max(1, int(nodes)))
+
+
 def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, case_dir: str,
                        out_dir: str, run_start: Any, spinup_min: float = 60,
                        grib_dir: str | None = None, date_shift_to: Any = None,
@@ -216,7 +223,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
 
     owned_lock = threading.Lock()
 
-    def _prepare_and_submit(i, p):
+    def _prepare(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
@@ -227,19 +234,26 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
+        plan["_plan_dir"] = pdir
+        return plan, sbatch_path
+
+    # ERA5 fetches are network-bound (~3.5 min per point): fetch and stage concurrently; the
+    # submissions go in waves that keep the points' nodes within the machine's max_nodes (a
+    # point i waits, afterany, on point i - wave), so 5 points x 3 nodes on 8 nodes run 2 at once
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
+        done = list(pool.map(lambda ip: _prepare(*ip), enumerate(points)))
+    plans = [d[0] for d in done]
+    wave = rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
+    job_ids = []
+    for i, (_plan, sbatch_path) in enumerate(done):
+        dep = (" --dependency=afterany:%s" % job_ids[i - wave]) if i >= wave else ""
         _jobs.stop_before_submit()
-        job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
+        job_id = sweep.submit_job("sbatch%s %s" % (dep, sbatch_path),
+                                  sbatch_runner=ctx.sbatch_runner)
         with owned_lock:       # owned at once: another point failing must not orphan this job
             _jobs.record_job(ctx, job_id)
-        print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
-        plan["_plan_dir"] = pdir
-        return plan, job_id
-
-    # ERA5 fetches are network-bound (~3.5 min per point): fetch and submit concurrently
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
-        done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
-    plans = [d[0] for d in done]
-    job_ids = [d[1] for d in done]
+        job_ids.append(job_id)
+        print("C3 rebuild job submitted: %s (%s)%s" % (job_id, sbatch_path, dep), flush=True)
     states = _jobs.wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}

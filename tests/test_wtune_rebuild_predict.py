@@ -25,7 +25,7 @@ def test_dry_run_prints_plan_and_defaults(monkeypatch, capsys, tmp_path):
     out = capsys.readouterr().out
     assert seen == {"forcing": "era5_arco", "spinup": 10, "max_points": None}
     assert "measure 30 steps" in out                          # short window: max(30, 17+10)
-    assert "288 ranks, 16x18" in out and "2 parallel jobs x 4 nodes" in out
+    assert "288 ranks, 16x18" in out and "2 jobs x 4 nodes" in out
     wrp.main([str(tmp_path), "--nodes", "4", "--nx", "16", "--ny", "18", "--forcing", "auto",
               "--max-points", "3", "--dry-run"])
     assert seen == {"forcing": "auto", "spinup": 60, "max_points": 3}
@@ -199,3 +199,37 @@ def test_points_by_flag_defaults_to_time_and_plan_stays_time_based(monkeypatch, 
     with pytest.raises(SystemExit):
         rp.main([str(tmp_path), "--nodes", "1", "--nx", "1", "--ny", "1", "--dry-run"])
     assert seen == {}          # option off: plan() is called exactly as before
+
+
+def test_rebuild_points_stay_within_max_nodes(monkeypatch, tmp_path):
+    # haitang2017 (2026-10-27): 5 points x 3 nodes were submitted at once, 15 nodes on an 8-node
+    # machine; now they go 2 at a time, each later point afterany on the one a wave before it
+    import datetime as _dt
+    import wtune.tune
+    cmds = []
+    monkeypatch.setenv("WPS_DIR", "/x")
+    monkeypatch.setenv("WRF_TREE", "/x")
+    monkeypatch.setattr(wtune.tune.probe_plan, "plan_rebuild_segments",
+                        lambda case_dir, pts, cfg, pdir, **k: {"windows": [], "pdir": pdir})
+    monkeypatch.setattr(wtune.tune.coldstart, "resolve_and_fetch_forcing",
+                        lambda plan, pdir, cache, grib_dir=None: (0, {}))
+    monkeypatch.setattr(wtune.tune.budget, "rebuild_segment_timeout_min", lambda *a, **k: 45)
+    monkeypatch.setattr(wtune.tune.coldstart, "stage_plan",
+                        lambda pdir, site="scc", per_window_min=None: pdir + "/run.sbatch")
+    monkeypatch.setattr(wtune.tune.sweep, "submit_job",
+                        lambda cmd, sbatch_runner=None: cmds.append(cmd) or str(100 + len(cmds)))
+    monkeypatch.setattr(wtune.tune.jobs, "wait_for_jobs",
+                        lambda ctx, ids, label: {j: ("COMPLETED", "") for j in ids})
+    monkeypatch.setattr(wtune.tune.predict, "read_wrfinput_sample_points", lambda d: ([], None))
+    monkeypatch.setattr(wtune.tune.predict, "load_calibration", lambda p: {})
+    monkeypatch.setattr(wtune.tune.coldstart, "score_windows_from_rsl",
+                        lambda plan, sp, cal: ([], None, []))
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=8)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, 1) + _dt.timedelta(hours=15 * k))
+           for k in range(5)]
+    wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
+                                  str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31))
+    deps = [c.split("--dependency=afterany:")[1].split()[0] if "--dependency" in c else None
+            for c in cmds]
+    assert deps == [None, None, "101", "102", "103"]
+    assert wtune.tune.prediction.rebuild_wave(3, 8) == 2 and wtune.tune.prediction.rebuild_wave(9, 8) == 1

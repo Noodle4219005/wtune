@@ -309,8 +309,12 @@ def main(argv=None):
                                           "  + I/O probe" if i == probe_idx else ""))
     for n in notes:
         print("  note: %s" % n)
-    print("hardware: %d nodes, %d ranks, %dx%d, numtiles %d, omp %d -> %d parallel jobs x %d nodes"
-          % (a.nodes, ranks, a.nx, a.ny, a.numtiles, a.omp, len(points), a.nodes))
+    from wtune.tune.prediction import rebuild_wave
+    wave = min(len(points), rebuild_wave(a.nodes))
+    print("hardware: %d nodes, %d ranks, %dx%d, numtiles %d, omp %d -> %d jobs x %d nodes, %d at a "
+          "time (max_nodes %d: %d wave(s))"
+          % (a.nodes, ranks, a.nx, a.ny, a.numtiles, a.omp, len(points), a.nodes, wave,
+             wtune.machine.max_nodes(), -(-len(points) // max(1, wave))))
     if a.dry_run:
         return 0
 

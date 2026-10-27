@@ -587,7 +587,7 @@
       "estimate_info": {
         "nodes": 13,
         "points_source": "wtune.cost_drivers",
-        "precision_min": 15.0,
+        "precision_min": "10%",
         "prediction_points": 3,
         "s_per_step_n": 10.0,
         "source": "ledger estimate (fallback_10s)",
@@ -770,7 +770,7 @@
         1,
         2
       ],
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,

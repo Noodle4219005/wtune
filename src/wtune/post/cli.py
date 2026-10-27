@@ -426,8 +426,13 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         raise SystemExit("wtune post fetch <name> --project P [--run-dir R] ... (or --list); "
                          "available: %s" % ", ".join(sorted(fetch.discover()[0])))
     from wtune.post import sources
-    if getattr(args, "run_dir", None) is None and getattr(args, "project", None):
-        import wtune.project
+    import wtune.project
+    if not getattr(args, "project", None):
+        args.project = wtune.project.find_project()
+        if not args.project:
+            raise SystemExit("wtune post fetch %s: no project here -- pass --project DIR (or set "
+                             "$WTUNE_PROJECT)" % name)
+    if getattr(args, "run_dir", None) is None:
         runs = wtune.project.discover_runs(os.path.abspath(args.project))
         if runs:            # era5/igra/stations take the window and region from a run's wrfout
             args.run_dir = runs[-1][1]
@@ -443,7 +448,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 def _add_fetch_module_parser(subparsers, name, mod, **kw):
     sp = subparsers.add_parser(name, help=mod.HELP, description=mod.HELP, **kw)
-    sp.add_argument("--project", required=True, help="project dir; data goes to its %s"
+    sp.add_argument("--project", default=None, help="project dir; data goes to its %s "
+                    "(default: $WTUNE_PROJECT or a project.yaml above the current directory)"
                     % ("input/era5/" if name == "era5" else "input/obs/%s/" % name))
     sp.add_argument("--run-dir", default=None, dest="run_dir", help="run whose wrfout gives the "
                     "time window and region")
@@ -643,7 +649,7 @@ def _add_fetch_parsers(sub) -> dict:
             print("post fetch: module %s disabled: %s" % (name, e), file=sys.stderr)
     if "era5" in mods:
         p_e5 = sub.add_parser("fetch-era5", help="alias of `fetch era5`")
-        p_e5.add_argument("--project", required=True)
+        p_e5.add_argument("--project", default=None)
         p_e5.add_argument("--run-dir", default=None, dest="run_dir")
         mods["era5"].add_arguments(p_e5)
         p_e5.set_defaults(fetch_name="era5")

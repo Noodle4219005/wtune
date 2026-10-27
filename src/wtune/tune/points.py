@@ -85,10 +85,13 @@ def rebuilt_case_id(case: str, index: int) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", case) + "p%d" % index
 
 
+REBUILT_MIN_STEPS = 40   # haitang2017: a 40-step window per start point, 10 steps missed 29 %
+
+
 def rebuilt_steps(stepra: int) -> int:
-    """Candidate STEPS at a rebuilt point: max(30, 2*stepra) + 2 (two radiation steps, the
-    dropped first step, one spare)."""
-    return max(30, 2 * int(stepra)) + 2
+    """Candidate STEPS at a rebuilt point: max(REBUILT_MIN_STEPS, 2*stepra) + 2 (two radiation
+    steps, the dropped first step, one spare)."""
+    return max(REBUILT_MIN_STEPS, 2 * int(stepra)) + 2
 
 
 def rebuilt_measure_steps(steps: int, dt: float) -> int:

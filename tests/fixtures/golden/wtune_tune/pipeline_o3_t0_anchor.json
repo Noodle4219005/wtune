@@ -1454,7 +1454,7 @@
       "estimate_info": {
         "nodes": 13,
         "points_source": "wtune.cost_drivers",
-        "precision_min": 15.0,
+        "precision_min": "10%",
         "prediction_points": 0,
         "s_per_step_n": 10.0,
         "source": "ledger estimate (fallback_10s)",
@@ -1562,7 +1562,7 @@
         "queue_wait_s": 0.0,
         "running_s": 0.0,
         "start_s": 0.0,
-        "status": "not run (the t0 anchor suffices for this case at \u00b115 min: common: fake case-type plan, band \u00b115%)",
+        "status": "not run (the t0 anchor suffices for this case at \u00b110%: common: fake case-type plan, band \u00b115%)",
         "wall_s": 0.0
       },
       {
@@ -1628,7 +1628,7 @@
       "measured": true,
       "method": "common: fake case-type plan",
       "points": [],
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,

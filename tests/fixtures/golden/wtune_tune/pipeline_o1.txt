@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O1: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
-pipeline: 預估調校時間 O1 ≈ 84 min <-  O2 ≈ 122 min  O3 ≈ 150 min  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 84 min <-  O2 ≈ 122 min  O3 ≈ 150 min  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)

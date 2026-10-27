@@ -3070,7 +3070,9 @@ def test_case_type_planner_decides_points_and_surplus_rebuilds_are_cancelled(mon
     report, env = _pipe_run(monkeypatch, tmp_path, planner=planner)
     assert [c["call"] for c in env.planner_calls] == [0, 1]      # cold-start T, then measured T
     assert env.planner_calls[0]["T"] != env.planner_calls[1]["T"]
-    assert env.planner_calls[0]["precision_min"] == 15.0
+    # default precision 10 % of the cold-start T (2026-10-27; was a fixed 15 min)
+    assert env.planner_calls[0]["precision_min"] == pytest.approx(
+        max(2.0, 0.10 * env.planner_calls[0]["T"] / 60.0))
     pp = report["pipeline"]["prediction_plan"]
     assert pp["points"] == [0] and pp["measured"] is True and pp["rebuild_cancelled"]
     assert env.planner_calls[0]["window_s"] > 0 and env.planner_calls[0]["types"] == ["common"]
@@ -3091,7 +3093,7 @@ def test_case_type_planner_needing_no_point_means_no_rebuild_and_no_phase_2(monk
     report, env = _pipe_run(monkeypatch, tmp_path, planner=lambda planned, T, call: ([], 0.15))
     assert "rebuild_submit" not in env.events and not env.scancel_calls
     ph = _status(report)
-    assert ph["predict"].startswith("not run (the t0 anchor suffices for this case at ±15 min")
+    assert ph["predict"].startswith("not run (the t0 anchor suffices for this case at ±10%")
     assert ph["physics"].startswith("not run (no rebuilt points)")
     pred = report["pipeline"]["prediction"]
     assert pred["points_used"] == 0 and pred["band"] == 0.15
@@ -3693,3 +3695,41 @@ def test_tune_warns_that_adaptive_dt_makes_the_step_count_a_range(tmp_path):
     assert w and "45-120 steps" in w and "assume 60" in w         # NINT(8*dx), NINT(3*dx) s
     nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n/\n")
     assert wtune.tune.context.adaptive_steps_warning(str(nl)) is None
+
+
+def test_relative_precision_and_tc_points_from_the_haitang2017_replay():
+    # haitang2017 (2026-10-27): +-15 min on a 30 min run planned no point and the run came in 38 %
+    # over; replaying its steps, one 40-step start point misses by 19 %, five by 4 %
+    import datetime as dt
+    from wtune import cost_drivers
+    from wtune.tune.prediction import precision_label, precision_minutes
+    assert precision_minutes("10%", 30 * 60) == pytest.approx(3.0)
+    assert precision_minutes("10%", 5 * 60) == 2.0 and precision_minutes(15, 30 * 60) == 15.0
+    assert precision_label("10%") == "±10%" and precision_label("15") == "±15 min"
+    t0 = dt.datetime(2017, 7, 31)
+    track = [dict(time=t0 + dt.timedelta(hours=h), lat=24 + h / 10, lon=119.5, pmin_hpa=990 - h)
+             for h in range(0, 72, 6)]
+    old = cost_drivers.plan_points_for_case(["tc"], t0, t0 + dt.timedelta(hours=72), 15.0, 30 * 60,
+                                            best_track=track, window_s=42 * 270)
+    new = cost_drivers.plan_points_for_case(["tc"], t0, t0 + dt.timedelta(hours=72),
+                                            precision_minutes("10%", 30 * 60), 30 * 60,
+                                            best_track=track, window_s=42 * 270)
+    assert len(old["points"]) == 1
+    assert len(new["points"]) >= 4 and new["meets_precision"] and new["band_pct"] <= 10.0
+
+
+def test_rebuilt_points_measure_40_steps():
+    from wtune.tune.points import rebuilt_steps
+    assert rebuilt_steps(10) == 42 and rebuilt_steps(30) == 62
+
+
+def test_the_project_bdeck_reaches_the_case(tmp_path, monkeypatch):
+    import wtune.advise
+    import wtune.project
+    p = wtune.project.init_project(str(tmp_path / "p"))
+    bdeck = tmp_path / "bwp122017.dat"
+    bdeck.write_text("x\n")
+    wtune.project.set_project(p, storm="WP122017", bdeck=str(bdeck))
+    monkeypatch.chdir(p)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    assert wtune.advise._project_bdeck_default() == str(bdeck)

@@ -43,6 +43,13 @@ no measurement and tune fell back to its uncalibrated proxy. The f1-arm site now
 with `btl=self,tcp` (3 of 3 such probes ran; ~3 % more s/step on one node); a probe that still
 dies on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
 
+**Whole-run prediction for short runs.** `wtune tune --precision` defaults to +-10 % of the run
+(it was a fixed +-15 min, which on a 30 min run accepted any estimate: haitang2017 got no
+prediction point and ran 38 % over). The tc bands follow that run's own step times (t0 only
+30 %, base set 15 %), each rebuilt point measures 40 steps, and tune now sees a project's
+`storm.bdeck`, so a JMA-tracked typhoon is planned as tc. `wtune post fetch` finds the project it
+runs in.
+
 **Other fixes.**
 - Maps keep to the grid's own box in the map projection (a Lambert d01 reaching 7 S drew to the
   pole), have 2/5/10-degree gridlines, and draw no isobars over ground above 1500 m.

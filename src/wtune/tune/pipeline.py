@@ -27,7 +27,7 @@ from .pipeline_state import (NOT_RUN_BUDGET, ColdEstimate, LevelInfo, MeasuredLa
                              StepDown, _attach_phase_timing, _mark, _phase_record)
 from .points import (_predicted_winner_text, choose_point_mode, fit_stage2, pick_points,
                      predicted_spinup_min, rebuilt_steps)
-from .prediction import (WholeRunPrediction, plan_prediction_points,
+from .prediction import (WholeRunPrediction, plan_prediction_points, precision_label,
                          prediction_init, time_suggestion_s)
 from .report import _assert_report_is_strict_only, local_param_table
 from . import candidates as _candidates
@@ -41,7 +41,7 @@ from . import prediction as _prediction
 PIPELINE_FRACS = (("plan", 0.05), ("layout", 0.50), ("predict", 0.25), ("physics", 0.20))
 PIPELINE_MAX_QUEUE_HOURS = 6.0        # --max-queue-hours: stop once queue-only wait reaches this
 PIPELINE_DEFAULT_MINUTES = 30          # min: B when neither CLI nor YAML gives one
-PRECISION_DEFAULT_MIN = 15.0           # --precision: whole-run time needed to +-MIN minutes
+PRECISION_DEFAULT = "10%"              # --precision: whole-run time needed to +-10 % (or MIN minutes)
 _PRED_CONFIG_KEYS = ("ranks", "omp", "nx", "ny", "numtiles", "dist")
 
 
@@ -111,7 +111,7 @@ def run_pipeline_full(ctx: Ctx, profile: dict, *, minutes: float | None = None, 
                       max_queue_hours: float | None = PIPELINE_MAX_QUEUE_HOURS,
                       keep_frames: bool = False,
                       recheck: Callable | None = None, stop_if_short: bool = False,
-                      precision_min: float = PRECISION_DEFAULT_MIN) -> dict:
+                      precision_min: Any = PRECISION_DEFAULT) -> dict:
     """Decision 0059 at -O`level` (1..3): 0 plan the points and submit their ERA5 rebuilds; 1
     layout search (node search); 2 predict the top layouts' whole-run time from the rebuilt
     restarts; 3 physics advice (opt-in, -O3). `minutes` is an optional cap B on RUNNING time
@@ -199,7 +199,7 @@ def _pipeline_preview_points(ctx: Ctx) -> PointPreview:
 
 
 def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
-                            precision_min: float) -> ColdEstimate:
+                            precision_min: Any) -> ColdEstimate:
     """Cold-start whole-run time and per-level tuning estimate (needs the step count); a failure
     part-way keeps what was computed and prints "pre-run estimate unavailable"."""
     ctx, pre = st.ctx, st.pre
@@ -231,7 +231,7 @@ def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
 
 
 def _pipeline_pre_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
-                           precision_min: float) -> None:
+                           precision_min: Any) -> None:
     """Print the per-level tuning-time estimate BEFORE any job (layout(level) + the case type's
     prediction points); with the guard on, step the level down to what fits the real run.
     Sets st.pre / st.pplan0 and pipe.level / n_points_est / n_full_est / T_cold_s."""
@@ -255,15 +255,15 @@ def _pipeline_pre_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         pipe.level.stepped_down.append(StepDown(when="pre-run", to=plan["level"], T_real_s=T_cold))
     if est is not None:
         print("pipeline: 預估調校時間 " + format_level_estimates(est, plan["level"])
-              + "; whole run ~%s (cold start); prediction points for this case at ±%g min: %d "
-                "(%s)" % (_fmt_hms(T_cold), precision_min, len(pplan0["selected"]),
+              + "; whole run ~%s (cold start); prediction points for this case at %s: %d "
+                "(%s)" % (_fmt_hms(T_cold), precision_label(precision_min), len(pplan0["selected"]),
                           pplan0["source"]))
     pipe.T_cold_s = T_cold
     s_n0 = ce.est_info.get("s_per_step_n")
     pipe.T_cold_compute_s = s_n0 * st.total_steps if T_cold and s_n0 else None
 
 
-def _phase0_submit_rebuild(st: PipelineRun, precision_min: float, info: RebuildInfo) -> str:
+def _phase0_submit_rebuild(st: PipelineRun, precision_min: Any, info: RebuildInfo) -> str:
     """Plan the ERA5-rebuildable points and submit rebuild + spin-up jobs for the ones this case
     needs at `precision_min` (worst case: nothing measured yet). Fills `info` as it goes, sets
     st.sub / st.prep_handle and ctx.background_jobs (they run beside phase 1). Returns the
@@ -308,7 +308,7 @@ def _phase0_submit_rebuild(st: PipelineRun, precision_min: float, info: RebuildI
     return "ok"
 
 
-def _pipeline_phase0_plan(st: PipelineRun, precision_min: float) -> None:
+def _pipeline_phase0_plan(st: PipelineRun, precision_min: Any) -> None:
     """Phase 0 (_phase0_submit_rebuild); a failure is reported in the phase record and
     pipe.rebuild, not raised."""
     ctx = st.ctx
@@ -437,7 +437,7 @@ def _pipeline_recheck_nodes(st: PipelineRun, recheck: Callable | None) -> list[d
     return health_checks
 
 
-def _pipeline_replan_points(st: PipelineRun, precision_min: float) -> tuple[dict | None, Any]:
+def _pipeline_replan_points(st: PipelineRun, precision_min: Any) -> tuple[dict | None, Any]:
     """Re-plan the prediction points with phase 1's measured whole-run time. Returns (point plan
     or None, the time it was planned for); records pipe.prediction_plan and cancels surplus
     rebuild jobs."""
@@ -458,7 +458,7 @@ def _pipeline_replan_points(st: PipelineRun, precision_min: float) -> tuple[dict
     return pplan, T_dec
 
 
-def _pipeline_cancel_surplus(st: PipelineRun, pplan: dict, precision_min: float) -> None:
+def _pipeline_cancel_surplus(st: PipelineRun, pplan: dict, precision_min: Any) -> None:
     """Fewer points planned than submitted in phase 0: scancel the surplus rebuild jobs, narrow
     st.prep_handle (None when nothing is kept) and ctx.background_jobs."""
     ctx, prep_handle = st.ctx, st.prep_handle
@@ -470,8 +470,8 @@ def _pipeline_cancel_surplus(st: PipelineRun, pplan: dict, precision_min: float)
     if len(keep) >= have:
         return
     drop = [j for i, j in enumerate(prep_handle["job_ids"]) if i not in keep]
-    print("pipeline: the case needs %d prediction point(s) at ±%g min: cancelling %d "
-          "surplus rebuild job(s) %s" % (len(keep), precision_min, len(drop),
+    print("pipeline: the case needs %d prediction point(s) at %s: cancelling %d "
+          "surplus rebuild job(s) %s" % (len(keep), precision_label(precision_min), len(drop),
                                          ",".join(drop)))
     ctx.scancel_runner(drop)
     ctx.cancelled_jobs.extend(drop)
@@ -487,15 +487,15 @@ def _pipeline_cancel_surplus(st: PipelineRun, pplan: dict, precision_min: float)
 
 
 def _phase2_collect_rebuilt(st: PipelineRun, layouts: list[dict], pplan: dict | None,
-                            precision_min: float) -> str | None:
+                            precision_min: Any) -> str | None:
     """Whether phase 2 can run and the rebuilt points (collected whatever phase 2 can afford:
     phase 3 needs them too). Returns the phase-2 status when already decided, else None."""
     ctx = st.ctx
     if st.cap_hit():
         return "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
     if pplan is not None and not pplan["selected"] and layouts:
-        return ("not run (the t0 anchor suffices for this case at ±%g min: %s, band ±%.0f%%)"
-                % (precision_min, pplan["method"], pplan["band"] * 100))
+        return ("not run (the t0 anchor suffices for this case at %s: %s, band ±%.0f%%)"
+                % (precision_label(precision_min), pplan["method"], pplan["band"] * 100))
     if st.prep_handle is None or not layouts:
         return "not run (no rebuilt points)" if st.prep_handle is None else "not run (no layout)"
     ph2 = None
@@ -644,7 +644,7 @@ def _phase2_measure(st: PipelineRun, layouts: list[dict]) -> str:
 
 
 def _pipeline_phase2_predict(st: PipelineRun, layouts: list[dict], pplan: dict | None,
-                             precision_min: float) -> None:
+                             precision_min: Any) -> None:
     """Phase 2: rebuilt points -> prediction context -> _phase2_measure; records the phase."""
     ctx = st.ctx
     m2 = _mark(ctx)

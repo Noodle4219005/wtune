@@ -22,7 +22,8 @@ from .estimates import DEFAULT_LEVEL, LEVELS
 from .jobs import _final_cancel_safety_net
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, NODES_POLICIES, choose_nodes
 from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
-from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
+from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT
+from .prediction import PRECISION_FLOOR_MIN
 from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
 from .context import STOP, StopRequested
@@ -68,6 +69,18 @@ class _NodeChoice:
     total_steps: int | None
     nodes: int
     nodes_note: str
+
+
+def _precision_arg(text: str) -> str:
+    """--precision: "N%" (of the run's wall time) or minutes; argparse rejects anything else."""
+    t = text.strip()
+    try:
+        value = float(t[:-1] if t.endswith("%") else t)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected N%% or minutes, got %r" % text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be > 0, got %r" % text)
+    return t
 
 
 def _cfg_key_explicit(config_path: str | None, section: str, key: str) -> bool:
@@ -496,8 +509,8 @@ def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _Ru
         physics_max_candidates=int(getattr(args, "physics_max_candidates", None)
                                    or PIPELINE_PHYSICS_MAX_CANDIDATES),
         recheck=preflight, stop_if_short=bool(getattr(args, "stop_if_short", False)),
-        precision_min=float(args.precision if getattr(args, "precision", None) is not None
-                            else PRECISION_DEFAULT_MIN),
+        precision_min=(args.precision if getattr(args, "precision", None) is not None
+                       else PRECISION_DEFAULT),
         max_queue_hours=(getattr(args, "max_queue_hours", None)
                          if getattr(args, "max_queue_hours", None) is not None
                          else PIPELINE_MAX_QUEUE_HOURS),
@@ -573,10 +586,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="effort level %d: %s (layout search effort + physics advice; the "
                              "prediction points come from the case type)" % (lv,
                                                                             LEVELS[lv]["method"]))
-    p.add_argument("--precision", type=float, default=None, dest="precision",
-                    help="whole-run wall time needed to +-MIN minutes (default %g): the case type "
-                         "decides how many prediction points that takes "
-                         "(wtune.cost_drivers.plan_points_for_case)" % PRECISION_DEFAULT_MIN)
+    p.add_argument("--precision", type=_precision_arg, default=None, dest="precision",
+                    help="whole-run wall time needed to +-N%%%% of the run (e.g. 10%%%%) or +-MIN "
+                         "minutes (e.g. 15); default %s, at least %g min: the case type decides "
+                         "how many prediction points that takes "
+                         "(wtune.cost_drivers.plan_points_for_case)"
+                         % (PRECISION_DEFAULT.replace("%", "%%"), PRECISION_FLOOR_MIN))
     p.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=None, dest="level",
                     help="same as -O<level>; selects the one-pass pipeline (default level when "
                          "only --pipeline full is given: 3). The estimated tuning time of every "

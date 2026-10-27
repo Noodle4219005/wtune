@@ -904,12 +904,16 @@ def cost_series_for_case(case_dir, run_start, run_end, sources=None, grib_dir=No
 #   convection  10 % with the peak point; t0-only 25 % -- elevconv: truth step cost +44 % at 10 UTC
 #               (knowledge/experiments/2026-09-28-rebuild-underestimates-convective-peak-spinup-
 #               length-test-elevconv.md); a t0-only plan never sees it
-#   tc          10 % with the max-intensity point; t0-only 25 % (assumed, no TC measurement yet)
+#   tc          15 % with the max-intensity point; t0-only 30 % -- haitang2017 (f1-arm, 2026-10-27,
+#               960 steps): the run was 38 % over a t0 probe; replaying its own step times, one
+#               start point of 40 steps misses by 19 % (p90 32 %), two by 14 % (27 %), three by
+#               10 % (16 %), five by 4 % (10 %) -- 3 h boundary-file steps (14.7 s against 1.6)
+#               and post-write steps sit at times one window does not see
 #   terrain     10 % with the max moisture/precip point; t0-only 20 % (ASSUMED, no evidence)
 #   climate     10 % with 4-6 month-stratified points; t0-only 25 % (ASSUMED, no evidence)
 # conus25: a t0-only probe under-predicted the run by 9.6 % (wtune.probe_plan module docstring).
 CASE_BANDS = {"common": (15.0, 15.0), "synoptic": (15.0, 15.0), "frontal": (15.0, 15.0),
-              "convection": (25.0, 10.0), "tc": (25.0, 10.0), "terrain": (20.0, 10.0),
+              "convection": (25.0, 10.0), "tc": (30.0, 15.0), "terrain": (20.0, 10.0),
               "climate": (25.0, 10.0)}
 SPECIFIC_TYPES = ("tc", "convection", "terrain", "climate")
 STRATUM_BAND_FACTOR = 0.8        # each extra stratum point multiplies the band (unvalidated)

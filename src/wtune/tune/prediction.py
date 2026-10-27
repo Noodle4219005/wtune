@@ -507,13 +507,33 @@ def _nearest_wrapped(wrapped: list[dict], times: list) -> list[dict]:
     return sorted(out, key=lambda w: w["index"])
 
 
-def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: float, T_est_s: float,
+PRECISION_FLOOR_MIN = 2.0     # a relative precision never asks for less than this many minutes
+
+
+def precision_minutes(precision: Any, T_est_s: float) -> float:
+    """Minutes the whole-run prediction must hit: `precision` is minutes (a number) or "N%" of
+    the run's estimated wall time T_est_s, at least PRECISION_FLOOR_MIN. A fixed +-15 min let a
+    30 min run (haitang2017, 2026-10-27) through with no prediction point: off by 38 %."""
+    text = str(precision).strip()
+    if text.endswith("%"):
+        return max(PRECISION_FLOOR_MIN, float(text[:-1]) / 100.0 * float(T_est_s or 0.0) / 60.0)
+    return float(text)
+
+
+def precision_label(precision: Any) -> str:
+    """'+-10%' or '+-15 min' for messages."""
+    text = str(precision).strip()
+    return "±%s" % text if text.endswith("%") else "±%g min" % float(text)
+
+
+def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: Any, T_est_s: float,
                            measured: bool, sample_points: Any = None, run_start: Any = None,
                            run_end: Any = None, window_s: float = 0.0) -> dict:
     """Prediction points + whole-run band for `precision_min`: wtune.cost_drivers.
     plan_points_for_case (case types, cost indicators, TC track) with each needs_rebuild time
     mapped onto the nearest planned point; on failure (printed) the fallback band table.
-    Returns {selected, band, method, source, ...}."""
+    Returns {selected, band, method, source, ...}. precision_min: minutes or "N%" of T_est_s."""
+    precision_min = precision_minutes(precision_min, T_est_s)
     api = cost_drivers
     if api is not None and getattr(api, "plan_points_for_case", None) and run_start is not None:
         try:

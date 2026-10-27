@@ -44,8 +44,7 @@ def test_fetch_and_alias_parse_module_args():
     assert (a.post_command, a.fetch_name, a.project, a.run_dir, a.margin) == ("fetch", "era5", "P", "R", 3.0)
     b = p.parse_args(["fetch-era5", "--project", "P", "--spinup-hours", "12"])
     assert (b.post_command, b.fetch_name, b.spinup_hours) == ("fetch-era5", "era5", 12.0)
-    with pytest.raises(SystemExit):
-        p.parse_args(["fetch", "era5"])                      # --project is required
+    assert p.parse_args(["fetch", "era5"]).project is None   # found at run time (cmd_fetch)
 
 
 def test_unknown_module_is_a_clear_error():
@@ -325,3 +324,19 @@ def test_fetch_without_run_dir_uses_the_projects_newest_run(tmp_path, monkeypatc
     assert cli.cmd_fetch(args) == 0
     assert seen["run_dir"] == str(proj / "runs" / "merged72h")
     assert "using the project's" in capsys.readouterr().out
+
+
+def test_fetch_finds_the_project_it_runs_in(tmp_path, monkeypatch):
+    # haitang2017 (2026-10-27): `wtune post fetch era5` inside the project still demanded --project
+    from wtune.post import cli, fetch
+    import wtune.project
+    p = wtune.project.init_project(str(tmp_path / "p"))
+    monkeypatch.chdir(p)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    seen = {}
+    monkeypatch.setattr(fetch, "run_module", lambda name, args: seen.update(project=args.project) or [])
+    args = cli.build_parser().parse_args(["fetch", "era5"])
+    assert cli.cmd_fetch(args) == 0 and seen["project"] == p
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="no project here"):
+        cli.cmd_fetch(cli.build_parser().parse_args(["fetch", "era5"]))

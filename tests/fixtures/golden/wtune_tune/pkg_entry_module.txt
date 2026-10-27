@@ -85,9 +85,9 @@ options:
                         confirm reps (layout search effort + physics advice; the prediction points
                         come from the case type)
   --precision PRECISION
-                        whole-run wall time needed to +-MIN minutes (default 15): the case type
-                        decides how many prediction points that takes
-                        (wtune.cost_drivers.plan_points_for_case)
+                        whole-run wall time needed to +-N% of the run (e.g. 10%) or +-MIN minutes
+                        (e.g. 15); default 10%, at least 2 min: the case type decides how many
+                        prediction points that takes (wtune.cost_drivers.plan_points_for_case)
   --level {0,1,2,3}     same as -O<level>; selects the one-pass pipeline (default level when only
                         --pipeline full is given: 3). The estimated tuning time of every level is
                         printed before anything runs; --minutes is an optional hard cap

@@ -122,7 +122,7 @@ class PredictionPlanRecord(Record):
     method: str
     source: str
     T_est_s: float | None
-    precision_min: float
+    precision_min: Any
     measured: bool
     rebuild_cancelled: Any = UNSET
 

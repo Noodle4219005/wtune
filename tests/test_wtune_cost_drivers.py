@@ -503,10 +503,11 @@ def test_tc_uses_best_track_min_pressure_and_landfall_flag():
     tr = [dict(time=RUN_START + datetime.timedelta(hours=h), lat=25.0, lon=-80.0, pmin_hpa=p)
           for h, p in ((0, 990.0), (6, 975.0), (12, 960.0), (18, 968.0))]
     tr[3]["landfall"] = True
-    r = _ppc(["common", "tc"], precision=15.0, T=2 * 3600.0, best_track=tr)
+    # tc base-set band 15 % (haitang2017 replay, 2026-10-27): 18 min on a 2 h run fits 20 min
+    r = _ppc(["common", "tc"], precision=20.0, T=2 * 3600.0, best_track=tr)
     assert _hrs(r) == [0, 12, 18]
     assert [x[1] for x in r["points"]] == ["t0", "tc_max_intensity", "tc_landfall"]
-    assert r["band_pct"] == 10.0
+    assert r["band_pct"] == 15.0
 
 
 def test_tc_falls_back_to_indicators_then_to_low_confidence():
@@ -537,7 +538,8 @@ def test_multiple_labels_union_merged_by_min_gap():
     cs = _cs([FakeProvider("fake", convective_series(10))])
     tr = [dict(time=RUN_START + datetime.timedelta(hours=10, minutes=10), lat=1.0, lon=1.0,
                pmin_hpa=950.0)]
-    r = _ppc(["common", "convection", "tc"], T=2 * 3600.0, indicators=cs, best_track=tr)
+    r = _ppc(["common", "convection", "tc"], precision=20.0, T=2 * 3600.0, indicators=cs,
+             best_track=tr)
     assert _hrs(r) == [0, 10]                              # peaks 10 min apart merge into one
     assert "convective_peak" in r["points"][1][1] and "tc_max_intensity" in r["points"][1][1]
 

@@ -163,7 +163,8 @@ def build_brief(post_dir, project_dir=None, project_doc=None, spinup_hours=6.0):
     if project_doc:
         storm_id, hurdat2 = wtune.project.project_storm(project_doc)
         if storm_id:
-            storm = dict(id=storm_id, hurdat2=hurdat2)
+            storm = dict(id=storm_id, hurdat2=hurdat2,
+                         bdeck=wtune.project.project_bdeck(project_doc))
     return dict(
         schema=SCHEMA, kind=kind, post_dir=post_dir, project=project_dir,
         case=dict(types=case.get("types"), evidence=case.get("evidence"),

@@ -118,6 +118,11 @@ def project_storm(project_doc):
     return storm.get("id"), storm.get("hurdat2")
 
 
+def project_bdeck(project_doc):
+    """project.yaml's storm.bdeck (an ATCF b-deck, e.g. a JMA best track converted), or None."""
+    return ((project_doc or {}).get("storm") or {}).get("bdeck")
+
+
 def project_cross_section(project_doc, kind):
     """project.yaml's optional cross_sections.<kind> override (dict with lat0/lon0/lat1/lon1),
     or None -- decision 0057 update: "也可由 project.yaml 指定"."""
@@ -650,14 +655,16 @@ def write_agents_pointer(project_dir) -> str:
     return out
 
 
-def set_project(project_dir, storm=None, hurdat2=None, argv=None):
-    """`wtune project set [--project DIR] [--storm ID] [--hurdat2 F]`: updates project.yaml's
-    storm block in place (every other key and the key order are kept) and records the command
-    in manifest.jsonl. Returns the updated storm dict."""
-    if not (storm or hurdat2):
-        raise ProjectError("nothing to set (give --storm and/or --hurdat2)")
+def set_project(project_dir, storm=None, hurdat2=None, argv=None, bdeck=None):
+    """`wtune project set [--project DIR] [--storm ID] [--hurdat2 F] [--bdeck F]`: updates
+    project.yaml's storm block in place (every other key and the key order are kept) and records
+    the command in manifest.jsonl. Returns the updated storm dict."""
+    if not (storm or hurdat2 or bdeck):
+        raise ProjectError("nothing to set (give --storm, --hurdat2 and/or --bdeck)")
     if hurdat2 and not os.path.isfile(hurdat2):
         raise ProjectError("--hurdat2 %s not found" % hurdat2)
+    if bdeck and not os.path.isfile(bdeck):
+        raise ProjectError("--bdeck %s not found" % bdeck)
     doc = load_project(project_dir)
     block = dict(doc.get("storm") or {})
     block.setdefault("id", None)
@@ -666,6 +673,8 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
         block["id"] = storm
     if hurdat2:
         block["hurdat2"] = os.path.abspath(hurdat2)
+    if bdeck:
+        block["bdeck"] = os.path.abspath(bdeck)
     doc["storm"] = block  # an existing key keeps its position; a missing one is appended
     path = os.path.join(project_dir, PROJECT_YAML)
     tmp = path + ".tmp"
@@ -673,7 +682,8 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
         yaml.safe_dump(doc, fh, sort_keys=False, allow_unicode=True)
     os.replace(tmp, path)
     manifest_append(project_dir, argv or ["wtune", "project", "set"], out_dir=project_dir,
-                    exit_code=0, key_paths=[block["hurdat2"]] if hurdat2 else [])
+                    exit_code=0, key_paths=[p for p in (block["hurdat2"] if hurdat2 else None,
+                                                        block.get("bdeck") if bdeck else None) if p])
     return block
 
 
@@ -815,6 +825,8 @@ def build_parser():
                             % wtune.machine.user_file())
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
+    p_set.add_argument("--bdeck", default=None,
+                       help="ATCF b-deck best track (a storm outside HURDAT2, e.g. JMA converted)")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
     p_set.add_argument("--cores-per-node", type=int, default=None,
                        help="cores of one compute node WRF may use (built-in 72)")
@@ -952,17 +964,18 @@ def main(argv=None):
                       % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
                          ",".join(project_exclude_nodes(doc)) or "-", post["types"] or "auto",
                          post["every"] or "-"))
-                if not (args.storm or args.hurdat2):
+                if not (args.storm or args.hurdat2 or args.bdeck):
                     return 0
-            if args.agents_md and not (args.storm or args.hurdat2):
+            if args.agents_md and not (args.storm or args.hurdat2 or args.bdeck):
                 return 0
             block = set_project(project_dir, storm=args.storm, hurdat2=args.hurdat2,
-                                argv=full_argv)
+                                argv=full_argv, bdeck=args.bdeck)
         except ProjectError as e:
             print("error: %s" % e, file=sys.stderr)
             return 1
-        print("%s: storm id=%s hurdat2=%s" % (os.path.join(project_dir, PROJECT_YAML),
-                                              block.get("id"), block.get("hurdat2")))
+        print("%s: storm id=%s hurdat2=%s bdeck=%s" % (os.path.join(project_dir, PROJECT_YAML),
+                                              block.get("id"), block.get("hurdat2"),
+                                              block.get("bdeck")))
         return 0
 
     if args.project_command == "info":

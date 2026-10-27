@@ -81,6 +81,14 @@ def _write_data(out, fig_path, title, source, grids, valid_time=None):
     return path
 
 
+STAGE4_BOX = (19.8, 57.7, -134.1, -59.9)    # lat_min, lat_max, lon_min, lon_max of NCEP Stage IV
+
+
+def _overlaps(a, b):
+    """Two (lat_min, lat_max, lon_min, lon_max) boxes intersect (longitudes in -180..180)."""
+    return a[0] <= b[1] and b[0] <= a[1] and a[2] <= b[3] and b[2] <= a[3]
+
+
 def _geo_em_files(project_dir):
     """{dom: geo_em.dNN.nc} of the project's `wtune prep wps` (input/prep/wps/), else {}."""
     found = glob.glob(os.path.join(project_dir, "input", "prep", "wps", "geo_em.d[0-9][0-9].nc"))
@@ -174,16 +182,24 @@ def _slp_wind_t0(case_dir, out, start):
                extra=dict(source="wrfinput（初始場）", data=data))
 
 
-def _best_track(out, storm_id, hurdat2, window):
+def _best_track(out, storm_id, hurdat2, window, bdeck=None):
+    """The best track over the run window: the project's b-deck when it has one (a storm
+    outside HURDAT2, e.g. a JMA track), else converted from HURDAT2."""
+    import shutil
     from wtune.post import atcf, tc
     tc_dir = os.path.join(out, "tc")
     os.makedirs(tc_dir, exist_ok=True)
-    basin, cy, _year = tc.storm_id_parts(storm_id)
-    bdeck = atcf.write_lines(atcf.hurdat2_to_bdeck_rows(tc.parse_hurdat2_full(hurdat2, storm_id)),
-                             os.path.join(tc_dir, "best_track.dat"), basin=basin, cy=cy,
-                             tech="BEST")
-    path = tc._track_map_figure(tc_dir, {}, bdeck, storm_id, window=window)
-    return fig("tc_track_map", path, "preview", extra=dict(source="HURDAT2（最佳路徑）", data=bdeck))
+    dest = os.path.join(tc_dir, "best_track.dat")
+    if bdeck:
+        shutil.copyfile(bdeck, dest)
+        src = "b-deck（%s）" % os.path.basename(bdeck)
+    else:
+        basin, cy, _year = tc.storm_id_parts(storm_id)
+        atcf.write_lines(atcf.hurdat2_to_bdeck_rows(tc.parse_hurdat2_full(hurdat2, storm_id)),
+                         dest, basin=basin, cy=cy, tech="BEST")
+        src = "HURDAT2（最佳路徑）"
+    path = tc._track_map_figure(tc_dir, {}, dest, storm_id, window=window)
+    return fig("tc_track_map", path, "preview", extra=dict(source=src, data=dest))
 
 
 def _stage4_total(project_dir, case_dir, out, window):
@@ -249,13 +265,18 @@ def run_preview(project_dir, project_doc, out) -> dict:
     import wtune.project
     case_dir = os.path.join(project_dir, "case")
     storm_id, hurdat2 = wtune.project.project_storm(project_doc)
+    bdeck = wtune.project.project_bdeck(project_doc)
     every = wtune.project.project_post_defaults(project_doc)["every"]
     os.makedirs(out, exist_ok=True)
     has_state = bool(caseinfo.initial_state(case_dir))
     figures, notes = [], []
+    over_conus = False
     if has_state:
-        info = caseinfo.detect_types([case_dir], hurdat2_path=hurdat2, storm_id=storm_id)
-        window = caseinfo._d01_bbox_and_window(case_dir)[4:]
+        info = caseinfo.detect_types([case_dir], hurdat2_path=hurdat2, storm_id=storm_id,
+                                     bdeck_path=bdeck)
+        bbox_window = caseinfo._d01_bbox_and_window(case_dir)
+        window = bbox_window[4:]
+        over_conus = _overlaps(bbox_window[:4], STAGE4_BOX)
     else:                       # before `wtune prep real`: namelists (and geo_em) only
         info = dict(types=["common"], evidence={}, run_length_h=0.0, domains=[])
         window = _namelist_window(case_dir)
@@ -270,16 +291,17 @@ def run_preview(project_dir, project_doc, out) -> dict:
         steps.append(("t=0 SLP", lambda: [_slp_wind_t0(case_dir, out, window[0])]))
     if window[0] is not None:
         steps.append(("ERA5 z500", lambda: _era5_z500(project_dir, out, window)))
-        if "tc" in info["types"] and storm_id and hurdat2:
-            steps.append(("best track", lambda: [_best_track(out, storm_id, hurdat2, window)]))
-        if has_state:
+        if "tc" in info["types"] and storm_id and (hurdat2 or bdeck):
+            steps.append(("best track", lambda: [_best_track(out, storm_id, hurdat2, window,
+                                                             bdeck=bdeck)]))
+        if over_conus:          # Stage IV covers the contiguous US only
             steps.append(("Stage IV", lambda: [_stage4_total(project_dir, case_dir, out, window)]))
     for name, step in steps:
         try:
             figures += [f for f in step() if f and f["path"]]
         except Exception as e:                              # noqa: BLE001
             notes.append("%s skipped: %s: %s" % (name, type(e).__name__, e))
-    if has_state and not any(f["id"] == "precip_stage4_total" for f in figures):
+    if over_conus and not any(f["id"] == "precip_stage4_total" for f in figures):
         notes.append("Stage IV: no fetched accumulation tiles %s - %s" % window)
 
     with open(os.path.join(out, "expected_figures.csv"), "w", newline="") as fh:

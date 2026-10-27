@@ -148,10 +148,17 @@ def _print_tc_summary(tc, summary: dict, out: str) -> None:
 
 
 def _project_bdeck(bdeck, project_dir, hurdat2, storm):
-    """--bdeck, else the project's `wtune post fetch bdeck` file, else None (tc downloads it,
-    outside a Slurm job)."""
-    if bdeck or not (project_dir and storm):
+    """--bdeck, else project.yaml's storm.bdeck, else the project's `wtune post fetch bdeck`
+    file, else None (tc downloads it, outside a Slurm job)."""
+    if bdeck or not project_dir:
         return bdeck
+    import wtune.project
+    try:
+        own = wtune.project.project_bdeck(wtune.project.load_project(project_dir))
+    except (OSError, ValueError, wtune.project.ProjectError):
+        own = None
+    if own or not storm:
+        return own
     import wtune.post.tc as tc
     from wtune.post.fetch import bdeck as fetched
     try:

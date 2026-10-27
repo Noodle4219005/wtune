@@ -210,3 +210,26 @@ def test_projects_point_agents_at_the_instructions(tmp_path):
     old = _project(tmp_path)
     assert wp.main(["set", "--project", str(old), "--agents-md"]) == 0
     assert os.path.isfile(old / "AGENTS.md")
+
+
+def test_a_bdeck_only_storm_is_a_project_setting(tmp_path):
+    # haitang2017 (WP122017, JMA best track only): preview drew no track and detected no tc
+    from wtune import project as wp
+    from wtune.post import atcf, cli as post_cli
+    from datetime import datetime
+    project = _project(tmp_path)
+    bdeck = tmp_path / "bwp122017.dat"
+    bdeck.write_text("".join(atcf.format_line("WP", "12", datetime(2017, 7, 31, h), "BEST", 0,
+                                              20.0 + h / 6, 117.0 + h / 12, 45, 985) + "\n"
+                             for h in (0, 6, 12, 18)))
+    assert wp.main(["set", "--project", str(project), "--storm", "WP122017",
+                    "--bdeck", str(bdeck)]) == 0
+    doc = wp.load_project(str(project))
+    assert wp.project_storm(doc) == ("WP122017", None) and wp.project_bdeck(doc) == str(bdeck)
+    assert post_cli._project_bdeck(None, str(project), None, "WP122017") == str(bdeck)
+    assert post_cli._project_bdeck("x.dat", str(project), None, "WP122017") == "x.dat"
+    pytest.importorskip("cartopy")
+    from wtune.post import preview
+    f = preview._best_track(str(tmp_path / "out"), "WP122017", None,
+                            (datetime(2017, 7, 31), datetime(2017, 8, 1)), bdeck=str(bdeck))
+    assert os.path.getsize(f["path"]) > 10000 and f["source"].startswith("b-deck")

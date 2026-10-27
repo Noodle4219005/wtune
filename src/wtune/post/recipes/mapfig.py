@@ -1,7 +1,7 @@
 """post/recipes/mapfig.py -- one cartopy map-figure writer shared by every recipe figure that
 draws a lat/lon field (decision 0057 section 2's synoptic/convection/precip/chem/pbl maps).
 Reuses post/plotting.py's own coastline/Natural-Earth-fallback logic (_coastline,
-_natural_earth_ready, _set_cartopy_data_dir, WIND_SUBSAMPLE) so every map in this package falls
+_natural_earth_ready, _set_cartopy_data_dir) so every map in this package falls
 back the same way `wtune post plot` does (LANDMASK contour when the Natural Earth cache is
 missing, never a silent cartopy import failure) instead of each recipe module re-deriving it.
 The field values themselves always come from wrf-python getvar/interplevel -- this module only
@@ -9,7 +9,7 @@ draws what it is given.
 """
 from __future__ import annotations
 
-from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir)
+from wtune.post.plotting import (_coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir)
 from wtune.post import figdpi
 
 
@@ -72,6 +72,20 @@ def highs_lows(field, window=None, edge=5, exclude=None):
     return out
 
 
+def _grid_extent(ax, proj, ccrs, lats, lons):
+    """The axes' extent is the grid's own box in the map projection. Left to autoscale, a
+    Lambert d01 reaching past 0 N (haitang2017: 7 S..41 N, 78..160 E) spread to the pole and a
+    contour wrapped round the globe."""
+    import numpy as np
+    pts = proj.transform_points(ccrs.PlateCarree(), np.asarray(lons, dtype="f8").ravel(),
+                                np.asarray(lats, dtype="f8").ravel())
+    x, y = pts[:, 0], pts[:, 1]
+    ok = np.isfinite(x) & np.isfinite(y)
+    if ok.any():
+        ax.set_extent([float(x[ok].min()), float(x[ok].max()), float(y[ok].min()),
+                       float(y[ok].max())], crs=proj)
+
+
 def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_cmap="viridis",
             contour_field=None, contour_levels=None, contour_color="k", contour_label_fmt="%g",
             u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
@@ -82,7 +96,7 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
             terrain=True):
     """Writes one PNG. lats/lons: plain 2-D ndarrays. fill_field: optional filled contourf.
     contour_field/contour_levels: optional overlaid contour lines (e.g. geopotential height on
-    a vorticity fill). u/v: optional wind barbs, subsampled by WIND_SUBSAMPLE. ds: netCDF4
+    a vorticity fill). u/v: optional wind barbs, thinned by basemap.barb_stride. ds: netCDF4
     Dataset, only used for the LANDMASK coastline fallback. crs: a cartopy CRS (e.g. from
     wrf.get_cartopy(var=...)) for the WRF-native map projection; default PlateCarree when
     basemap=='cartopy' and none is given. basemap: 'cartopy' (default) or 'landmask', matching
@@ -122,6 +136,8 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     # constrained layout: title/colour bar/gridline labels/legend all get room (tight_layout
     # clipped long titles)
     fig, ax = plt.subplots(figsize=(8, 6.4), subplot_kw=subplot_kw, layout="constrained")
+    if basemap == "cartopy":
+        _grid_extent(ax, proj, ccrs, lats, lons)
 
     if fill_field is not None:
         kw = dict(transform_kw)
@@ -171,14 +187,18 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     if u is not None and v is not None:
         from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
         bw = bdy_width if bdy_width is not None else (bdy_width_of(ds) if ds is not None else 0)
+        from wtune.post.basemap import barb_stride
         masked_barbs(ax, lons, lats, np.asarray(u) * barb_factor, np.asarray(v) * barb_factor,
-                     WIND_SUBSAMPLE, mask=interior_mask(np.shape(lats), bw, fill=fill_field),
+                     barb_stride(np.shape(lats)),
+                     mask=interior_mask(np.shape(lats), bw, fill=fill_field),
                      length=5, **transform_kw)
         if barb_label:
             from matplotlib.lines import Line2D
             handles.append(Line2D([], [], color="k", marker=r"$\rightarrow$", ls="none",
                                   label=barb_label))
-    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt, terrain=terrain)
+    # line charts (isobars, heights): grey coastlines, so the two cannot be confused
+    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt, terrain=terrain,
+               muted=contour_field is not None or bool(contours))
     if handles:
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)

@@ -14,6 +14,9 @@ OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wtune-runs/campaign}
 HARDWARE_ID=${WTUNE_HARDWARE_ID:-f1-grace}
 OMP_RUNTIME=nvhpc
 QUOTA_FS=home2           # mmlsquota filesystem: writes stop at the 100 G soft limit
+# 100 G quotas: the default 60 GiB (sized for scc home1, 1000 G) aborted every probe at 75 G used
+# (haitang2017, 2026-10-28); a probe writes rank 0's rsl and no history
+MIN_FREE_GIB=${MIN_FREE_GIB:-5}
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=${WTUNE_PIXI_ENV:-$HOME/wtune-envs/campaign}
 CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}

@@ -21,6 +21,16 @@ def _hours(a, b):
             ).total_seconds() / 3600.0
 
 
+def frame_at(frames, time_str):
+    """The frame of frames ([(time_str, ...), ...]) nearest time_str (earlier on a tie); the last
+    frame when time_str is None. The one-time maps' frame for run_recipe's map_time."""
+    if not frames:
+        return None
+    if time_str is None:
+        return frames[-1]
+    return min(frames, key=lambda f: abs(_hours(time_str, f[0])))
+
+
 def rain_focus(run_dir, domain, spinup_hours=6.0, box=None, smooth_km=SMOOTH_KM):
     """dict(lat, lon, j, i, peak_time, peak_rate_mm_h, total_mm, start, end, rule); None when
     the domain has no frames. total_mm: the smoothed post-spin-up accumulation at the point."""

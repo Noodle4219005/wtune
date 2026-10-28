@@ -18,6 +18,7 @@ import os
 
 from wtune.post.extract import _level_base_field, _surface_field, list_frame_refs, UNITS
 from wtune.post import figdpi
+from wtune.post.conventions import continuous_lons
 
 WIND_SUBSAMPLE = 8      # every Nth grid point in each direction for the wind overlay
 
@@ -145,11 +146,12 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             if basemap == "cartopy":
                 crs = wrf_mod.get_cartopy(var=var)
                 lats, lons = wrf_mod.latlon_coords(var, as_np=True)
+                lons = continuous_lons(lons)
                 fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": crs})
                 tkw = {"transform": ccrs.PlateCarree()}
             else:
                 lats = np.asarray(ds.variables["XLAT"][0])
-                lons = np.asarray(ds.variables["XLONG"][0])
+                lons = continuous_lons(ds.variables["XLONG"][0])
                 fig, ax = plt.subplots(figsize=(8, 6))
             if field == "slp" and level_hpa is None:
                 # surface chart convention (decision 0064): black isobars every 4 hPa with H/L
@@ -179,7 +181,7 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             if overlay_wind:
                 from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
                 lat2d = np.asarray(ds.variables["XLAT"][0])
-                lon2d = np.asarray(ds.variables["XLONG"][0])
+                lon2d = continuous_lons(ds.variables["XLONG"][0])
                 u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
                 v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
                 barb_kwargs = {"transform": ccrs.PlateCarree()} if basemap == "cartopy" else {}

@@ -102,3 +102,13 @@ def path_time_label(path, valid):
             return ds_time_label(ds, valid)
     except Exception:
         return time_label(None, valid)
+
+
+def continuous_lons(lons):
+    """lons (deg) shifted by multiples of 360 to within 180 deg of the array's middle element,
+    so a domain across 180E reads e.g. 170..190 instead of jumping to -180: filled contours
+    leave white wedges at the jump, and a min/max box spans the globe."""
+    import numpy as np
+    a = np.asarray(lons, dtype="f8")
+    c = float(a.flat[a.size // 2])
+    return (a - c + 180.0) % 360.0 - 180.0 + c

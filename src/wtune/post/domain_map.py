@@ -16,6 +16,7 @@ import os
 import re
 
 from wtune.post import figdpi
+from wtune.post.conventions import continuous_lons
 
 EARTH_R = 6370000.0                 # WRF's sphere
 DOMAIN_COLOURS = ("black", "#d62728", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b")
@@ -83,7 +84,7 @@ def _grid(ds):
     import numpy as np
     for la, lo, h in (("XLAT", "XLONG", "HGT"), ("XLAT_M", "XLONG_M", "HGT_M")):
         if la in ds.variables:
-            lat, lon = np.asarray(ds.variables[la][0]), np.asarray(ds.variables[lo][0])
+            lat, lon = np.asarray(ds.variables[la][0]), continuous_lons(ds.variables[lo][0])
             hgt = np.asarray(ds.variables[h][0]) if h in ds.variables else None
             return lat, lon, hgt
     raise ValueError("no XLAT/XLONG or XLAT_M/XLONG_M")

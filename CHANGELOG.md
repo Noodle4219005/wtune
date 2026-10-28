@@ -36,6 +36,19 @@ recipe` now also writes `figures.json`.
   search to the study area.
 - Wind barbs: ~15 along the short side, the 700 hPa set between the 10 m one, none where the
   level is underground.
+- Synoptic charts, PW, IVT, MCAPE/MCIN, the terrain wind map and cross-section, and the cloud
+  maps: at the same rain peak (finest domain), not at the last frame.
+- A d01 across 180E: filled maps no longer leave white wedges, and `post fetch --run-dir`
+  takes the larger side of the date line instead of lon -180..180 (stations were picked in
+  North Africa for haitang2017).
+- TC structure figures: at the last frame the track covers. Past its end they had centred on
+  the deepest low anywhere in the domain (haitang2017 F072: a low over Guangxi).
+
+**TC tracking on a Lambert grid.** TempestExtremes' `GenerateConnectivityFile --in_data`
+writes every point with no neighbours, so DetectNodes took every cell as a local minimum (a
+d03 frame took 186 s) and the 2-degree maximum 10 m wind was the centre cell's own (haitang2017
+vmax 1-4 m/s; 21.8 m/s within 2 degrees). WTune now writes the connectivity of the WRF grid's
+edge neighbours itself.
 
 **Probe crashes on f1-arm.** 30 of 40 haitang2017 tune probes died on SIGSEGV about 5 s in, so
 the node sweep had no measurement and tune fell back to its uncalibrated proxy. The cause is

@@ -131,6 +131,8 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     charts that already carry two line sets).
     """
     import numpy as np
+    from wtune.post.conventions import continuous_lons
+    lons = continuous_lons(lons)
     plt = _matplotlib()
     ccrs = None
     natural_earth_ok = False

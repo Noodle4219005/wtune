@@ -16,24 +16,17 @@ flag; passing an unrecognized flag dumps the usage list, which is how these were
     ("Grid element longitudinal extent too large").
   * A separable grid (1-D lat/lon coordinate vectors) is read directly by DetectNodes
     with --latname/--lonname -- no connectivity file needed.
-  * A curvilinear/non-separable grid (2-D lat/lon, e.g. Lambert conformal) must first go
-    through GenerateConnectivityFile: `--in_data <file> --latname lat --lonname lon
-    --out_connect <path>` builds a valid connectivity file straight from a point cloud of
-    (lat, lon) pairs -- no separate mesh file, and the points do not need to be laid out
-    on a 2-D index grid (GenerateConnectivityFile triangulates the point cloud itself).
-    The data file DetectNodes reads with `--in_connect` must then store each field on the
-    SAME flattened point ordering as the connectivity build, as a single spatial dim
-    (analysis.diagnostics writes this as `ncol`, row-major from the original (ny, nx)) --
-    passing the original 2-D (y, x) field shape to `--in_connect` fails with "Variable ...
-    has inconsistent auxiliary dimensions (3) than specified on command line (2)".
-    StitchNodes ALSO needs `--in_connect` for this grid type -- without it, its node-file
-    parser assumes DetectNodes' structured-grid output (2 index columns, i and j) and
-    rejects the unstructured 1-column (ncol index) format DetectNodes actually wrote
-    ("first 2 columns are not integer indices ... if an unstructured grid is being used
-    make sure --in_connect is specified"). Both are passed the same connectivity file.
-    This was verified end-to-end on a synthetic curvilinear grid (non-axis-aligned lat/lon)
-    in test_analysis_tc_track.py: DetectNodes/StitchNodes correctly followed the moving
-    low through the flattened ncol + connectivity path.
+  * A curvilinear/non-separable grid (2-D lat/lon, e.g. Lambert conformal) is flattened
+    row-major onto `ncol` (analysis.diagnostics) and read with `--in_connect`, a connectivity
+    file of the (ny, nx) index grid's edge neighbours (write_grid_connectivity). Passing the
+    2-D (y, x) field shape to `--in_connect` fails with "Variable ... has inconsistent
+    auxiliary dimensions (3) than specified on command line (2)". StitchNodes ALSO needs
+    `--in_connect` for this grid type, or it rejects DetectNodes' 1-column (ncol index)
+    node file ("first 2 columns are not integer indices ...").
+    `GenerateConnectivityFile --in_data` does NOT triangulate a point cloud (2.4.2): it
+    writes every node with 0 neighbours, DetectNodes then treats every cell as a local
+    minimum (mergedist leaves the deepest one), and `wspd10,max,R` reads the centre cell
+    only -- haitang2017 d03 vmax 1.9 m/s against 21.8 m/s within 2 deg.
 
 DetectNodes parameters (TCTrackParams below) and their justification:
   --searchbymin slp                 storm centre = local SLP minimum (not global argmin;
@@ -253,6 +246,34 @@ def stitch_range_for_interval(params, interval_h):
     return min(params.stitch_range_deg, max(params.stitch_range_min_deg, scaled))
 
 
+def write_grid_connectivity(fields_nc, out_path):
+    """Edge-neighbour (4-point) connectivity of the (ny, nx) WRF grid that analysis.diagnostics
+    flattened row-major onto `ncol`, in TempestExtremes' connectivity-file format (1-based
+    neighbour indices, as `GenerateConnectivityFile --in_mesh` writes them for an RLL mesh).
+    `GenerateConnectivityFile --in_data` is not used: on a point cloud it writes every node
+    with 0 neighbours, so DetectNodes takes every cell as a local minimum and `wspd10,max,R`
+    returns the centre cell alone. Area is written as 1 (DetectNodes' min/max/closed-contour
+    operators do not read it)."""
+    import numpy as np
+    netcdf4 = __import__("netCDF4")
+    with netcdf4.Dataset(fields_nc) as ds:
+        ny, nx = int(ds.ny), int(ds.nx)
+        lat = np.asarray(ds.variables["lat"][:], dtype=float)
+        lon = np.asarray(ds.variables["lon"][:], dtype=float)
+    if lat.size != ny * nx:
+        raise TCTrackError(f"{fields_nc}: ncol {lat.size} != ny*nx {ny}*{nx}")
+    with open(out_path, "w") as f:
+        f.write("#TempestGridConnectivityFileV2.0\n1,%d\n" % (ny * nx))
+        for j in range(ny):
+            for i in range(nx):
+                k = j * nx + i
+                nb = [k - nx] * (j > 0) + [k - 1] * (i > 0) + [k + 1] * (i < nx - 1) \
+                    + [k + nx] * (j < ny - 1)
+                f.write("%.14e,%.14e,1.0,%d,%s\n"
+                        % (lon[k], lat[k], len(nb), ",".join(str(n + 1) for n in nb)))
+    return out_path
+
+
 def detect_and_stitch(fields_nc, workdir, params=None):
     """Run TempestExtremes DetectNodes + StitchNodes on a fields_nc written by
     analysis.diagnostics.wrfout_to_tc_fields.
@@ -264,9 +285,7 @@ def detect_and_stitch(fields_nc, workdir, params=None):
                    "stitch_cmd": [...], "connectivity_cmd": [...] or None,
                    "nodes_file": ..., "track_file": ..., "params": {...}}.
 
-    Raises NotImplementedError (naming the projection) if the grid is non-separable and
-    GenerateConnectivityFile fails to build connectivity for it -- never falls back to
-    mis-gridding the field.
+    A non-separable (`ncol`) grid gets its connectivity from write_grid_connectivity.
     """
     params = params or TCTrackParams()
     workdir = os.path.abspath(str(workdir))     # _run() executes with cwd=workdir: relative paths would double
@@ -288,17 +307,9 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     connect_cmd = None
     in_connect_args = []
     if grid_type == "ncol":
-        connectfile = _find_binary("GenerateConnectivityFile")
         connect_path = os.path.join(workdir, "connect.dat")
-        connect_cmd = [connectfile, "--in_data", fields_nc, "--latname", "lat",
-                       "--lonname", "lon", "--out_connect", connect_path]
-        rc, out, err = _run(connect_cmd, workdir)
-        if rc != 0 or not os.path.exists(connect_path):
-            raise NotImplementedError(
-                f"non-separable grid (projection: {map_proj_name}) and "
-                f"GenerateConnectivityFile could not build a connectivity file for it "
-                f"with this TempestExtremes build (exit {rc}). stderr:\n{err}\n"
-                f"This grid is NOT supported by analysis.tc_track; do not mis-grid it.")
+        write_grid_connectivity(fields_nc, connect_path)
+        connect_cmd = ["write_grid_connectivity", fields_nc, connect_path]
         in_connect_args = ["--in_connect", connect_path]
 
     nodes_path = os.path.join(workdir, "nodes.dat")

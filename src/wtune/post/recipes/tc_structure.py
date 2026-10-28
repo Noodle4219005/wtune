@@ -8,7 +8,8 @@ frame's time; otherwise the minimum of SLP smoothed over 3x3 grid cells (scipy u
 inside the domain interior (spec_bdy_width edge cells excluded); the Hovmoller, given a track,
 leaves a frame the track does not cover blank instead. The centre is a grid cell
 (+- dx/2). Domain: the track's domain at the last frame, else the finest domain whose smoothed-
-SLP minimum lies at least 3 cells inside its interior, else d01.
+SLP minimum lies at least 3 cells inside its interior, else d01. Single-time figures use the
+latest frame the track covers inside that domain, else the last frame.
 
 Storm-relative wind: radial/tangential components come from wrf-python ua/va rotated about the
 centre IN THE NATIVE PROJECTED GRID (vt is then made cyclonic-positive by the sign of the centre
@@ -677,7 +678,18 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
     if not frames:
         return [missing("tc_struct_reflectivity_2km", "wrfout_%s_*" % dom, "no frames found",
                         run=run_label)]
-    last_time, last_path, last_ti = frames[-1]
+    last = frames[-1]
+    if track:
+        # the latest frame with a track point inside this domain: past the track's end the SLP
+        # fallback takes the deepest low anywhere (haitang2017 F072: a Guangxi low, not the storm)
+        for ref in reversed(frames):
+            if ref[0] not in track:
+                continue
+            with netCDF4.Dataset(ref[1]) as ds:
+                if frame_centre(ds, ref[0], track, bdy_width, ref[2], slp_fallback=False):
+                    last = ref
+                    break
+    last_time, last_path, last_ti = last
     try:
         with netCDF4.Dataset(last_path) as ds:
             centre = frame_centre(ds, last_time, track, bdy_width, last_ti)

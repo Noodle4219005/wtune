@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 
 from wtune.post import met_pointstat, sources, tools
 from wtune.post.extract import list_frame_refs
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
 from wtune.post import figdpi
 
@@ -82,7 +83,7 @@ def _fill_below_valid(arr):
     return arr
 
 
-def _terrain_wind_map(run_dir, run_label, domain, out_dir):
+def _terrain_wind_map(run_dir, run_label, domain, out_dir, time_str=None):
     """Terrain fill + 10 m wind (black barbs) + 700 hPa wind (red barbs), one figure
     (decision 0057 update item 1)."""
     import netCDF4
@@ -94,7 +95,7 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     plt = _plt()
     with netCDF4.Dataset(path0) as ds:
         ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
@@ -151,7 +152,8 @@ class CrossSectionError(RuntimeError):
     pass
 
 
-def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=None):
+def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=None,
+                               time_str=None):
     """A geodesic line through the domain INTERIOR's highest HGT point, extended
     halfwidth_km (default post/recipes/xsection.DEFAULT_HALFWIDTH_KM, 150 km) in each
     direction along the domain-mean 700 hPa wind bearing -- placed directly in lat/lon via
@@ -170,8 +172,9 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
     rectangle, so a bbox-based clip could still accept a point the real interior excludes.
 
     Raises CrossSectionError if the domain is too small for bdy_width to leave any interior
-    at all. Returns a dict: start_ll, end_ll, peak_ll, bearing_deg, halfwidth_km, bdy_width,
-    time0, path0, hgt, lats2d, lons2d, interior_bounds (j0, j1, i0, i1)."""
+    at all. time_str: the frame (post/focus.frame_at; default the last). Returns a dict:
+    start_ll, end_ll, peak_ll, bearing_deg, halfwidth_km, bdy_width, time0, path0, hgt,
+    lats2d, lons2d, interior_bounds (j0, j1, i0, i1)."""
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
@@ -180,7 +183,7 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
 
     halfwidth_km = halfwidth_km if halfwidth_km is not None else DEFAULT_HALFWIDTH_KM
     frames = list_frame_refs(run_dir, domain=domain)
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     bdy_width = bdy_width if bdy_width is not None else spec_bdy_width(run_dir)
 
     with netCDF4.Dataset(path0) as ds:
@@ -229,7 +232,7 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
 
 
 def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km=None,
-                          halfwidth_km=None):
+                          halfwidth_km=None, time_str=None):
     """Standard mountain-wave-style cross-section (2026-09-29 second lead review): w shading
     (RdBu_r, symmetric about 0), theta isentropes every 2 K as thin black lines, a muted
     along-line-wind contour, a filled terrain silhouette, a real-km distance axis centred on
@@ -247,7 +250,8 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
     from wtune.post.recipes.xsection import (centred_distance_km, draw_locator_inset, line_unit_vector, smooth_horizontal)
 
     top_km = top_km if top_km is not None else DEFAULT_XSEC_TOP_KM
-    line_info = default_cross_section_line(run_dir, domain, halfwidth_km=halfwidth_km)
+    line_info = default_cross_section_line(run_dir, domain, halfwidth_km=halfwidth_km,
+                                           time_str=time_str)
     time0, path0 = line_info["time0"], line_info["path0"]
     ti = line_info.get("timeidx", 0)
     hgt, lats2d, lons2d = line_info["hgt"], line_info["lats2d"], line_info["lons2d"]
@@ -835,7 +839,7 @@ def _terrain_domain(case_info):
 
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None):
+           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, map_time=None):
     from wtune.post.recipe import fig, missing, note
     from wtune.post.recipes import precip
 
@@ -845,7 +849,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     out = []
 
     try:
-        path = _terrain_wind_map(run_dir, run_label, domain, out_dir)
+        path = _terrain_wind_map(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("terrain_wind_map", path, run_label, domain="d%02d" % domain))
         else:
@@ -857,7 +861,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
 
     try:
         path = _cross_section_figure(run_dir, run_label, domain, out_dir, line=cross_section,
-                                     top_km=xsec_top_km, halfwidth_km=xsec_halfwidth_km)
+                                     top_km=xsec_top_km, halfwidth_km=xsec_halfwidth_km,
+                                     time_str=map_time)
         if path:
             out.append(fig("terrain_crosssection", path, run_label, domain="d%02d" % domain))
         else:

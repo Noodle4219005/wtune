@@ -13,6 +13,7 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs, list_frames
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
 from wtune.post import figdpi
 
@@ -24,13 +25,13 @@ def _plt():
     return plt
 
 
-def _pw_figure(run_dir, run_label, domain, out_dir):
+def _pw_figure(run_dir, run_label, domain, out_dir, time_str=None):
     from wtune.post.plotting import plot_field
     frames = list_frames(run_dir, domain=domain)
     if not frames:
         return None
-    last_time = frames[-1][0]
-    written = plot_field(run_dir, "pw", out_dir, domain=domain, times=[last_time],
+    map_time = frame_at(frames, time_str)[0]
+    written = plot_field(run_dir, "pw", out_dir, domain=domain, times=[map_time],
                          basemap="cartopy")
     return written[0] if written else None
 
@@ -96,7 +97,7 @@ def _point_reason(tc_centre):
             else "max accumulated rain at last frame, interior cells only")
 
 
-def _ivt_figure(run_dir, run_label, domain, out_dir):
+def _ivt_figure(run_dir, run_label, domain, out_dir, time_str=None):
     import netCDF4
     import numpy as np
     import cartopy.crs as ccrs
@@ -107,7 +108,7 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     with netCDF4.Dataset(path0) as ds:
         pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
         qvapor = wrf_mod.getvar(ds, "QVAPOR", timeidx=ti)
@@ -385,7 +386,8 @@ def _focus_point(run_dir, domain, spinup_hours, tc_centre, focus_box):
 
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, focus_box=None):
+           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, focus_box=None,
+           map_time=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -393,7 +395,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     out = []
 
     try:
-        path = _pw_figure(run_dir, run_label, domain, out_dir)
+        path = _pw_figure(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("moisture_pw", path, run_label, domain="d%02d" % domain))
         else:
@@ -414,7 +416,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("moisture_pw_chg6h", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        path = _ivt_figure(run_dir, run_label, domain, out_dir)
+        path = _ivt_figure(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("moisture_ivt", path, run_label, domain="d%02d" % domain))
         else:

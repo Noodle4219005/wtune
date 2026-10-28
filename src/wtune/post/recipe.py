@@ -123,10 +123,11 @@ def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, e
                                 else None, every=every, times=times, paraview=paraview)
 
 
-def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None):
+def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None,
+                   map_time=None):
     from wtune.post.recipes import cloud
     return cloud.figures(run_dirs, labels, os.path.join(out_dir, "cloud"), case_info,
-                         every=every, times=times, paraview=paraview)
+                         every=every, times=times, paraview=paraview, map_time=map_time)
 
 
 TYPE_DISPATCH = {
@@ -139,7 +140,7 @@ TYPE_DISPATCH = {
 def _simple_dispatch(module_name, out_subdir):
     def run(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
            tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None,
-           spinup_days=None, focus_box=None, **_ignored):
+           spinup_days=None, focus_box=None, map_time=None, **_ignored):
         import inspect
         mod = __import__("wtune.post.recipes.%s" % module_name, fromlist=["figures"])
         sub_out = os.path.join(out_dir, out_subdir)
@@ -162,6 +163,8 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["spinup_days"] = spinup_days
         if "focus_box" in params:
             kwargs["focus_box"] = focus_box
+        if "map_time" in params:
+            kwargs["map_time"] = map_time
         return guarded(module_name, mod.figures, run_dirs, labels, sub_out, case_info, **kwargs)
     return run
 
@@ -184,6 +187,24 @@ def guarded(name, fn, *args, **kwargs) -> list:
 for _name in ("precip", "synoptic", "pbl", "chem", "climate", "ensemble", "terrain", "moisture"):
     TYPE_DISPATCH[_name] = _simple_dispatch(_name, _name)
 del _name
+
+
+def _map_time(run_dir, case_info, spinup_hours, focus_box):
+    """Valid time of the one-time maps: the rain peak on the finest domain (post/focus.py), or
+    None (each figure set's last frame) when there is no post-spin-up rain or no frame."""
+    from wtune.post.focus import rain_focus
+    domain = case_info["domains"][-1]["domain"] if case_info.get("domains") else 1
+    try:
+        f = rain_focus(run_dir, domain, spinup_hours, box=focus_box)
+    except Exception as e:                                  # noqa: BLE001
+        print("post recipe: no rain peak on d%02d (%s: %s); one-time maps at the last frame"
+              % (domain, type(e).__name__, e))
+        return None
+    if not f or f["peak_rate_mm_h"] <= 0:
+        return None
+    print("post recipe: one-time maps at the d%02d rain peak %s (%s)"
+          % (domain, f["peak_time"], f["rule"]))
+    return f["peak_time"]
 
 
 def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
@@ -263,6 +284,7 @@ class _RecipeRun:
     track_smooth_km: float | None = None
     tc_centre: tuple | None = None
     focus_box: list | None = None
+    map_time: str | None = None
 
 
 def _args4(r: _RecipeRun) -> tuple:
@@ -287,7 +309,7 @@ def _run_tc(handler, r: _RecipeRun) -> list:
 
 def _run_cloud(handler, r: _RecipeRun) -> list:
     return guarded("cloud", handler, *_args4(r), paraview=r.paraview, every=r.every,
-                   times=r.times)
+                   times=r.times, map_time=r.map_time)
 
 
 def _run_convection(handler, r: _RecipeRun) -> list:
@@ -299,19 +321,19 @@ def _run_terrain(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("terrain"),
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir)
+                   project_dir=r.project_dir, map_time=r.map_time)
 
 
 def _run_moisture(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("moisture"), tc_centre=r.tc_centre,
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir, focus_box=r.focus_box)
+                   project_dir=r.project_dir, focus_box=r.focus_box, map_time=r.map_time)
 
 
 def _run_simple(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
-                   spinup_days=r.spinup_days)
+                   spinup_days=r.spinup_days, map_time=r.map_time)
 
 
 _TYPE_RUNNERS = {"tc": _run_tc, "cloud": _run_cloud, "convection": _run_convection,
@@ -432,7 +454,8 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         ebtrk_path=ebtrk_path, paraview=paraview, every=every, times=times,
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
-        track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box)
+        track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box,
+        map_time=_map_time(run_dirs[0], case_info, spinup_hours, focus_box))
     tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
                                      case_info), dict(decomposition_only=decomposition_only)),
              ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),

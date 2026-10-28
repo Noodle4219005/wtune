@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from wtune.post import met_gridstat, tools
 from wtune.post.extract import list_frame_refs
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
 from wtune.post import figdpi
 
@@ -22,13 +23,16 @@ _THICKNESS_DIVIDE = 540.0     # dam; rain/snow line of the classic surface chart
 _HGT_HIGH_TERRAIN_M = 500.0   # no H/L centres where SLP is a reduction over terrain above this
 
 
-def _post_spinup_time(run_dir: str, domain: int, spinup_hours: float) -> tuple:
-    """(last frame at least spinup_hours after the first, else the last frame; all frames)."""
+def _post_spinup_time(run_dir: str, domain: int, spinup_hours: float, map_time=None) -> tuple:
+    """(the frame nearest map_time, else the last frame at least spinup_hours after the first,
+    else the last frame; all frames)."""
     from datetime import datetime
     from wtune.post.caseinfo import WRF_TIME_FMT
     frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if not frames:
         return None, []
+    if map_time is not None:
+        return frame_at(frames, map_time), frames
     t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT)
     post = [f for f in frames
            if (datetime.strptime(f[0], WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours]
@@ -290,14 +294,15 @@ def _era5_diff_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig:
 
 
 def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dict,
-            spinup_hours: float = 6) -> list[dict]:
-    """The synoptic charts of the first run's last post-spin-up d01 frame -> figure/missing
-    entries; wrf-python/cartopy missing -> one 'syn_maps' missing entry."""
+            spinup_hours: float = 6, map_time: str | None = None) -> list[dict]:
+    """The synoptic charts of the first run's d01 frame nearest map_time (run_recipe: the rain
+    peak), else its last post-spin-up frame -> figure/missing entries; wrf-python/cartopy
+    missing -> one 'syn_maps' missing entry."""
     from wtune.post.recipe import fig, missing
     from wtune.post.recipes.mapfig import save_map
 
     run_dir, run_label = run_dirs[0], labels[0]
-    chosen, frames = _post_spinup_time(run_dir, _SYNOPTIC_DOMAIN, spinup_hours)
+    chosen, frames = _post_spinup_time(run_dir, _SYNOPTIC_DOMAIN, spinup_hours, map_time)
     out = []
     if chosen is None:
         return [missing("syn_maps", "wrfout_d01_*", "no frames found")]

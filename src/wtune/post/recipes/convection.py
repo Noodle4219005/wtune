@@ -166,12 +166,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, focus_box=None
 
     try:
         for field, label in (("mcape", "MCAPE (J/kg)"), ("mcin", "MCIN (J/kg)")):
-            path = _map_field(run_dir, domain, field, last_time,
+            path = _map_field(run_dir, domain, field, peak_time,
                               os.path.join(out_dir, "conv_%s.png" % field),
                               "%s d%02d %s  {time}" % (run_label, domain, label),
                               cmap="plasma", fill_label=label)
             out.append(fig("conv_%s" % field, path, run_label, domain="d%02d" % domain,
-                           valid_time=last_time))
+                           valid_time=peak_time))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_mcape_mcin", "wrf-python", str(e)))
     except FIELD_ERRORS as e:

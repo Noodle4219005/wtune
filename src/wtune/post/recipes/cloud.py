@@ -31,6 +31,7 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs
+from wtune.post.focus import frame_at
 from wtune.post import figdpi
 
 CONDENSATE_LEVELS_GKG = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]   # = 1e-5 .. 1e-3 kg/kg
@@ -795,8 +796,10 @@ def _agent_ir_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hou
     return out
 
 
-def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True):
-    """The cloud figure set for run_dirs[0] (records per post.recipe fig()/missing())."""
+def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True,
+            map_time=None):
+    """The cloud figure set for run_dirs[0] (records per post.recipe fig()/missing()); the
+    one-time figures at the frame nearest map_time, else the last frame."""
     import netCDF4
     from wtune.post.recipe import fig, missing
     run_dir, run_label = run_dirs[0], labels[0]
@@ -810,7 +813,7 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
             out.append(missing("cloud_water_path", "wrfout_%s_*" % dom, "no frames found",
                                run=run_label))
             continue
-        last_time, last_path, last_ti = frames[-1]
+        last_time, last_path, last_ti = frame_at(frames, map_time)
         try:
             ok, _sp = has_hydrometeors(last_path)
         except (OSError, ImportError) as e:

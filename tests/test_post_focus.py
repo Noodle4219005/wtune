@@ -65,3 +65,36 @@ def test_post_focus_must_be_a_box():
         "focus"] == [21.8, 25.4, 119.9, 122.1]
     with pytest.raises(project.ProjectError, match="post.focus"):
         project.project_post_defaults({"post": {"focus": [25.4, 21.8, 119.9, 122.1]}})
+
+
+def test_frame_at_takes_the_nearest_frame():
+    frames = [("2017-07-31_00:00:00", "a"), ("2017-07-31_03:00:00", "b"),
+              ("2017-07-31_06:00:00", "c")]
+    assert focus.frame_at(frames, "2017-07-31_05:00:00")[1] == "c"
+    assert focus.frame_at(frames, "2017-07-31_01:30:00")[1] == "a"       # tie: earlier
+    assert focus.frame_at(frames, None)[1] == "c"
+    assert focus.frame_at([], "2017-07-31_05:00:00") is None
+
+
+def test_one_time_maps_get_the_rain_peak(tmp_path, monkeypatch):
+    # haitang2017: synoptic/IVT/PW/CAPE/cloud/terrain maps were drawn at F072, after the event
+    from wtune.post import recipe
+    from wtune.post.recipes import synoptic, terrain
+    real = _core(30, 40, 1.0)
+    _write(str(tmp_path), [0 * real, 10 * real, 30 * real, 130 * real, 140 * real])
+    case = dict(types=["synoptic", "terrain"], domains=[dict(domain=3, dx_km=3.0)])
+    peak = recipe._map_time(str(tmp_path), case, 6, None)
+    assert peak == "2017-07-31_08:00:00"
+    _write(str(tmp_path), [0 * real] * len(TIMES))
+    assert recipe._map_time(str(tmp_path), case, 6, None) is None
+    seen = {}
+    for mod in (synoptic, terrain):
+        def fake(*a, map_time=None, _m=mod.__name__, **k):
+            seen[_m] = map_time
+            return []
+        monkeypatch.setattr(mod, "figures", fake)
+    r = recipe._RecipeRun([str(tmp_path)], ["run0"], str(tmp_path / "out"), case,
+                          map_time=peak)
+    recipe._run_simple(recipe.TYPE_DISPATCH["synoptic"], r)
+    recipe._run_terrain(recipe.TYPE_DISPATCH["terrain"], r)
+    assert seen == {synoptic.__name__: peak, terrain.__name__: peak}

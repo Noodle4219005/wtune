@@ -339,6 +339,27 @@ def test_figures_render_every_tc_structure_figure(tmp_path, monkeypatch):
     assert calls[0]["center"] is not None and calls[0]["path"].endswith(TIMES[-1])
 
 
+def test_single_time_figures_stay_within_the_track(tmp_path, monkeypatch):
+    """Past the track's end the SLP fallback may centre on another low: the storm-centred
+    figures use the last tracked frame instead of the last frame."""
+    from wtune.post.recipes import paraview3d
+    calls = []
+    monkeypatch.setattr(paraview3d, "render_condensate_volume", _fake_volume(calls),
+                        raising=False)
+    run = make_run(tmp_path)
+    track_csv = tmp_path / "track_domains_run0.csv"
+    rows = ["time,domain,lat,lon"]
+    for k, t in enumerate(TIMES[:2]):
+        with netCDF4.Dataset(os.path.join(run, "wrfout_d01_" + t)) as ds:
+            rows.append("%s,d01,%f,%f" % (t, float(ds.variables["XLAT"][0, 25, 24 + k]),
+                                          float(ds.variables["XLONG"][0, 25, 24 + k])))
+    track_csv.write_text("\n".join(rows) + "\n")
+    out = ts.figures(run, "run0", str(tmp_path / "out"), CASE, track_csv=str(track_csv))
+    by_id = {f["id"]: f for f in out}
+    assert by_id["tc_struct_reflectivity_2km"]["valid_time"] == TIMES[1]
+    assert calls and calls[0]["path"].endswith(TIMES[1])
+
+
 def test_ir_not_drawn_twice_when_cloud_set_runs_and_3d_missing(tmp_path, monkeypatch):
     from wtune.post.recipes import paraview3d
     monkeypatch.setattr(paraview3d, "render_condensate_volume",

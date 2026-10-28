@@ -221,7 +221,7 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
     def boom(exc):
         return lambda *a, **k: (_ for _ in ()).throw(exc)
     info = {"domains": [{"domain": 1}]}
-    monkeypatch.setattr(terrain, "_terrain_wind_map", lambda *a: "w.png")
+    monkeypatch.setattr(terrain, "_terrain_wind_map", lambda *a, **k: "w.png")
     monkeypatch.setattr(terrain, "_cross_section_figure", boom(KeyError("W")))
     monkeypatch.setattr(terrain, "_rain_over_terrain", boom(KeyError("RAINC")))
     monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: ("v.png", None))
@@ -233,9 +233,9 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
                          ("terrain_leeward_station", True), ("terrain_point_stat", True)]
     assert "lacks RAINC" in out[2]["reason"]
 
-    monkeypatch.setattr(moisture, "_pw_figure", lambda *a: "pw.png")
+    monkeypatch.setattr(moisture, "_pw_figure", lambda *a, **k: "pw.png")
     monkeypatch.setattr(moisture, "_pw_change_figure", boom(KeyError("QVAPOR")))
-    monkeypatch.setattr(moisture, "_ivt_figure", lambda *a: "ivt.png")
+    monkeypatch.setattr(moisture, "_ivt_figure", lambda *a, **k: "ivt.png")
     monkeypatch.setattr(moisture, "_cross_section_figure", boom(IndexError("x")))
     monkeypatch.setattr(moisture, "_point_time_height", boom(KeyError("HGT")))
     out = moisture.figures(["/run"], ["r"], str(tmp_path), info, tc_centre=(20.0, 130.0))
@@ -247,7 +247,7 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
 
 def test_terrain_point_stat_not_repeated_on_the_precip_domain(monkeypatch, tmp_path):
     for name in ("_terrain_wind_map", "_rain_over_terrain"):
-        monkeypatch.setattr(terrain, name, lambda *a: None)
+        monkeypatch.setattr(terrain, name, lambda *a, **k: None)
     monkeypatch.setattr(terrain, "_cross_section_figure", lambda *a, **k: None)
     monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: (None, "x"))
     monkeypatch.setattr(terrain, "list_frame_refs", lambda *a, **k: [])

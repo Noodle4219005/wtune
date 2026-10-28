@@ -143,47 +143,47 @@
    [
     "dispatch-cloud",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', '6h'), ('paraview', False), ('times', ['t1'])]"
+    "[('every', '6h'), ('map_time', None), ('paraview', False), ('times', ['t1'])]"
    ],
    [
     "dispatch-terrain",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'t': 1}), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'t': 1}), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-moisture",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'m': 2}), ('focus_box', None), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'m': 2}), ('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-precip",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-synoptic",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-pbl",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-chem",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-climate",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-ensemble",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "timeseries",
@@ -535,7 +535,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('focus_box', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('map_time', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",
@@ -635,7 +635,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('focus_box', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('map_time', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",
@@ -735,7 +735,7 @@
    [
     "dispatch-precip",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', None), ('spinup_days', None), ('spinup_hours', 6)]"
+    "[('map_time', None), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6)]"
    ],
    [
     "advice",

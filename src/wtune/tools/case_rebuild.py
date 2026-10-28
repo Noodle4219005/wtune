@@ -328,6 +328,9 @@ def complete_namelist(nl_text: str, facts: dict, registry: dict | None = None,
         ed.fill_if_missing("p_top_requested", _DEFAULT_P_TOP_PA, "default model top (Pa)")
     _fill_run_defaults(ed, facts, run_s)
     _fill_physics_suite(ed, nl_text)
+    if re.search(r"(?im)^[^!\n]*(?<![a-z0-9_])mp_physics\s*=[^\n/!]*(?<![0-9])7(?![0-9])", ed.txt):
+        ed.sync("do_radar_ref", 1, "mp_physics=7 writes refl_10cm, allocated only then",
+                group_default="physics")
     _fill_bdy_quilt_and_groups(ed)
     return ed.txt, ed.changes
 

@@ -247,6 +247,16 @@ def _namelist_ints(text: str, key: str) -> List[int]:
     return out
 
 
+def _force_gsfcgce_radar_ref(text: str) -> str:
+    """do_radar_ref = 1 when a domain uses mp_physics 7. WRF's gsfcgce 4-ice reads and writes
+    refl_10cm over the whole tile (module_mp_gsfcgce_4ice_nuwrf.f90:446,505) but the Registry
+    allocates it only under compute_radar_ref (module_check_a_mundo.F:3528): without this the
+    first step overruns the heap and crashes at random (f1-arm haitang2017, 6 of 9 launches)."""
+    if 7 not in _namelist_ints(text, "mp_physics") or _namelist_ints(text, "do_radar_ref") == [1]:
+        return text
+    return _set_namelist_value(text, "do_radar_ref", "1", "physics")
+
+
 def _has_key(text: str, key: str) -> bool:
     return any(re.search(r"%s%s[ \t]*=" % (_NOT_IN_NAME, re.escape(key)), ln, re.I)
                for ln in text.splitlines() if not ln.lstrip().startswith("!"))

@@ -420,6 +420,10 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
     """Everything decided before the first job; RunError (and the errors main() lists) when
     the run cannot be planned."""
     case = _load_case(opts, case_dir, out)
+    text = sweep.campaign_configs._force_gsfcgce_radar_ref(case.text)
+    if text != case.text:
+        log("mp_physics=7: do_radar_ref = 1 (gsfcgce writes refl_10cm, allocated only then)")
+        case = dataclasses.replace(case, text=text)
     wall_limit_s = _wall_limit_s(opts)
     choice = _choose_layout(opts, log)
     notes: list[str] = []

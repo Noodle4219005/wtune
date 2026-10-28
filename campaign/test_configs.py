@@ -3524,6 +3524,15 @@ class TestPerRecordInputs(unittest.TestCase):
                                         '"wrffdda_d<domain>_<date>.bp"', "fdda")
         self.assertIn('gfdda_inname = "wrffdda_d<domain>_<date>.bp",\n', q)
 
+    def test_mp_physics_7_gets_do_radar_ref(self):
+        nl = " &physics\n mp_physics = 7, 7,\n do_radar_ref = 0,\n /\n"
+        out = configs._force_gsfcgce_radar_ref(nl)
+        self.assertIn(" do_radar_ref = 1,\n", out)
+        self.assertEqual(configs._force_gsfcgce_radar_ref(out), out)
+        other = " &physics\n mp_physics = 17, 8,\n /\n"
+        self.assertEqual(configs._force_gsfcgce_radar_ref(other), other)
+        self.assertIn("do_radar_ref = 1,", self._edit(self.NL.replace("&physics", "&physics\n mp_physics = 7, 7,")))
+
     def test_cold_start_on_a_record_reads_per_record_bp(self):
         import re
         out = self._edit(self.NL)

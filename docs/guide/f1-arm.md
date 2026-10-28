@@ -74,6 +74,9 @@ copy_probe_inputs: false
 measured:
   startup_s: 15.0
   init_s: 15.0
+  boundary_s_adios2: 9.7
+  history_write_s_adios2: 0.77
+  restart_write_s_adios2: 98.0
 ```
 
 | 欄位 | 為什麼是這個值 |
@@ -81,6 +84,7 @@ measured:
 | `max_nodes: 8` | 測試時自訂的上限；`arm1440` 最多 10 節點 |
 | `hardware_cores_per_node` | 只用部分核心時（例如 `cores_per_node: 72`）設成 144：job 會加 `--cpus-per-task`，讓申請的 CPU 數等於 `--exclusive` 計費的整節點數。f1-arm 的 partition 依 CPU 數分層，不設的話 2 節點與 5–7 節點的 72 核 job 沒有 partition 能跑 |
 | `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
+| `measured.boundary_s_adios2`、`history_write_s_adios2`、`restart_write_s_adios2` | 整段預測的 I/O 項。內建值是 scc 的；f1-arm 上 haitang2017 72 h（job 57791，216 ranks，ADIOS2，work2 GPFS）實測：每次邊界更新那一步多 12.85 s（逐筆 BP 的 wrfbdy 開檔），history 每幀每個 domain 約 1.7 s 且與網格大小無關，restart 每次 6.4 s。用內建值時 I/O 只算 21 s，預測 24:37 比實際 35:05 少 30%；換成這三個值後 I/O 是 702 s，預測 35:59（+2.5%）。只量過這一個個案，網格差很多的個案要再對一次 |
 | `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |

@@ -135,6 +135,15 @@ class TestCompleteNamelistFillOnlyIfMissing(unittest.TestCase):
         txt, changes = cr.complete_namelist(text_with_mp, BASE_FACTS)
         self.assertEqual(cs.count_key(txt, "physics_suite"), 0)
 
+    def test_mp_physics_7_gets_do_radar_ref(self):
+        txt, changes = cr.complete_namelist(
+            BASE_NL_TEXT.replace("&physics\n", "&physics\n mp_physics = 7,\n"), BASE_FACTS)
+        self.assertEqual(cs.get_first(txt, "do_radar_ref"), "1")
+        self.assertIn("do_radar_ref", [c["key"] for c in changes])
+        txt, _ = cr.complete_namelist(
+            BASE_NL_TEXT.replace("&physics\n", "&physics\n mp_physics = 17,\n"), BASE_FACTS)
+        self.assertEqual(cs.count_key(txt, "do_radar_ref"), 0)
+
     def test_history_interval_not_added_when_history_interval_m_present(self):
         text_with_him = BASE_NL_TEXT.replace("&time_control\n",
                                              "&time_control\n history_interval_m = 30,\n")

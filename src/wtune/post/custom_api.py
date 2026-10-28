@@ -99,13 +99,13 @@ class Context:
         return netCDF4.Dataset(path)
 
     def find_run_track_csv(self, run_id):
-        """post/tc.py's own output convention: post/<id>/tc/<run_id>*.csv under this
-        project's post/ tree, most recent post/<id>/ first. None if not found."""
+        """post/tc.py's own output convention: post/<id>/tc/track_domains_<run_id>.csv under
+        this project's post/ tree, most recent post/<id>/ first. None if not found."""
         post_root = os.path.join(self.project_dir, "post")
         if not os.path.isdir(post_root):
             return None
         for post_id in sorted(os.listdir(post_root), reverse=True):
-            for pattern in ("%s*track*.csv" % run_id, "%s*adeck*.csv" % run_id, "%s*.csv" % run_id):
+            for pattern in ("track_domains_%s.csv" % run_id, "%s*track*.csv" % run_id, "%s*adeck*.csv" % run_id, "%s*.csv" % run_id):
                 hits = sorted(glob.glob(os.path.join(post_root, post_id, "tc", pattern)))
                 if hits:
                     return hits[0]

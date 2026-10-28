@@ -308,7 +308,9 @@ def add_arguments(parser):
     parser.add_argument("--end", default=None, help="UTC YYYYmmddHH (default: last wrfout time)")
     parser.add_argument("--bbox", default=None, metavar="LAT0,LAT1,LON0,LON1",
                         help="default: interior of --run-dir's domain")
-    parser.add_argument("--domain", type=int, default=1, help="wrfout domain for --run-dir (default 1)")
+    parser.add_argument("--domain", type=int, default=None,
+                        help="wrfout domain for --run-dir (default: the finest, the one the pbl "
+                        "recipe compares on)")
     parser.add_argument("--hours", default="0,12", help="nominal launch hours to keep (default 0,12; "
                         "'all' keeps every sounding)")
     parser.add_argument("--stations", default=None, help="comma-separated IGRA ids "
@@ -316,10 +318,19 @@ def add_arguments(parser):
     parser.add_argument("--max-stations", type=int, default=6, dest="max_stations")
 
 
+def _domain(args):
+    """--domain, else the run's finest domain: haitang2017 picked six stations over all of d01
+    (Xinjiang, India, Oman) for a pbl comparison drawn on d03."""
+    if getattr(args, "domain", None):
+        return args.domain
+    from wtune.post.extract import frame_index
+    return max((d for d, _t in frame_index(args.run_dir)), default=1)
+
+
 def _resolve_request(args):
     start = end = bbox = None
     if getattr(args, "run_dir", None):
-        start, end, bbox = window_from_run(args.run_dir, getattr(args, "domain", 1))
+        start, end, bbox = window_from_run(args.run_dir, _domain(args))
     if args.start:
         start = _parse_time(args.start)
     if args.end:
@@ -356,7 +367,7 @@ def run(args):
         chosen = [s for s in stations if s["id"] in wanted]
     elif bbox:
         if getattr(args, "run_dir", None):
-            stations = land_stations(args.run_dir, stations, getattr(args, "domain", 1))
+            stations = land_stations(args.run_dir, stations, _domain(args))
         chosen = select_stations(stations, bbox, start, end, args.max_stations)
     else:
         print("igra: need --bbox, --stations or --run-dir to choose stations")

@@ -71,3 +71,13 @@ def test_time_series_fields_include_pw_and_rules_documented():
     assert "pw" in timeseries.TIME_SERIES_FIELDS
     assert timeseries.SCALE_RULE["slp"].startswith("true min/max")
     assert "percentile" in timeseries.SCALE_RULE["mcape"]
+
+
+def test_change_scale_rain_over_taiwan_uses_cwa_thresholds():
+    # haitang2017 run72: rain_acc-chg6h over Taiwan was drawn on the WPC inch scale
+    from wtune.post.rainscale import CWA_LEVELS
+    lat, lon = np.meshgrid(np.linspace(21, 26, 5), np.linspace(118, 123, 5), indexing="ij")
+    levels, cmap, extend = changemap._change_scale("rain_acc", [np.array([0.0, 5.0, 80.0])],
+                                                   lat, lon)
+    assert list(levels) == [float(v) for v in CWA_LEVELS[:len(levels)]] and levels[-1] == 90.0
+    assert cmap.name == "cwa_rain" and extend == "max"

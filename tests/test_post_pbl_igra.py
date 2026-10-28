@@ -127,3 +127,22 @@ def test_fill_below_valid_leaves_no_nan_wedge():
     a = np.array([[np.nan, 1.0], [np.nan, 2.0], [5.0, 3.0]])
     out = _fill_below_valid(a)
     assert not np.isnan(out).any() and out[0, 0] == 5.0
+
+
+
+def test_igra_defaults_to_the_finest_domain(tmp_path, monkeypatch):
+    """haitang2017 run72: --domain defaulted to 1, so six stations were spread over all of d01
+    (Xinjiang, India, Oman) for a pbl comparison drawn on d03."""
+    import argparse
+    for d in (1, 2, 3):
+        (tmp_path / ("wrfout_d%02d_2017-07-31_00:00:00" % d)).write_text("")
+    seen = []
+    monkeypatch.setattr(igra, "window_from_run", lambda run_dir, domain: seen.append(domain)
+                        or (None, None, None))
+    parser = argparse.ArgumentParser()
+    igra.add_arguments(parser)
+    for argv, want in (([], 3), (["--domain", "1"], 1)):
+        args = parser.parse_args(argv)
+        args.run_dir = str(tmp_path)
+        igra._resolve_request(args)
+        assert seen[-1] == want

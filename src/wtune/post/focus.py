@@ -21,6 +21,16 @@ def _hours(a, b):
             ).total_seconds() / 3600.0
 
 
+def box_mask(lat, lon, box):
+    """True where (lat, lon) lies inside box = [lat_min, lat_max, lon_min, lon_max] (project.yaml
+    post.focus); None without a box."""
+    if not box:
+        return None
+    import numpy as np
+    lat, lon = np.asarray(lat), np.asarray(lon)
+    return (lat >= box[0]) & (lat <= box[1]) & (lon >= box[2]) & (lon <= box[3])
+
+
 def frame_at(frames, time_str):
     """The frame of frames ([(time_str, ...), ...]) nearest time_str (earlier on a tie); the last
     frame when time_str is None. The one-time maps' frame for run_recipe's map_time."""

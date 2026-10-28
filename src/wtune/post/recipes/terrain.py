@@ -439,7 +439,7 @@ VALLEY_RIDGE_DELTA_M = 300.0  # required relief between the point and its own wi
 
 
 def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
-                       ridge_delta_m=VALLEY_RIDGE_DELTA_M):
+                       ridge_delta_m=VALLEY_RIDGE_DELTA_M, inside=None):
     """(j, i) of a genuine valley: LANDMASK==1, inside the domain interior (`bounds` =
     (j0, j1, i0, i1), excluding the lateral boundary zone), a local HGT minimum in a
     `window`x`window` neighbourhood, with that neighbourhood's own max at least
@@ -447,7 +447,8 @@ def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
     (2026-09-29 fourth lead review: the previous global-HGT-minimum pick landed on a sea
     point, HGT=-1 m, sitting in the lateral boundary row, with a flat theta profile). None if
     no interior land point qualifies -- the caller reports that as missing(), not a forced
-    pick."""
+    pick. inside: bool array (post.focus); a candidate inside it wins when one exists, as in
+    focus.rain_focus (haitang2017: the domain-wide pick was in Fujian)."""
     import numpy as np
     from scipy.ndimage import maximum_filter, minimum_filter
 
@@ -460,6 +461,8 @@ def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
     mask = np.zeros_like(candidate)
     mask[j0:j1, i0:i1] = True
     candidate &= mask
+    if inside is not None and (candidate & inside).any():
+        candidate &= inside
     if not candidate.any():
         return None
     hgt_masked = np.where(candidate, hgt, np.inf)
@@ -480,7 +483,7 @@ VALLEY_THETA_CONTOUR_STEP_K = 1.0
 VALLEY_BARB_HEIGHTS_KM = (0.25, 1.0, 1.75, 2.5)   # a few representative heights inside 0-3 km
 
 
-def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
+def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None, focus_box=None):
     """Time-height diagram (theta) at a genuine valley point (_find_valley_point) -- a
     boundary-layer diagnostic (cold pool, nocturnal inversion, daytime mixing; decision 0057
     update item 5). Plots 0..VALLEY_TOP_AGL_KM (fixed 3 km AGL -- the boundary layer, not the
@@ -497,6 +500,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
     from datetime import datetime
     wrf_mod = __import__("wrf")
     from wtune.post.caseinfo import _interior_bounds, spec_bdy_width
+    from wtune.post.focus import box_mask
 
     frames = list_frame_refs(run_dir, domain=domain)
     if len(frames) < 2:
@@ -516,7 +520,8 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
         return None, ("d%02d is too small for spec_bdy_width=%d to leave any interior"
                       % (domain, bdy_width))
 
-    point = _find_valley_point(hgt, landmask, bounds)
+    point = _find_valley_point(hgt, landmask, bounds,
+                               inside=box_mask(lats2d, lons2d, focus_box))
     if point is None:
         return None, ("no interior land point is a genuine valley (LANDMASK==1, a local HGT "
                       "minimum in a %dx%d window with >=%g m surrounding relief, outside the "
@@ -839,7 +844,8 @@ def _terrain_domain(case_info):
 
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, map_time=None):
+           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, map_time=None,
+           focus_box=None):
     from wtune.post.recipe import fig, missing, note
     from wtune.post.recipes import precip
 
@@ -884,7 +890,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("terrain_rain", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        path, reason = _valley_time_height(run_dir, run_label, domain, out_dir)
+        path, reason = _valley_time_height(run_dir, run_label, domain, out_dir,
+                                           focus_box=focus_box)
         if path:
             out.append(fig("terrain_valley_timeheight", path, run_label, domain="d%02d" % domain))
         else:

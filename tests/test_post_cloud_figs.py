@@ -185,7 +185,7 @@ def test_recipe_dispatches_cloud_with_cadence(tmp_path, monkeypatch):
     seen = {}
 
     def fake(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True,
-             map_time=None):
+             map_time=None, focus_box=None):
         seen.update(out_dir=out_dir, every=every, paraview=paraview)
         return []
     monkeypatch.setattr(cl, "figures", fake)

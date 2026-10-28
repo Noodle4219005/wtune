@@ -57,8 +57,10 @@ def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap
     a, b = np.where(both, left, np.nan), np.where(both, right, np.nan)
     cm = (precip_cmap() if cmap is None else plt.get_cmap(cmap)).copy()
     cm.set_under(under_color)
-    cm.set_over(cm(1.0))
-    norm = BoundaryNorm(levels, cm.N, extend=extend)
+    if cm.N > len(levels) - 1:
+        cm.set_over(cm(1.0))
+    # a one-colour-per-bin cmap (CWA, post/rainscale.py) carries its own over colour
+    norm = BoundaryNorm(levels, cm.N, extend=extend if cm.N > len(levels) - 1 else "neither")
     fig = plt.figure(figsize=(12.5, 5.6), layout="constrained")
     gs = fig.add_gridspec(1, 2)
     extent = _extent(np.where(both, lat, np.nan), np.where(both, lon, np.nan))

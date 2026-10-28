@@ -124,10 +124,11 @@ def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, e
 
 
 def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None,
-                   map_time=None):
+                   map_time=None, focus_box=None):
     from wtune.post.recipes import cloud
     return cloud.figures(run_dirs, labels, os.path.join(out_dir, "cloud"), case_info,
-                         every=every, times=times, paraview=paraview, map_time=map_time)
+                         every=every, times=times, paraview=paraview, map_time=map_time,
+                         focus_box=focus_box)
 
 
 TYPE_DISPATCH = {
@@ -309,7 +310,7 @@ def _run_tc(handler, r: _RecipeRun) -> list:
 
 def _run_cloud(handler, r: _RecipeRun) -> list:
     return guarded("cloud", handler, *_args4(r), paraview=r.paraview, every=r.every,
-                   times=r.times, map_time=r.map_time)
+                   times=r.times, map_time=r.map_time, focus_box=r.focus_box)
 
 
 def _run_convection(handler, r: _RecipeRun) -> list:
@@ -321,7 +322,7 @@ def _run_terrain(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("terrain"),
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir, map_time=r.map_time)
+                   project_dir=r.project_dir, map_time=r.map_time, focus_box=r.focus_box)
 
 
 def _run_moisture(handler, r: _RecipeRun) -> list:

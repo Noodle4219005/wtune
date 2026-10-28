@@ -428,3 +428,39 @@ def test_obs_check_warns_on_station_units(tmp_path):
         license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
     err, warn = agent_obs.check(str(d))
     assert err == [] and len(warn) == 2
+
+
+
+def test_window_centres_on_the_rain_peak(tmp_path):
+    """haitang2017 run72: the latest 24 h (08-02 00Z -> 08-03 00Z) began after the 08-01 23Z
+    peak; the window now contains the peak, centred as near it as the files allow."""
+    d = _dataset(tmp_path, hours=range(1, 37))
+    frames = [datetime(2016, 10, 6, 12) + timedelta(hours=h) for h in range(49)]
+    idx = agent_obs.grid_index(str(d))
+    assert agent_obs.pick_window(frames, 6, idx)[1:3] == (datetime(2016, 10, 7, 12),
+                                                         datetime(2016, 10, 8, 12))
+    assert agent_obs.pick_window(frames, 6, idx, around=datetime(2016, 10, 7, 8))[1:3] == (
+        datetime(2016, 10, 7), datetime(2016, 10, 8))
+
+
+def test_grid_figures_over_taiwan_use_cwa_and_a_short_name(tmp_path, monkeypatch):
+    """haitang2017 run72: the CMORPH comparison over Taiwan was drawn on the WPC inch scale."""
+    from wtune.post import obs_figs, rainscale
+    lat, lon = np.meshgrid(np.linspace(21, 26, 6), np.linspace(118, 123, 6), indexing="ij")
+    f, o = np.full((6, 6), 40.0), np.full((6, 6), 120.0)
+    o[0, 0] = 400.0
+    levels, cmap, _name = rainscale.rain_scale(lat, lon, 400.0)
+    p = obs_figs.side_by_side(lat, lon, f, o, ("a", "b"), "t", str(tmp_path / "s.png"), levels,
+                              cmap=cmap)
+    assert os.path.isfile(p)                    # a one-colour-per-bin cmap draws
+    seen = {}
+    monkeypatch.setattr(obs_figs, "side_by_side",
+                        lambda *a, cmap=None, **k: seen.update(levels=a[7], cmap=cmap) or "x")
+    for fn in ("diff_map", "scores_vs_threshold", "fss_vs_scale"):
+        monkeypatch.setattr(obs_figs, fn, lambda *a, **k: "x")
+    cts = [dict(thresh=1, pod=1, far=0, csi=1, fbias=1, total=36)]
+    precip._grid_figures((lat, lon, f, o, cts, []), 25.0, "CMORPH", "CMORPH (obs)",
+                         precip.AGENT_GRID_IDS, {k: k + ".png" for k in precip.AGENT_GRID_IDS},
+                         "w", "m", {}, "2017-08-02_00:00:00", "run72", 3, str(tmp_path))
+    assert list(seen["levels"]) == [float(v) for v in rainscale.CWA_LEVELS]
+    assert seen["cmap"].name == "cwa_rain"

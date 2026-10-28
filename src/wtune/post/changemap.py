@@ -49,19 +49,24 @@ def _domain_crs(run_dir, domain):
         return None, None
 
 
-def _change_scale(field, diffs):
+def _change_scale(field, diffs, lat=None, lon=None):
     """(levels, cmap, extend, colour-bar label prefix) fixed for every map of one
     (field, mode): symmetric about 0 with NO boundary at 0 (the bin straddling 0 is one white
     band in RdBu_r) from the pooled 98th percentile of |diff|. rain_acc 'change' is never
-    negative (it is the rainfall in the interval), so it gets a sequential 0-based map."""
+    negative (it is the rainfall in the interval), so it gets a sequential 0-based map, on
+    CWA's thresholds when lat/lon put the grid over Taiwan (post/rainscale.py)."""
     import numpy as np
 
     vals = np.concatenate([np.asarray(d, dtype="f8").ravel() for d in diffs])
     vals = vals[np.isfinite(vals)]
     if field == "rain_acc":
-        # interval rainfall on the WPC isohyet thresholds in mm (decision 0064)
+        # interval rainfall on the WPC isohyet thresholds in mm (decision 0064), CWA's over Taiwan
         from wtune.post.obs_figs import PRECIP_LEVELS, precip_cmap
         hi = float(np.percentile(vals, 99.5)) if vals.size else 1.0
+        if lat is not None:
+            from wtune.post.rainscale import rain_scale
+            levels, cmap, _name = rain_scale(lat, lon, hi)
+            return levels, cmap, "max"
         upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
         levels = PRECIP_LEVELS[:max(2, len(upto) + 1)]
         return levels, precip_cmap(), "max"
@@ -144,7 +149,7 @@ def change_map(run_dir, run_label, field, domain, out_dir, t_prev, t_curr, t0, f
     try:
         lat, lon, diff = precomputed or _compute_diff(run_dir, field, domain, out_dir,
                                                       t_prev, t_curr)
-        scale = scale or _change_scale(field, [diff])
+        scale = scale or _change_scale(field, [diff], lat, lon)
         _draw_change(run_dir, field, domain, out_path, t_prev, t_curr, interval_h, lat, lon,
                      diff, scale)
         note = ("%d h rainfall (rain_acc(t) - rain_acc(t-%dh))" % (interval_h, interval_h)
@@ -198,10 +203,11 @@ def figures_for_change_maps(run_dir, run_label, domain, out_dir, selected_times,
 
     scales = {}
     for key in {(f, m) for (f, _, m, _, _) in jobs}:
-        diffs = [computed[j][2] for j, job in enumerate(jobs)
-                 if (job[0], job[2]) == key and j in computed]
-        if diffs:
-            scales[key] = _change_scale(key[0], diffs)
+        same = [computed[j] for j, job in enumerate(jobs)
+                if (job[0], job[2]) == key and j in computed]
+        if same:
+            scales[key] = _change_scale(key[0], [d for _la, _lo, d in same], same[0][0],
+                                        same[0][1])
 
     out = []
     for j, (field, fig_id, mode, a, b) in enumerate(jobs):

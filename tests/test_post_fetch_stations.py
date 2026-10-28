@@ -64,3 +64,25 @@ def test_when_no_station_is_kept_the_listing_drops_the_removed_ones(tmp_path, mo
     assert (base / "stations.csv").read_text() == "id,name,icao,lat,lon,elev_m\n"
     assert set(json.loads((base / "provenance.json").read_text())["files"]) == {"stations.csv"}
     assert "724646-03028 has no ISD-Lite file" in capsys.readouterr().out
+
+
+def test_refetch_removes_files_of_stations_no_longer_selected(tmp_path, monkeypatch, capsys):
+    """haitang2017-r2 2026-10-28: a fetch with a wrong bbox kept 110 North-African stations;
+    the refetch rewrote stations.csv but left their .gz files beside the new ones."""
+    def download(url, dest, known_sha=None, **k):
+        with gzip.open(dest, "wb") as fh:
+            fh.write(b"2019 02 13 20    10   -20 10200   270    30     0     0     0\n")
+        return sources.sha256_file(dest), True
+    monkeypatch.setattr(sources, "http_get", lambda url, **k: HISTORY.encode())
+    monkeypatch.setattr(sources, "download", download)
+    base = tmp_path / "input" / "obs" / "stations"
+    base.mkdir(parents=True)
+    with gzip.open(base / "605710-99999-2019.gz", "wb") as fh:
+        fh.write(b"x")
+    args = argparse.Namespace(project=str(tmp_path), run_dir=None, start="2019-02-13_20",
+                              end="2019-02-13_22", bbox="36.5,37.6,-103.2,-101.9", max_stations=5)
+    stations.run(args)
+    assert sorted(os.listdir(base)) == ["724604-93076-2019.gz", "724646-03028-2019.gz",
+                                        "provenance.json", "stations.csv"]
+    assert "removed 1 file(s)" in capsys.readouterr().out
+    assert "605710-99999-2019.gz" not in json.loads((base / "provenance.json").read_text())["files"]

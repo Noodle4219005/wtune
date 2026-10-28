@@ -388,21 +388,30 @@ def tile(index, start, end):
     return []
 
 
-def pick_window(frame_times, spinup_hours, index, spans=(24, 12, 6, 3, 1)):
+def pick_window(frame_times, spinup_hours, index, spans=(24, 12, 6, 3, 1), around=None):
     """(hours, start, end, paths) of the longest window of `spans` that starts after spin-up,
-    starts and ends on model frames, and the files tile; the latest such window. Else None."""
+    starts and ends on model frames, and the files tile; the latest such window, or with
+    `around` (datetime, the rain peak) the one centred nearest it among those containing it
+    (haitang2017: the latest 24 h began after the peak). Else None."""
     if len(frame_times) < 2:
         return None
     have = set(frame_times)
     t0 = frame_times[0] + timedelta(hours=spinup_hours)
     for span in spans:
+        wins = []
         for end in sorted(have, reverse=True):
             start = end - timedelta(hours=span)
             if start < t0 or start not in have:
                 continue
             paths = tile(index, start, end)
             if paths:
-                return span, start, end, paths
+                if around is None:
+                    return span, start, end, paths
+                wins.append((span, start, end, paths))
+        if wins:
+            inside = [w for w in wins if w[1] < around <= w[2]]
+            return (min(inside, key=lambda w: abs(w[1] + (w[2] - w[1]) / 2 - around))
+                    if inside else wins[0])
     return None
 
 

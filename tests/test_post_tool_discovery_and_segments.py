@@ -227,3 +227,12 @@ def test_empty_dir_has_no_frames_and_no_namelist(tmp_path):
     assert extract.list_frames(str(tmp_path / "missing"), domain=1) == []
     with pytest.raises(caseinfo.CaseInfoError):
         caseinfo.find_namelist(str(tmp_path))
+
+
+def test_find_run_track_csv_finds_the_file_post_tc_writes(tmp_path):
+    _touch(tmp_path / "post" / "20261028100000-recipe" / "tc" / "track_domains_run72.csv")
+    newer = _touch(tmp_path / "post" / "20261028174912-recipe" / "tc" / "track_domains_run72.csv")
+    _touch(tmp_path / "post" / "20261028174912-recipe" / "tc" / "quadrant_run72.csv")
+    ctx = Context(str(tmp_path), "s", str(tmp_path / "s_out"), [])
+    assert ctx.find_run_track_csv("run72") == newer
+    assert ctx.find_run_track_csv("run7") is None

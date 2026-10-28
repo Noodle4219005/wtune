@@ -135,7 +135,7 @@ def test_valley_time_height_reports_missing_when_no_point_found(monkeypatch, tmp
         getvar=lambda ds, name, timeidx=0: np.zeros((15, 15)),
         latlon_coords=lambda var, as_np=True: (np.zeros((15, 15)), np.zeros((15, 15))))
     monkeypatch.setitem(sys.modules, "wrf", fake_wrf)
-    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds: None)
+    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds, **k: None)
 
     path, reason = terrain._valley_time_height("/fake/run", "run0", 1, str(tmp_path),
                                                 bdy_width=5)

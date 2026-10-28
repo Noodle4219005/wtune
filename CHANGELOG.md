@@ -43,6 +43,15 @@ recipe` now also writes `figures.json`.
   North Africa for haitang2017).
 - TC structure figures: at the last frame the track covers. Past its end they had centred on
   the deepest low anywhere in the domain (haitang2017 F072: a low over Guangxi).
+- The valley time-height point and the cloud section's max-TWP column are taken inside
+  `post.focus` when one qualifies there (haitang2017 picked both in Fujian).
+- Gridded-rain comparisons with an agent dataset (CMORPH): the window is centred on the rain
+  peak instead of the run's last hours, Taiwan gets CWA's scale, and the figures name the
+  dataset briefly (its full title overlapped the panel titles). The 6-h rain change maps use
+  CWA's scale over Taiwan too.
+- `post fetch igra` takes the run's finest domain by default (the one the pbl figures use),
+  not d01; `post fetch stations` removes the files of stations a refetch no longer selects.
+- `ctx.find_run_track_csv` finds `tc/track_domains_<run_id>.csv`, the file post/tc.py writes.
 
 **TC tracking on a Lambert grid.** TempestExtremes' `GenerateConnectivityFile --in_data`
 writes every point with no neighbours, so DetectNodes took every cell as a local minimum (a

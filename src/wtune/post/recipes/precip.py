@@ -218,10 +218,14 @@ def _grid_figures(scores, cell_km, obs_short, obs_panel, ids, files, win_txt, ma
     glat, glon, gf, go, cts, nbr = scores
     kw = dict(domain="d%02d" % domain, valid_time=stamp, extra=common)
     out = []
+    from wtune.post import rainscale
+    levels, cmap = obs_figs.PRECIP_LEVELS, None
+    if rainscale.over_taiwan(glat, glon):
+        levels, cmap, _name = rainscale.rain_scale(glat, glon, float(np.nanmax([gf, go])))
     p = obs_figs.side_by_side(
         glat, glon, gf, go, ("%s d%02d model" % (run_label, domain), obs_panel),
         "accumulated precipitation %s, matched points, %s" % (win_txt, mask_note),
-        os.path.join(out_dir, files["compare"]), obs_figs.PRECIP_LEVELS, cbar_label="mm")
+        os.path.join(out_dir, files["compare"]), levels, cmap=cmap, cbar_label="mm")
     out.append(fig(ids["compare"], p, run_label, **kw))
     dmax = float(np.nanpercentile(np.abs(gf - go), 98)) or 1.0
     p = obs_figs.diff_map(glat, glon, gf, go, "model - %s, %s, %s" % (obs_short, win_txt, mask_note),
@@ -250,9 +254,11 @@ AGENT_GRID_IDS = {"compare": "precip_agent_compare", "diff": "precip_agent_diff"
                   "scores": "precip_agent_scores", "fss": "precip_agent_fss"}
 
 
-def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
+def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                        map_time=None):
     """Grid-Stat against every gridded precipitation dataset an agent fetched
-    (post/agent_obs.py), the same way as Stage IV: the obs grid is the verification grid."""
+    (post/agent_obs.py), the same way as Stage IV: the obs grid is the verification grid; the
+    window around map_time (the rain peak) when given."""
     import numpy as np
     from wtune.post import agent_obs, met_gridstat
     from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
@@ -269,7 +275,9 @@ def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hour
             for f in frames}
     for name, ds_dir, prov in ok:
         label = prov.get("dataset") or name
-        win = agent_obs.pick_window(times, spinup_hours, agent_obs.grid_index(ds_dir))
+        win = agent_obs.pick_window(times, spinup_hours, agent_obs.grid_index(ds_dir),
+                                    around=datetime.strptime(map_time, WRF_TIME_FMT)
+                                    if map_time else None)
         if win is None:
             out += [missing(i, label, "its precip_*.nc files cover no 24/12/6/3/1 h window that "
                             "starts after the %g h spin-up on a model output time" % spinup_hours)
@@ -312,7 +320,8 @@ def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hour
         common = dict(obs_sources=[agent_obs.source_tag(name, prov)],
                       tool="MET grid_stat (model regridded to the %s grid, BUDGET)" % name,
                       window=win_txt, csv=[csv_cat, csv_fss], mask="model interior")
-        out += _grid_figures((glat, glon, gf, go, cts, nbr), cell_km, label, "%s (obs)" % label,
+        short = name.upper()                # prov["dataset"] is a sentence-long title
+        out += _grid_figures((glat, glon, gf, go, cts, nbr), cell_km, short, "%s (obs)" % short,
                              AGENT_GRID_IDS,
                              {k: "precip_%s_%s.png" % (name, k) for k in AGENT_GRID_IDS},
                              win_txt, "model interior", common, valid.strftime(WRF_TIME_FMT),
@@ -471,7 +480,7 @@ def _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, pr
     return out
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None):
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None, map_time=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -501,7 +510,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
 
     project_dir = os.path.abspath(project_dir) if project_dir else _project_of(out_dir)
     out += _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
-    out += _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
+    out += _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                               map_time=map_time)
     out += _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)

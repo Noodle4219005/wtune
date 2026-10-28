@@ -224,7 +224,7 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
     monkeypatch.setattr(terrain, "_terrain_wind_map", lambda *a, **k: "w.png")
     monkeypatch.setattr(terrain, "_cross_section_figure", boom(KeyError("W")))
     monkeypatch.setattr(terrain, "_rain_over_terrain", boom(KeyError("RAINC")))
-    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: ("v.png", None))
+    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a, **k: ("v.png", None))
     monkeypatch.setattr(terrain, "list_frame_refs", boom(IndexError("x")))
     monkeypatch.setattr(terrain, "_point_stat", boom(ValueError("bad obs")))
     out = terrain.figures(["/run"], ["r"], str(tmp_path), info, project_dir=str(tmp_path))
@@ -249,7 +249,7 @@ def test_terrain_point_stat_not_repeated_on_the_precip_domain(monkeypatch, tmp_p
     for name in ("_terrain_wind_map", "_rain_over_terrain"):
         monkeypatch.setattr(terrain, name, lambda *a, **k: None)
     monkeypatch.setattr(terrain, "_cross_section_figure", lambda *a, **k: None)
-    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: (None, "x"))
+    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a, **k: (None, "x"))
     monkeypatch.setattr(terrain, "list_frame_refs", lambda *a, **k: [])
     calls = []
     monkeypatch.setattr(terrain, "_point_stat",
@@ -278,7 +278,7 @@ def test_valley_time_height_barbs_are_in_kt(monkeypatch, tmp_path):
                 "uvmet": np.stack([z * 0.0 + 10.0, z * 0.0])}[name]
     monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace(
         getvar=getvar, latlon_coords=lambda v, as_np=True: (np.zeros((ny, nx)),) * 2))
-    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds: (7, 7))
+    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds, **k: (7, 7))
     barbs, titles = [], []
     monkeypatch.setattr(matplotlib.axes.Axes, "barbs",
                         lambda self, x, y, u, v, **kw: barbs.append((u, v)))

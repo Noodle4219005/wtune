@@ -521,12 +521,15 @@ def cloud_top_figure(path, time_str, out_path, run_label, domain, timeidx=0):
 
 # ---------------------------------------------------------------- B3 cross sections
 
-def max_column(field2d, bdy_width):
-    """(j, i) of the field maximum over the interior (bdy_width edge cells excluded)."""
+def max_column(field2d, bdy_width, inside=None):
+    """(j, i) of the field maximum over the interior (bdy_width edge cells excluded); within
+    `inside` (bool array, post.focus) when the interior has a cell there."""
     import numpy as np
     a = np.array(field2d, "f8")
     ny, nx = a.shape
     bw = int(bdy_width) if 2 * int(bdy_width) < min(ny, nx) else 0
+    if inside is not None and np.asarray(inside)[bw:ny - bw, bw:nx - bw].any():
+        a = np.where(inside, a, -np.inf)
     sub = a[bw:ny - bw, bw:nx - bw]
     sub = np.where(np.isfinite(sub), sub, -np.inf)
     j, i = np.unravel_index(int(np.argmax(sub)), sub.shape)
@@ -553,17 +556,20 @@ def section_directions(u, v):
 
 
 def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width,
-                      timeidx=0):
+                      timeidx=0, focus_box=None):
     import numpy as np
     import netCDF4
     from matplotlib.lines import Line2D
     from wtune.post import condensate
     from wtune.post.conventions import ds_time_label
+    from wtune.post.focus import box_mask
     wrf_mod = _wrf()
     with netCDF4.Dataset(path) as ds:
         dx = dx_km_of(ds)
         twp = condensate.water_paths(ds, timeidx)["TWP"]
-        jc, ic = max_column(twp, bdy_width)
+        jc, ic = max_column(twp, bdy_width,
+                            inside=box_mask(ds.variables["XLAT"][timeidx],
+                                            ds.variables["XLONG"][timeidx], focus_box))
         q = condensate.total_condensate(ds, timeidx) * 1000.0
         z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
         zagl = np.asarray(wrf_mod.getvar(ds, "height_agl", timeidx=timeidx, units="m", meta=False), "f8")
@@ -797,7 +803,7 @@ def _agent_ir_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hou
 
 
 def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True,
-            map_time=None):
+            map_time=None, focus_box=None):
     """The cloud figure set for run_dirs[0] (records per post.recipe fig()/missing()); the
     one-time figures at the frame nearest map_time, else the last frame."""
     import netCDF4
@@ -846,7 +852,7 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
         p = os.path.join(out_dir, "cloud_xsec_%s.png" % dom)
         try:
             cloud_xsec_figure(last_path, last_time, p, run_label, domain, bdy_width,
-                              timeidx=last_ti)
+                              timeidx=last_ti, focus_box=focus_box)
             out.append(fig("cloud_xsec", p, run_label, domain=dom, valid_time=last_time))
         except _ERRORS as e:
             out.append(missing("cloud_xsec", "wrfout_%s (wrf-python z/ua/va/wa/tc, PBLH)" % dom,

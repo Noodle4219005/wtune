@@ -143,12 +143,12 @@
    [
     "dispatch-cloud",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', '6h'), ('map_time', None), ('paraview', False), ('times', ['t1'])]"
+    "[('every', '6h'), ('focus_box', None), ('map_time', None), ('paraview', False), ('times', ['t1'])]"
    ],
    [
     "dispatch-terrain",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'t': 1}), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'t': 1}), ('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-moisture",

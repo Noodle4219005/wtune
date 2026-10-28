@@ -98,3 +98,56 @@ def test_one_time_maps_get_the_rain_peak(tmp_path, monkeypatch):
     recipe._run_simple(recipe.TYPE_DISPATCH["synoptic"], r)
     recipe._run_terrain(recipe.TYPE_DISPATCH["terrain"], r)
     assert seen == {synoptic.__name__: peak, terrain.__name__: peak}
+
+
+def test_valley_and_cloud_section_points_prefer_post_focus(monkeypatch, tmp_path):
+    """haitang2017 run72: the valley time-height (26.21N 119.02E) and the d03 cloud section
+    (26.61N 116.34E) were picked domain-wide, in Fujian, outside post.focus over Taiwan."""
+    from wtune.post import recipe
+    from wtune.post.focus import box_mask
+    from wtune.post.recipes import cloud, terrain
+    lat, lon = np.meshgrid(np.linspace(20, 27, 15), np.linspace(116, 123, 15), indexing="ij")
+    box = [21.8, 25.4, 119.9, 122.1]
+    inside = box_mask(lat, lon, box)
+    hgt = np.full((15, 15), 500.0)
+    hgt[12, 4] = 0.0                       # deepest valley, outside the box
+    hgt[7, 9] = 100.0                      # shallower valley, inside
+    bounds = (2, 13, 2, 13)
+    assert terrain._find_valley_point(hgt, None, bounds) == (12, 4)
+    assert terrain._find_valley_point(hgt, None, bounds, inside=inside) == (7, 9)
+    hgt[7, 9] = 500.0                      # nothing qualifies inside: domain-wide pick
+    assert terrain._find_valley_point(hgt, None, bounds, inside=inside) == (12, 4)
+    twp = np.zeros((15, 15))
+    twp[12, 4], twp[7, 9] = 5.0, 1.0
+    assert cloud.max_column(twp, 2) == (12, 4)
+    assert cloud.max_column(twp, 2, inside=inside) == (7, 9)
+    assert box_mask(lat, lon, None) is None
+
+    seen = {}
+    monkeypatch.setattr(terrain, "figures", lambda *a, focus_box=None, **k:
+                        seen.setdefault("terrain", focus_box) and [])
+    monkeypatch.setattr(cloud, "figures", lambda *a, focus_box=None, **k:
+                        seen.setdefault("cloud", focus_box) and [])
+    case = dict(types=["terrain", "cloud"], domains=[dict(domain=3, dx_km=3.0)])
+    r = recipe._RecipeRun([str(tmp_path)], ["run0"], str(tmp_path / "out"), case,
+                          focus_box=box)
+    recipe._run_terrain(recipe.TYPE_DISPATCH["terrain"], r)
+    recipe._run_cloud(recipe.TYPE_DISPATCH["cloud"], r)
+    assert seen == {"terrain": box, "cloud": box}
+
+
+def test_precip_gets_the_rain_peak_for_its_obs_window(monkeypatch, tmp_path):
+    from wtune.post import recipe
+    from wtune.post.recipes import precip
+    seen = {}
+
+    def fake(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None,
+             map_time=None):
+        seen["map_time"] = map_time
+        return []
+    monkeypatch.setattr(precip, "figures", fake)
+    case = dict(types=["precip"], domains=[dict(domain=3, dx_km=3.0)])
+    r = recipe._RecipeRun([str(tmp_path)], ["run0"], str(tmp_path / "out"), case,
+                          map_time="2017-08-01_23:00:00")
+    recipe._run_simple(recipe.TYPE_DISPATCH["precip"], r)
+    assert seen == {"map_time": "2017-08-01_23:00:00"}

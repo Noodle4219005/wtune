@@ -538,7 +538,7 @@ def _launch_retry_block():
 
 @pytest.mark.parametrize("crashes,rc,retries", [(1, 0, 1), (2, 139, 1), (0, 0, 0)])
 def test_a_probe_killed_by_sigsegv_runs_once_more(tmp_path, crashes, rc, retries):
-    # haitang2017 (2026-10-27): Open MPI 5.0.10 crashed intermittently in ob1/btl_sm; the same
+    # haitang2017 (2026-10-27): probes crashed intermittently on SIGSEGV at the first step; the same
     # configuration ran on the next try, but tune had dropped every node-sweep anchor
     fake = tmp_path / "fake_mpirun.sh"
     fake.write_text("n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count\n"

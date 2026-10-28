@@ -37,11 +37,15 @@ recipe` now also writes `figures.json`.
 - Wind barbs: ~15 along the short side, the 700 hPa set between the 10 m one, none where the
   level is underground.
 
-**Probe crashes on f1-arm.** 30 of 40 haitang2017 tune probes died on SIGSEGV about 5 s in
-(Open MPI 5.0.10, shared-memory BTL, while reading the d01 ADIOS2 input), so the node sweep had
-no measurement and tune fell back to its uncalibrated proxy. The f1-arm site now runs Open MPI
-with `btl=self,tcp` (3 of 3 such probes ran; ~3 % more s/step on one node); a probe that still
-dies on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
+**Probe crashes on f1-arm.** 30 of 40 haitang2017 tune probes died on SIGSEGV about 5 s in, so
+the node sweep had no measurement and tune fell back to its uncalibrated proxy. The cause is
+WRF's Goddard 4-ice microphysics (`mp_physics = 7`): it writes `refl_10cm` over the whole tile,
+but that array is allocated only when `do_radar_ref = 1`, so with the default 0 it overruns the
+heap. WTune now sets `do_radar_ref = 1` whenever `mp_physics` has a 7 (tune probes, `wtune run`,
+`case_rebuild`); history gains `REFL_10CM` and `REFD_MAX`, the other fields are bit-identical.
+The crash was first blamed on Open MPI's shared-memory BTL, so the f1-arm site still runs with
+`btl=self,tcp` (~3 % more s/step on one node) until btl/sm is measured again; a probe that dies
+on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
 
 **Tune measures one start point, then predicts with rebuilt points.** By default `wtune tune` no
 longer rebuilds prediction points before the layout search: phase 1 compares layouts on the t0

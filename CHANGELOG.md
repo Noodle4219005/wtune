@@ -20,6 +20,10 @@ Every `fix` names how: `project_set` (new `wtune project set --post-focus` and
 `--cross-section`), an `analysis/*.py` script, or a `wtune_defect` report. `AGENT.md` is the
 agent's guide to all of it, including how to connect any agent or harness; projects get an
 `AGENTS.md` pointing to it (`wtune project set --agents-md` for older ones).
+Skill `wtune-operate` covers the rest for an agent: installing, the project, inputs (`prep`,
+`metdata`, `scenario`, `convert`), checks and advice (`check`, `predict`, `advise`, `calc`,
+`physics`, `compliance`), `tune`/`run`/`submit`/`watch`/`stop`, and the single `post` tools;
+`AGENT.md` and the project `AGENTS.md` point to it.
 Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
 box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
 recipe` now also writes `figures.json`.

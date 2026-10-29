@@ -5,6 +5,10 @@ with programs. You do what needs judgement: read the user's description, find da
 fetch, decide which figures the case needs and how they must look, review every figure WTune
 draws (the preview before the run too), fix what is wrong, and write the assessment.
 
+Installing WTune, setting up a project, preparing inputs, tuning, running and monitoring WRF,
+and every other command are in `.claude/skills/wtune-operate/SKILL.md`. This file covers the
+judgement stages around a run.
+
 Never edit WRF source, the physics of the namelist, or WRF output. Never write a number you did
 not get from a WTune command or a CSV a script wrote. Every stage ends with a WTune check; a
 stage is done only when its check exits 0.
@@ -15,7 +19,9 @@ stage is done only when its check exits 0.
 |---|---|---|---|---|
 | 1 event | `wtune event init event.txt` | turn the user's words into event.yaml (skill `wtune-event`, part 1) | `event.yaml` | `wtune event check event.yaml` |
 | 2 data | `wtune event plan event.yaml` | fetch every `agent_fetch` row: rain, radar, satellite, gusts, non-NHC best tracks (skill `wtune-event`, part 2) | `<project>/input/obs/<name>/` in `wtune-obs/1`; a best track as an ATCF b-deck | `wtune event obs-check` |
+| 0 setup | `wtune project init`, `wtune doctor`; `wtune prep wps`, `prep real` when the case has no wrfinput (skill `wtune-operate`) | install if needed; create the project | `<project>/` | `wtune doctor` without `FAIL` |
 | 3 preview | `wtune post preview`, `wtune post brief post/preview` | review the preview figures; write the figure plan for after the run; apply the drawing options | `post/preview/review.json` with `plan` | `wtune post check post/preview` |
+| run | `wtune submit --no-post`, or `wtune tune` then `wtune run` (skill `wtune-operate`) | state the size; start it in the background; poll `wtune watch` | `tune/<id>/`, `runs/<id>/` | `wtune run` exits 0; `wtune watch runs/<id> --once --json` says `done` |
 | 4 post | `wtune post recipe`, `wtune post brief post/<id>` | review every figure; fix; draw the case's own figures; write the assessment (skill `wtune-post`) | `review.json`, `analysis/*.py`, `assessment.md` | `wtune post check post/<id>` |
 | 5 iterate | rerun the command of the stage you changed | redraw, review again | the same files | the same check |
 
@@ -141,7 +147,7 @@ Setup, once per project:
 | harness | how it gets these instructions |
 |---|---|
 | any harness that reads `AGENTS.md` (Codex, opencode, ...) | start it in the project directory; `wtune project init` writes `<project>/AGENTS.md` pointing here (`wtune project set --agents-md` for an older project) |
-| Claude Code | the same `AGENTS.md`, plus the skills: copy or link `<wtune>/.claude/skills/wtune-*` into `<project>/.claude/skills/` |
+| Claude Code | the same `AGENTS.md`, plus the skills: copy or link `<wtune>/.claude/skills/wtune-*` (operate, event, post) into `<project>/.claude/skills/` |
 | your own loop or a plain chat model | put this file and the stage's `SKILL.md` in the system prompt |
 
 The loop for every stage:
@@ -171,6 +177,8 @@ Files with a schema:
 
 ## Files
 
+- `.claude/skills/wtune-operate/SKILL.md` -- install, project, inputs, tune, run, monitor,
+  and every other command.
 - `.claude/skills/wtune-event/SKILL.md` -- stages 1-2.
 - `.claude/skills/wtune-post/SKILL.md` -- stages 3-4, step by step.
 - `docs/tutorial/post.md` -- the commands.

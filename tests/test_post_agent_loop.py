@@ -205,7 +205,7 @@ def test_projects_point_agents_at_the_instructions(tmp_path):
     from wtune import project as wp
     path = wp.init_project(str(tmp_path / "new"))
     text = open(os.path.join(path, "AGENTS.md")).read()
-    for name in ("AGENT.md", "wtune-event", "wtune-post", "bin/wtune"):
+    for name in ("AGENT.md", "wtune-operate", "wtune-event", "wtune-post", "bin/wtune"):
         assert name in text
     old = _project(tmp_path)
     assert wp.main(["set", "--project", str(old), "--agents-md"]) == 0

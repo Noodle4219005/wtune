@@ -642,10 +642,12 @@ def write_agents_pointer(project_dir) -> str:
     skills = os.path.join(repo, ".claude", "skills")
     text = ("# WTune project\n\n"
             "Before any WTune work in this project, read %s.\n\n"
+            "- install, project, inputs, tune, run, monitor, other commands: %s\n"
             "- events and observations: %s\n"
             "- figures, preview, post-processing, assessment: %s\n\n"
             "Run WTune as `%s`.\n"
             % (os.path.join(repo, "AGENT.md"),
+               os.path.join(skills, "wtune-operate", "SKILL.md"),
                os.path.join(skills, "wtune-event", "SKILL.md"),
                os.path.join(skills, "wtune-post", "SKILL.md"),
                os.path.join(repo, "bin", "wtune")))

@@ -26,6 +26,12 @@ Skill `wtune-operate` covers the rest for an agent: installing, the project, inp
 `AGENT.md` and the project `AGENTS.md` point to it.
 The skills moved from `.claude/skills/` to `skills/` (`.claude/skills/` keeps links for
 Claude Code), and `AGENT.md` says how any harness, a plain chat model or a person loads them.
+`wtune doctor` checks every path a job uses (site file, partition, the env file and whether its
+`WRF_TREE` matches machine.yaml's `wrf_tree`, the libraries `wrf.exe` cannot load after sourcing
+it, WPS, geog, the site's adios2 python, Natural Earth), each with its fix; `--json` prints the
+checks for an agent and `--find` searches the disk for WRF trees, WPS, geog data and the missing
+libraries, so an agent can set the paths up itself (skill `wtune-operate`, "Paths"). `f1.sh`
+now takes `WTUNE_PIXI_ENV` like the other sites.
 Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
 box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
 recipe` now also writes `figures.json`.

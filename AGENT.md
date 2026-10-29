@@ -25,7 +25,7 @@ stage is done only when its check exits 0.
 |---|---|---|---|---|
 | 1 event | `wtune event init event.txt` | turn the user's words into event.yaml (skill `wtune-event`, part 1) | `event.yaml` | `wtune event check event.yaml` |
 | 2 data | `wtune event plan event.yaml` | fetch every `agent_fetch` row: rain, radar, satellite, gusts, non-NHC best tracks (skill `wtune-event`, part 2) | `<project>/input/obs/<name>/` in `wtune-obs/1`; a best track as an ATCF b-deck | `wtune event obs-check` |
-| 0 setup | `wtune project init`, `wtune doctor`; `wtune prep wps`, `prep real` when the case has no wrfinput (skill `wtune-operate`) | install if needed; create the project | `<project>/` | `wtune doctor` without `FAIL` |
+| 0 setup | `wtune doctor --json` (paths: skill `wtune-operate`, "Paths"), `wtune project init`; `wtune prep wps`, `prep real` when the case has no wrfinput (skill `wtune-operate`) | install if needed; create the project | `<project>/` | `wtune doctor` without `FAIL` |
 | 3 preview | `wtune post preview`, `wtune post brief post/preview` | review the preview figures; write the figure plan for after the run; apply the drawing options | `post/preview/review.json` with `plan` | `wtune post check post/preview` |
 | run | `wtune submit --no-post`, or `wtune tune` then `wtune run` (skill `wtune-operate`) | state the size; start it in the background; poll `wtune watch` | `tune/<id>/`, `runs/<id>/` | `wtune run` exits 0; `wtune watch runs/<id> --once --json` says `done` |
 | 4 post | `wtune post recipe`, `wtune post brief post/<id>` | review every figure; fix; draw the case's own figures; write the assessment (skill `wtune-post`) | `review.json`, `analysis/*.py`, `assessment.md` | `wtune post check post/<id>` |

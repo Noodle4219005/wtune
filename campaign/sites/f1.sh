@@ -19,7 +19,7 @@ OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wrf-bench/wscore/campaign}
 HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')
 OMP_RUNTIME=intel        # KMP_BLOCKTIME applies
 QUOTA_FS=home1           # mmlsquota filesystem of the probe disk guard
-PIXI_ENV=$HOME/wrf-stack/wtune-pixi-env-20260830
+PIXI_ENV=${WTUNE_PIXI_ENV:-$HOME/wrf-stack/wtune-pixi-env-20260830}
 # vendored into this repo 2026-09-15: the old external path
 # $HOME/SC26-WRF-p0/scripts/vendor/wrf-adios2-to-netcdf4/convert.py disappeared, and
 # physics smoke 1076771-1076776 silently produced no netCDF / no fidelity at all.

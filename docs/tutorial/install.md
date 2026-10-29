@@ -71,12 +71,24 @@ OK    pixi: /home/you/.pixi/bin/pixi
 OK    envs/wtune ready
 FAIL  envs/adios2 not installed (ADIOS2 BP conversion)
       fix: pixi install --manifest-path /path/to/wtune/envs/adios2/pixi.toml
-FAIL  WRF_TREE is not set
-      fix: source ~/wtune-scc/env.sh
+FAIL  env file /home/you/wtune-scc/env.sh does not exist (every job sources it)
+      fix: write it (WRF_TREE, WPS_DIR, the library paths of WRF's build; skill wtune-operate 'Paths'), then wtune project set --user --env-source FILE
 WARN  pvbatch not found: ParaView 3-D figures are skipped
       fix: bin/install-postproc.sh (README 'Installation')
 ```
 
 照 `fix:` 那一行做，重跑 `wtune doctor`，直到沒有 `FAIL`。有任何 `FAIL` 時指令的 exit status 是 1。
+
+路徑的檢查包括：site 檔、partition、每個 job 都會 source 的 env 檔、WRF 樹（`main/wrf.exe`、`main/real.exe`）、source env 檔之後 `wrf.exe` 載入不到的函式庫、env 檔的 `WRF_TREE` 是否等於 machine.yaml 的 `wrf_tree`（tune 的 job 用前者，`wtune run` 用後者）、WPS、geog 資料、site 檔的 adios2 python 環境（`PIXI_ENV`）、Natural Earth。
+
+不知道 WRF、WPS、geog 或缺的函式庫在哪裡時：
+
+```bash
+wtune doctor --find                               # 在 $HOME 底下找，最多 120 秒
+wtune doctor --find --find-root /work/$USER       # 再加其他檔案系統
+wtune doctor --json                               # 給 agent 讀的同一份結果
+```
+
+`--find` 列出找到的 WRF 樹、WPS、geog 資料夾、既有的 WTune env 檔，以及每個缺的函式庫在哪些資料夾。agent 照 `skills/wtune-operate/SKILL.md` 的「Paths」一節，就能自己寫好 env 檔與 machine.yaml。
 
 下一步：[2. submit](quickstart.md)。

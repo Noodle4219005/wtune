@@ -28,11 +28,59 @@ Rules that hold for every command:
 | layer | what | command |
 |---|---|---|
 | core | pixi envs `envs/wtune` (python, catboost, netCDF4...) and `envs/adios2` | `curl -fsSL https://pixi.sh/install.sh \| bash`; `pixi install --frozen --manifest-path envs/wtune/pixi.toml`; the same for `envs/adios2/pixi.toml`; `bin/wtune --version` |
-| WRF/WPS | built by the user, WTune never builds it | `export WRF_TREE=<tree with main/wrf.exe, main/real.exe, run/>`, `export WPS_DIR=<WPS>` |
+| WRF/WPS | built by the user, WTune never builds it | find and set the paths as in "Paths" below |
 | postproc (optional) | MET 12.1.1 and nccmp (spack env `envs/postproc`), ParaView (`envs/paraview`), Natural Earth | `sbatch bin/install-postproc.sbatch` (on a compute node), `bin/install-postproc.sh --check`, `bin/fetch-natural-earth.sh`; then set `WTUNE_POSTPROC_VIEW`, `WTUNE_PARAVIEW_BIN`, `WTUNE_CARTOPY_DATA` |
 
 Then `wtune doctor` until no line says `FAIL`. A missing optional tool shows up later as a
 skipped figure with the reason, not as an error.
+
+### Paths: set them up yourself
+
+`wtune doctor --json` checks every path a job uses and gives each `FAIL`/`WARN` a `fix`: the
+site file, the partition, the env file every job sources, the WRF tree (`main/wrf.exe`,
+`main/real.exe`), the libraries `wrf.exe` cannot load after sourcing the env file, the WRF_TREE
+of the env file against machine.yaml's `wrf_tree` (tune jobs use the first, `wtune run` the
+second), WPS, the geog data, the site's adios2 python (`PIXI_ENV`) and Natural Earth. Do not ask
+the user for a path WTune can find:
+
+1. `wtune doctor --json`. Done when `ok` is true and every `WARN` left is a feature the user does
+   not need.
+2. `wtune doctor --find --json` searches `$HOME`; add the cluster's other file systems with
+   `--find-root /work/$USER --find-root /opt ...` (at most `--find-seconds`, default 120). It
+   lists `wrf_tree`, `wps_dir`, `geog`, `env_files` (existing WTune env files) and, for each
+   library `wrf.exe` cannot load, the folders that hold it.
+3. Pick from what it found:
+   - WRF tree: `main/wrf.exe` and `main/real.exe` exist, `configure.wrf` has
+     `DMPARALLEL = 1` (dmpar), and `ADIOS2` appears in it when the runs use io_form 14 (WTune's
+     default). Several valid trees: take the one the user named, else the newest, and say which.
+   - Libraries: the folder whose path names the same compiler and MPI as the WRF build (spack
+     views and install prefixes do); if WRF was built under `module load`, put the same
+     `module load` lines in the env file instead.
+4. Write the env file (one per machine, e.g. `~/wtune-<site>/env.sh`, sourced by every job and at
+   each login):
+
+   ```bash
+   # module load ...                        # only if WRF was built with modules
+   export WRF_TREE=<tree>
+   export WPS_DIR=<wps>
+   export LD_LIBRARY_PATH=<lib folders>:${LD_LIBRARY_PATH:-}
+   export WTUNE_PIXI_ENV=<wtune>/envs/adios2
+   export WTUNE_CARTOPY_DATA=<wtune>/envs/cartopy-data   # after bin/fetch-natural-earth.sh
+   export PATH=<wtune>/bin:$PATH
+   ```
+
+5. Record it: `wtune project set --user --env-source <env file> --wrf-tree <tree> --geog <geog>`
+   (the same tree as in the env file), then `source <env file>`.
+6. Scheduler values: partition from `sinfo -h -o %P`; cores per node from
+   `sinfo -h -p <partition> -o %c`; an account from `sacctmgr -nP show assoc user=$USER
+   format=account` when the site needs one; set them with `wtune project set --user
+   --partition P --cores-per-node N --account A`.
+7. Back to step 1.
+
+Ask the user only when: no `wrf.exe` exists anywhere (WTune does not build WRF:
+`docs/guide/build-wrf-f1-arm.md` is one recipe); `sacctmgr` lists several accounts; or the
+cluster has no site file in `campaign/sites/` (copy the closest one, set `CORES_PER_NODE`,
+`site_env` and `site_launch`, and have the user review it before the first job).
 
 Site and machine:
 

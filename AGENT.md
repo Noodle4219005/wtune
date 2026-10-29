@@ -5,9 +5,15 @@ with programs. You do what needs judgement: read the user's description, find da
 fetch, decide which figures the case needs and how they must look, review every figure WTune
 draws (the preview before the run too), fix what is wrong, and write the assessment.
 
+This file is for any agent (Codex, Claude Code, opencode, pi, a local model in your own loop)
+and for a person doing the same work by hand: the interface is the shell, files and exit codes.
+A "skill" below is a plain Markdown file, `skills/<name>/SKILL.md` in this repository; read it
+as text. Its frontmatter (`name`, `description`) only helps harnesses that load skills by
+themselves.
+
 Installing WTune, setting up a project, preparing inputs, tuning, running and monitoring WRF,
-and every other command are in `.claude/skills/wtune-operate/SKILL.md`. This file covers the
-judgement stages around a run.
+and every other command are in `skills/wtune-operate/SKILL.md`. This file covers the judgement
+stages around a run.
 
 Never edit WRF source, the physics of the namelist, or WRF output. Never write a number you did
 not get from a WTune command or a CSV a script wrote. Every stage ends with a WTune check; a
@@ -129,7 +135,7 @@ cite with `ctx.save_table(...)`. Hold your figures to the checklist above.
 against observations), scores, mechanism, conclusion and limits. Every paragraph links at least
 one figure or CSV as `[text](relative/path)`; a decimal next to a CSV link must be in that CSV
 at the precision written; say "not verified" when no observation covers a claim. Details:
-`.claude/skills/wtune-post/SKILL.md`.
+`skills/wtune-post/SKILL.md`.
 
 ## Connecting an agent or harness
 
@@ -144,11 +150,16 @@ that can do three things can drive it:
 
 Setup, once per project:
 
-| harness | how it gets these instructions |
+`wtune project init` writes `<project>/AGENTS.md`, which gives the absolute paths of this file
+and of the three skills (`wtune project set --agents-md` writes it for an older project). Then:
+
+| who | how it gets these instructions |
 |---|---|
-| any harness that reads `AGENTS.md` (Codex, opencode, ...) | start it in the project directory; `wtune project init` writes `<project>/AGENTS.md` pointing here (`wtune project set --agents-md` for an older project) |
-| Claude Code | the same `AGENTS.md`, plus the skills: copy or link `<wtune>/.claude/skills/wtune-*` (operate, event, post) into `<project>/.claude/skills/` |
+| a harness that reads `AGENTS.md` | start it in the project directory |
+| a harness that reads another file name (`CLAUDE.md`, `GEMINI.md`, ...) | make that file in the project say `Read AGENTS.md first.`, or link it to `AGENTS.md` |
+| a harness that loads skills from a directory | link `<wtune>/skills/wtune-*` there, or pass each one (`pi --skill <wtune>/skills/wtune-event`); this repository links them into `.claude/skills/` for Claude Code |
 | your own loop or a plain chat model | put this file and the stage's `SKILL.md` in the system prompt |
+| a person | read this file and the stage's `SKILL.md`, run the same commands; the checks are the same |
 
 The loop for every stage:
 
@@ -177,8 +188,8 @@ Files with a schema:
 
 ## Files
 
-- `.claude/skills/wtune-operate/SKILL.md` -- install, project, inputs, tune, run, monitor,
-  and every other command.
-- `.claude/skills/wtune-event/SKILL.md` -- stages 1-2.
-- `.claude/skills/wtune-post/SKILL.md` -- stages 3-4, step by step.
+- `skills/wtune-operate/SKILL.md` -- install, project, inputs, tune, run, monitor, and every
+  other command.
+- `skills/wtune-event/SKILL.md` -- stages 1-2.
+- `skills/wtune-post/SKILL.md` -- stages 3-4, step by step.
 - `docs/tutorial/post.md` -- the commands.

@@ -24,6 +24,8 @@ Skill `wtune-operate` covers the rest for an agent: installing, the project, inp
 `metdata`, `scenario`, `convert`), checks and advice (`check`, `predict`, `advise`, `calc`,
 `physics`, `compliance`), `tune`/`run`/`submit`/`watch`/`stop`, and the single `post` tools;
 `AGENT.md` and the project `AGENTS.md` point to it.
+The skills moved from `.claude/skills/` to `skills/` (`.claude/skills/` keeps links for
+Claude Code), and `AGENT.md` says how any harness, a plain chat model or a person loads them.
 Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
 box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
 recipe` now also writes `figures.json`.

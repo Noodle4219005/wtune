@@ -10,7 +10,7 @@ import yaml
 from wtune import event
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SKILL = os.path.join(os.path.dirname(HERE), ".claude", "skills", "wtune-event", "SKILL.md")
+SKILL = os.path.join(os.path.dirname(HERE), "skills", "wtune-event", "SKILL.md")
 EVENTS = os.path.join(HERE, "fixtures", "events")
 
 TXT = ("2013 年 6 月加拿大 Alberta 的洪水，暖濕氣流撞上洛磯山脈東坡，兩天下了 200 mm 以上。\n"

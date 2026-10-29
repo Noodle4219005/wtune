@@ -639,7 +639,7 @@ def write_agents_pointer(project_dir) -> str:
     """<project>/AGENTS.md: where this WTune's agent instructions are (AGENT.md and the skills,
     absolute paths). Agent harnesses read AGENTS.md from the directory they work in."""
     repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    skills = os.path.join(repo, ".claude", "skills")
+    skills = os.path.join(repo, "skills")
     text = ("# WTune project\n\n"
             "Before any WTune work in this project, read %s.\n\n"
             "- install, project, inputs, tune, run, monitor, other commands: %s\n"

@@ -14,7 +14,7 @@ wtune event plan event.yaml --run-dir runs/<id>
 我有一份 CMA 測站逐時雨量 ~/obs/cma_rain.csv。
 ```
 
-agent（Claude Code、pi 等）依 `.claude/skills/wtune-event/SKILL.md` 把它轉成 `event.yaml`，WTune 再檢查它、決定要用哪些觀測資料。這三步各有分工：
+agent（Claude Code、pi 等）依 `skills/wtune-event/SKILL.md` 把它轉成 `event.yaml`，WTune 再檢查它、決定要用哪些觀測資料。這三步各有分工：
 
 | 步驟 | 誰做 | 做什麼 |
 |---|---|---|

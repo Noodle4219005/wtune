@@ -65,6 +65,7 @@ pixi run --manifest-path envs/docs/pixi.toml serve      # MkDocs，原始檔在 
 | `envs/` | pixi 與 spack 環境 |
 | `tests/` | 測試 |
 | `docs/` | MkDocs 文件 |
+| `AGENT.md`、`skills/` | 給 agent（任何 harness）或手動操作者的工作說明：安裝與全部指令（`wtune-operate`）、事件與觀測（`wtune-event`）、審圖與判讀（`wtune-post`）；`.claude/skills/` 只是給 Claude Code 的連結 |
 | `examples/` | 設定檔範例 |
 | `results/derived-data/` | 報告數字背後的處理後資料 |
 | `archive/` | 已退役、沒有現行程式匯入的程式碼：`plov/`、`research/`、`experiments/`、`profilers/`、`deprecated/`、`unused-2026-10/` |

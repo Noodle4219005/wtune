@@ -304,8 +304,22 @@ def _model_850(c: _Chart) -> dict:
     return {"U850": uv[0], "V850": uv[1], "Q850": q}
 
 
+def box_stats(pairs_nc, box):
+    """{model, era5, bias, n} means of a Grid-Stat pairs file's FCST/OBS inside box (lat0, lat1,
+    lon0, lon1): the case area, which a d01-wide RMSE says little about."""
+    import numpy as np
+    from wtune.post.conventions import lon_in_range
+    lat, lon, f, o, _fn, _on = met_gridstat.read_pairs_fields(pairs_nc)
+    sel = ((lat >= box[0]) & (lat <= box[1]) & lon_in_range(lon, box[2], box[3])
+           & np.isfinite(f) & np.isfinite(o))
+    if not sel.any():
+        return None
+    return dict(model=float(f[sel].mean()), era5=float(o[sel].mean()),
+                bias=float((f[sel] - o[sel]).mean()), n=int(sel.sum()))
+
+
 def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: Callable,
-                    missing: Callable, m: dict | str) -> dict:
+                    missing: Callable, m: dict | str, focus_box: list | None = None) -> dict:
     """ERA5 850 hPa wind speed and specific humidity, model - ERA5 with MET Grid-Stat RMSE/bias
     (interior of the model domain): the low-level jet and the moisture it carries. m: the
     model's _model_850 fields, read while the wrfout was open, or the reason they are not."""
@@ -338,15 +352,25 @@ def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: 
             stats[name] = met_gridstat.grid_stat_field(
                 np.asarray(c.lats), np.asarray(c.lons), model, e_lat, e_lon, obs, e_valid, poly,
                 os.path.join(work, name), name, units)
+        focus = {n: box_stats(st["pairs_nc"], focus_box) for n, st in stats.items()} \
+            if focus_box else {}
         from wtune.post.conventions import path_time_label
         p = os.path.join(c.out_dir, "syn_era5_850_diff.png")
-        _era5_850_map(p, c, path_time_label(path, c.time_str), m, e_lat, e_lon, e_f, stats)
+        _era5_850_map(p, c, path_time_label(path, c.time_str), m, e_lat, e_lon, e_f, stats,
+                      focus_box, focus)
+        extra = {"wspd850_rmse_ms": stats["WSPD850"]["rmse"],
+                 "wspd850_bias_ms": stats["WSPD850"]["bias"],
+                 "q850_rmse_gkg": stats["Q850"]["rmse"],
+                 "q850_bias_gkg": stats["Q850"]["bias"], "n": stats["Q850"]["n"],
+                 "era5_source": e_src}
+        for n, key, unit in (("WSPD850", "wspd850", "ms"), ("Q850", "q850", "gkg")):
+            if focus.get(n):
+                extra.update({"focus_%s_model_%s" % (key, unit): focus[n]["model"],
+                              "focus_%s_era5_%s" % (key, unit): focus[n]["era5"],
+                              "focus_%s_bias_%s" % (key, unit): focus[n]["bias"],
+                              "focus_n": focus[n]["n"]})
         return fig("syn_era5_850_diff", p, c.run_label, domain="d01", valid_time=c.time_str,
-                   extra={"wspd850_rmse_ms": stats["WSPD850"]["rmse"],
-                          "wspd850_bias_ms": stats["WSPD850"]["bias"],
-                          "q850_rmse_gkg": stats["Q850"]["rmse"],
-                          "q850_bias_gkg": stats["Q850"]["bias"], "n": stats["Q850"]["n"],
-                          "era5_source": e_src})
+                   extra=extra)
     except Era5UnavailableError as e:
         return missing("syn_era5_850_diff", "ERA5 (ARCO)", str(e))
     except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError) as e:
@@ -365,7 +389,8 @@ def _pairs_diff(pairs_nc):
         return lat, lon, np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
 
 
-def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats):
+def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats, focus_box=None,
+                  focus=None):
     """Two panels on the model projection: 850 hPa wind speed and specific humidity, model -
     ERA5 (Grid-Stat DIFF on the ERA5 grid); model wind black, ERA5 wind grey."""
     import numpy as np
@@ -404,8 +429,16 @@ def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats):
         if _natural_earth_ready():
             _coastline(ax, None, ccrs, True, lats=c.lats, lons=c.lons, terrain=False, nest_rings=[])
         st = stats[name]
-        ax.set_title("%s\nRMSE %.2f  bias %+.2f  (MET Grid-Stat, ERA5 0.25\u00b0, interior, n=%d)"
-                     % (label, st["rmse"], st["bias"], st["n"]), fontsize=9)
+        title = ("%s\nRMSE %.2f  bias %+.2f  (MET Grid-Stat, ERA5 0.25\u00b0, interior, n=%d)"
+                 % (label, st["rmse"], st["bias"], st["n"]))
+        fb = (focus or {}).get(name)
+        if fb:
+            title += ("\npost.focus box (dashed): model %.1f, ERA5 %.1f, bias %+.2f (n=%d)"
+                      % (fb["model"], fb["era5"], fb["bias"], fb["n"]))
+            la0, la1, lo0, lo1 = focus_box
+            ax.plot([lo0, lo1, lo1, lo0, lo0], [la0, la0, la1, la1, la0], "k--", lw=1.2,
+                    transform=pc, zorder=6)
+        ax.set_title(title, fontsize=9)
     fig_.suptitle("%s d01 850 hPa: the low-level flow and its moisture against ERA5  %s"
                   % (c.run_label, time_label), fontsize=10)
     fig_.savefig(out_path, dpi=figdpi.dpi())
@@ -414,7 +447,8 @@ def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats):
 
 
 def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dict,
-            spinup_hours: float = 6, map_time: str | None = None) -> list[dict]:
+            spinup_hours: float = 6, map_time: str | None = None,
+            focus_box: list | None = None) -> list[dict]:
     """The synoptic charts of the first run's d01 frame nearest map_time (run_recipe: the rain
     peak), else its last post-spin-up frame -> figure/missing entries; wrf-python/cartopy
     missing -> one 'syn_maps' missing entry."""
@@ -459,7 +493,7 @@ def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dic
         return out
 
     out.append(_era5_diff_entry(c, run_dir, path, model_bbox, fig, missing))
-    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing, m850))
+    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing, m850, focus_box))
     return out
 
 

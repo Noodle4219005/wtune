@@ -163,27 +163,27 @@
    [
     "dispatch-synoptic",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-pbl",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-chem",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-climate",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-ensemble",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "timeseries",

@@ -735,7 +735,12 @@ def _agent_ir_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hou
             out += [missing(i, label, "no irtb file within %d min of a model output time after "
                             "spin-up" % IR_TOL_MIN) for i in IR_IDS]
             continue
-        picks = picks[::max(1, -(-len(picks) // MAX_IR_TIMES))]
+        step = max(1, -(-len(picks) // MAX_IR_TIMES))
+        keep = set(range(0, len(picks), step))
+        if map_time:                    # thinning dropped the rain peak's 00Z (haitang2017)
+            peak = datetime.strptime(map_time, WRF_TIME_FMT)
+            keep.add(min(range(len(picks)), key=lambda k: abs(picks[k][0] - peak)))
+        picks = [picks[k] for k in sorted(keep)]
         work = os.path.join(out_dir, "gridstat_ir_%s%s" % (name, tag))
         os.makedirs(work, exist_ok=True)
         try:

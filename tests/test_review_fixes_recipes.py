@@ -264,7 +264,8 @@ def test_synoptic_reads_the_850_hpa_fields_while_the_wrfout_is_open(monkeypatch,
     monkeypatch.setattr(synoptic, "_era5_diff_entry", lambda *a: {"id": "era5"})
     seen = []
     monkeypatch.setattr(synoptic, "_model_850", lambda c: seen.append(state["open"]) or {"U850": 1})
-    monkeypatch.setattr(synoptic, "_era5_850_entry", lambda c, r, p, b, f, mi, m: {"id": "850", "m": m})
+    monkeypatch.setattr(synoptic, "_era5_850_entry",
+                        lambda c, r, p, b, f, mi, m, box: {"id": "850", "m": m})
     out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
     assert seen == [True] and out[-1] == {"id": "850", "m": {"U850": 1}}
     monkeypatch.setattr(synoptic, "_model_850", lambda c: (_ for _ in ()).throw(KeyError("QVAPOR")))
@@ -493,3 +494,22 @@ def test_repro_envelope_compare_error_is_one_missing_entry(monkeypatch, tmp_path
     out = common.figures(["/a", "/b"], ["a", "b"], str(tmp_path), {}, decomposition_only=True)
     assert _ids(out) == [("common_domain_map", False), ("common_repro_envelope", True)]
     assert out[1]["reason"] == "diffwrf rc=2"
+
+
+def test_era5_850_box_stats_are_the_case_area_means(tmp_path):
+    # a d01-wide RMSE says little about the Taiwan Strait; the box means of the pairs do
+    netCDF4 = pytest.importorskip("netCDF4")
+    p = str(tmp_path / "pairs.nc")
+    lat, lon = np.arange(20.0, 26.0), np.arange(118.0, 124.0)
+    with netCDF4.Dataset(p, "w") as ds:
+        ds.createDimension("lat", len(lat))
+        ds.createDimension("lon", len(lon))
+        ds.createVariable("lat", "f8", ("lat",))[:] = lat
+        ds.createVariable("lon", "f8", ("lon",))[:] = lon
+        f = np.full((6, 6), 10.0)
+        f[:2] = 20.0                                       # 20-21N: outside the box below
+        ds.createVariable("FCST_WSPD850_ALL", "f4", ("lat", "lon"))[:] = f
+        ds.createVariable("OBS_WSPD850_ALL", "f4", ("lat", "lon"))[:] = np.full((6, 6), 8.0)
+    got = synoptic.box_stats(p, (22.0, 25.0, 119.0, 122.0))
+    assert got == {"model": 10.0, "era5": 8.0, "bias": 2.0, "n": 16}
+    assert synoptic.box_stats(p, (40.0, 41.0, 119.0, 122.0)) is None

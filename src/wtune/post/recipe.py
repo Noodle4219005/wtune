@@ -338,7 +338,7 @@ def _run_moisture(handler, r: _RecipeRun) -> list:
 
 def _run_simple(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
-                   spinup_days=r.spinup_days, map_time=r.map_time)
+                   spinup_days=r.spinup_days, map_time=r.map_time, focus_box=r.focus_box)
 
 
 def _run_precip(handler, r: _RecipeRun) -> list:

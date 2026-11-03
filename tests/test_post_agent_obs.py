@@ -480,3 +480,32 @@ def test_grid_figures_over_taiwan_use_cwa_and_a_short_name(tmp_path, monkeypatch
                          "w", "m", {}, "2017-08-02_00:00:00", "run72", 3, str(tmp_path))
     assert list(seen["levels"]) == [float(v) for v in rainscale.CWA_LEVELS]
     assert seen["cmap"].name == "cwa_rain"
+
+
+def test_ir_thinning_keeps_the_time_nearest_the_rain_peak(tmp_path, monkeypatch):
+    from wtune.post import condensate, met_gridstat, snapshot_verify
+    from wtune.post.recipes import cloud, convection
+    t0 = datetime(2016, 10, 7, 0)
+    times = [t0 + timedelta(hours=3 * k) for k in range(40)]
+    _snapshot_dataset(tmp_path, "satellite_ir", "tb", "K", 220.0, times)
+    monkeypatch.setattr(convection, "_project_of", lambda o: str(tmp_path))
+    monkeypatch.setattr(convection, "_post_spinup_frames", lambda r, d, s: [
+        (t.strftime("%Y-%m-%d_%H:%M:%S"), "wrf", 0) for t in times])
+    monkeypatch.setattr(cloud, "MAX_IR_TIMES", 6)
+    monkeypatch.setattr(met_gridstat, "write_interior_polygon", lambda *a: "p")
+    from wtune.post import caseinfo
+    monkeypatch.setattr(caseinfo, "spec_bdy_width", lambda r: 5)
+    lat2, lon2 = np.meshgrid([20.0, 21.0], [120.0, 121.0], indexing="ij")
+    real = netCDF4.Dataset
+    monkeypatch.setattr(netCDF4, "Dataset", lambda p, *a, **k: _Ctx(XLAT=lat2[None], XLONG=lon2[None])
+                        if p == "wrf" else real(p, *a, **k))
+    monkeypatch.setattr(condensate, "olr_brightness_temperature", lambda ds, ti: np.full((2, 2), 215.0))
+    seen = {}
+
+    def verify(picks, *a, **k):
+        seen["times"] = [p[0] for p in picks]
+        raise ValueError("stop")
+    monkeypatch.setattr(snapshot_verify, "verify", verify)
+    cloud._agent_ir_figures("run", "r", 1, {"domains": [{"domain": 1, "dx_km": 27}]},
+                            str(tmp_path / "post"), map_time="2016-10-08_23:00:00")
+    assert datetime(2016, 10, 9, 0) in seen["times"] and len(seen["times"]) <= 7

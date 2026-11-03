@@ -4,7 +4,8 @@ WHEN (the position and timing errors a map at one time cannot show).
 
 Line: project.yaml cross_sections.hovmoller (`wtune project set --cross-section
 hovmoller=lat0,lon0,lat1,lon1`), else through the rain core (post/focus.rain_focus inside
-post.focus) ACROSS the mean 0-1.5 km wind there at the rain peak, HALF_KM each side: a band
+post.focus) ACROSS the mean 0-1.5 km wind over post.focus (else +-1 deg around the core) at the
+rain peak, HALF_KM each side: a band
 lying along the low-level flow (south-west flow over Taiwan) then shows its cross-flow position
 in time. Model: the finest domain's hourly rain, and its accumulation over each observation
 window; observation: every agent gridded_precip dataset (wtune-obs/1) over those windows.
@@ -66,16 +67,24 @@ def sample_line(fields, lat2d, lon2d, line, n=N_POINTS, halfwidth=0):
     return dist - dist[-1] / 2.0, out
 
 
-def _low_level_wind(path, ti, j, i):
-    """Mean earth-relative wind (u, v) m/s of the levels below WIND_TOP_M AGL at (j, i)."""
+def _low_level_wind(path, ti, box):
+    """Mean earth-relative wind (u, v) m/s below WIND_TOP_M AGL over box (lat0, lat1, lon0,
+    lon1): the background flow. The rain core's own column is not it (haitang2017 23Z: 4.4 m/s
+    from 98 deg inside the convection, under 10 m/s south-west flow over the strait)."""
     import netCDF4
     import numpy as np
     import wrf
     with netCDF4.Dataset(path) as ds:
-        uv = np.asarray(wrf.getvar(ds, "uvmet", timeidx=ti))[:, :, j, i]
-        z = np.asarray(wrf.getvar(ds, "height_agl", timeidx=ti))[:, j, i]
-    keep = z <= max(WIND_TOP_M, float(z[0]))
-    return float(uv[0][keep].mean()), float(uv[1][keep].mean())
+        uv = np.asarray(wrf.getvar(ds, "uvmet", timeidx=ti), "f8")
+        z = np.asarray(wrf.getvar(ds, "height_agl", timeidx=ti), "f8")
+        lat = np.asarray(ds.variables["XLAT"][ti])
+        lon = np.asarray(ds.variables["XLONG"][ti])
+    low = z <= WIND_TOP_M
+    inside = (lat >= box[0]) & (lat <= box[1]) & (lon >= box[2]) & (lon <= box[3])
+    if not inside.any():
+        raise ValueError("no grid cell inside %s" % (box,))
+    sel = low & inside[None]
+    return float(uv[0][sel].mean()), float(uv[1][sel].mean())
 
 
 def default_line(run_dir, domain, frames, spinup_hours, focus_box, map_time):
@@ -85,11 +94,15 @@ def default_line(run_dir, domain, frames, spinup_hours, focus_box, map_time):
     if not f:
         raise ValueError("no rain core on d%02d" % domain)
     t, path, ti = frame_at(frames, map_time or f["peak_time"])
-    u, v = _low_level_wind(path, ti, f["j"], f["i"])
+    box = tuple(focus_box) if focus_box else (f["lat"] - 1.0, f["lat"] + 1.0, f["lon"] - 1.0,
+                                              f["lon"] + 1.0)
+    u, v = _low_level_wind(path, ti, box)
     line = across_flow_line(f["lat"], f["lon"], u, v)
-    rule = ("through the rain core %.2fN %.2fE across the 0-1.5 km wind (%.1f m/s from %.0f deg) "
-            "at %s" % (f["lat"], f["lon"], math.hypot(u, v),
-                       (math.degrees(math.atan2(-u, -v)) + 360.0) % 360.0, t[:13] + "Z"))
+    rule = ("through the rain core %.2fN %.2fE across the 0-1.5 km wind over %s (%.1f m/s from "
+            "%.0f deg) at %s" % (f["lat"], f["lon"], "post.focus" if focus_box else "+-1 deg",
+                                 math.hypot(u, v),
+                                 (math.degrees(math.atan2(-u, -v)) + 360.0) % 360.0,
+                                 t[:13] + "Z"))
     return line, rule
 
 

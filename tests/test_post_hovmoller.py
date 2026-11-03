@@ -113,7 +113,12 @@ def test_default_line_crosses_the_rain_core_against_the_low_level_wind(tmp_path,
     frames = list_frame_refs(run, domain=1)
     monkeypatch.setattr(focus, "rain_focus", lambda *a, **k: dict(
         lat=24.0, lon=120.5, j=15, i=15, peak_time=frames[5][0]))
-    monkeypatch.setattr(hovmoller, "_low_level_wind", lambda path, ti, j, i: (6.0, 6.0))
+    boxes = []
+    monkeypatch.setattr(hovmoller, "_low_level_wind",
+                        lambda path, ti, box: boxes.append(box) or (6.0, 6.0))
     line, rule = hovmoller.default_line(run, 1, frames, 0, None, None)
     assert line[0] < 24.0 < line[2] and line[1] > 120.5 > line[3]
-    assert "from 225 deg" in rule and "24.00N 120.50E" in rule
+    assert "from 225 deg" in rule and "24.00N 120.50E" in rule and "+-1 deg" in rule
+    # the background flow over post.focus, not the rain core's own (convective) column
+    hovmoller.default_line(run, 1, frames, 0, [22.5, 25.0, 119.5, 122.0], None)
+    assert boxes == [(23.0, 25.0, 119.5, 121.5), (22.5, 25.0, 119.5, 122.0)]

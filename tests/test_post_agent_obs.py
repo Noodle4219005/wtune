@@ -328,17 +328,29 @@ def test_cloud_recipe_draws_agent_ir(tmp_path, monkeypatch):
         ctc = [dict(thresh=240.0, fy_oy=3, fy_on=1, fn_oy=0, fn_on=0)]
         nbr = [dict(thresh=240.0, width=1, fss=0.8, fbs=0.1, o_rate=0.7, f_rate=0.8)]
         cts = [dict(thresh=240.0, pod=1, far=0.25, csi=0.75, fbias=1.33, total=4)]
+        late = t + timedelta(hours=3)
         return dict(per_ctc=[ctc], per_nbr=[nbr], cts_rows=[(t, c) for c in cts],
-                    fields=[(t, lat2, lon2, np.full((2, 2), 215.0), np.full((2, 2), 220.0))])
+                    fields=[(t, lat2, lon2, np.full((2, 2), 215.0), np.full((2, 2), 220.0)),
+                            (late, lat2, lon2, np.full((2, 2), 260.0), np.full((2, 2), 260.0))])
     monkeypatch.setattr(snapshot_verify, "verify", verify)
-    drawn = {}
+    drawn, args = {}, {}
     for fn in ("side_by_side", "scores_vs_threshold", "fss_vs_scale"):
-        monkeypatch.setattr(obs_figs, fn, lambda *a, _f=fn, **k: drawn.setdefault(_f, k) or "x.png")
+        monkeypatch.setattr(obs_figs, fn, lambda *a, _f=fn, **k: args.__setitem__(_f, a)
+                            or drawn.setdefault(_f, k) or "x.png")
     out = cloud._agent_ir_figures("run", "r", 1, {"domains": [{"domain": 1, "dx_km": 27}]},
                                   str(tmp_path / "post"))
     assert [f.get("id") or f.get("text") for f in out] == list(cloud.IR_IDS)
     assert seen["thresholds"] == ["<=240", "<=220", "<=210"] and seen["model"][3] == "K"
     assert drawn["scores_vs_threshold"]["op"] == "≤"
+    assert "2016-10-07 12:00" in args["side_by_side"][5]        # most cold cloud
+    # with the rain peak: the verified time nearest it; the panel names the dataset briefly
+    # (its `dataset` sentence ran off the panel), one file set per domain
+    out = cloud._agent_ir_figures("run", "r", 3, {"domains": [{"domain": 3, "dx_km": 3}]},
+                                  str(tmp_path / "post"), map_time="2016-10-07_14:00:00",
+                                  tag="_d03")
+    assert "2016-10-07 15:00" in args["side_by_side"][5]
+    assert args["side_by_side"][4][1] == "%s (obs)" % out[0]["obs_sources"][0]["name"].upper()
+    assert args["side_by_side"][6].endswith("_d03.png") and out[0]["domain"] == "d03"
 
 
 class _Ctx:

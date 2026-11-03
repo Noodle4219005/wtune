@@ -238,6 +238,42 @@ def test_synoptic_charts_survive_a_missing_field(monkeypatch, tmp_path):
     assert out[3]["reason"] == "history stream lacks U (iofields-reduced output?)"
 
 
+def test_synoptic_reads_the_850_hpa_fields_while_the_wrfout_is_open(monkeypatch, tmp_path):
+    # haitang2017: the ERA5 entries ran after `with Dataset` closed the file; reading the 850 hPa
+    # wind there raised "NetCDF: Not a valid ID" and the whole synoptic set became one entry
+    state = {"open": False}
+
+    class DS(_DS):
+        def __enter__(self):
+            state["open"] = True
+            return self
+
+        def __exit__(self, *a):
+            state["open"] = False
+            return False
+    monkeypatch.setattr(synoptic, "_post_spinup_time",
+                        lambda *a: (("2020-01-01_00:00:00", "/p", 0), []))
+    monkeypatch.setattr("netCDF4.Dataset", lambda p: DS())
+    monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace())
+    monkeypatch.setattr("wtune.post.conventions.ds_time_label", lambda ds, t: t)
+    monkeypatch.setattr(synoptic, "_read_shared_fields", lambda c: None)
+    for name in ("_z500_vort_chart", "_slp_thickness_chart", "_thetae850_chart",
+                 "_t2_wind10_chart", "_jet250_chart"):
+        monkeypatch.setattr(synoptic, name, lambda c, *a, _n=name: {"id": _n})
+    monkeypatch.setattr(synoptic, "_model_bbox", lambda np_, ds: (0, 1, 0, 1))
+    monkeypatch.setattr(synoptic, "_era5_diff_entry", lambda *a: {"id": "era5"})
+    seen = []
+    monkeypatch.setattr(synoptic, "_model_850", lambda c: seen.append(state["open"]) or {"U850": 1})
+    monkeypatch.setattr(synoptic, "_era5_850_entry", lambda c, r, p, b, f, mi, m: {"id": "850", "m": m})
+    out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
+    assert seen == [True] and out[-1] == {"id": "850", "m": {"U850": 1}}
+    monkeypatch.setattr(synoptic, "_model_850", lambda c: (_ for _ in ()).throw(KeyError("QVAPOR")))
+    out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
+    assert [o["id"] for o in out][:5] == ["_z500_vort_chart", "_slp_thickness_chart",
+                                         "_thetae850_chart", "_jet250_chart", "_t2_wind10_chart"]
+    assert "QVAPOR" in out[-1]["m"]
+
+
 def test_pbl_time_height_survives_a_failing_cross_section(monkeypatch, tmp_path):
     frames = [("2020-01-01_00:00:00", "/a", 0), ("2020-01-01_01:00:00", "/b", 0)]
     monkeypatch.setattr(pbl, "list_frame_refs", lambda r, domain=1: frames)

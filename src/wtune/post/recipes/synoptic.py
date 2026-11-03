@@ -305,9 +305,10 @@ def _model_850(c: _Chart) -> dict:
 
 
 def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: Callable,
-                    missing: Callable) -> dict:
+                    missing: Callable, m: dict | str) -> dict:
     """ERA5 850 hPa wind speed and specific humidity, model - ERA5 with MET Grid-Stat RMSE/bias
-    (interior of the model domain): the low-level jet and the moisture it carries."""
+    (interior of the model domain): the low-level jet and the moisture it carries. m: the
+    model's _model_850 fields, read while the wrfout was open, or the reason they are not."""
     np = c.np
     try:
         from wtune.post.recipes.era5 import Era5UnavailableError, level_for
@@ -323,7 +324,8 @@ def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: 
             project_dir = None
         e_lat, e_lon, e_f, e_valid, e_src = level_for(
             datetime.strptime(c.time_str, WRF_TIME_FMT), model_bbox, project_dir)
-        m = _model_850(c)
+        if isinstance(m, str):          # ERA5 first: its fetch command is the actionable reason
+            return missing("syn_era5_850_diff", "wrfout_d01 850 hPa wind / QVAPOR", m)
         work = os.path.join(c.out_dir, "gridstat_era5_850")
         os.makedirs(work, exist_ok=True)
         poly = met_gridstat.write_interior_polygon(path, spec_bdy_width(run_dir),
@@ -350,7 +352,7 @@ def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: 
     except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError) as e:
         return missing("syn_era5_850_diff", "MET grid_stat", str(e))
     except FIELD_ERRORS as e:
-        return missing("syn_era5_850_diff", "wrfout_d01 850 hPa wind / QVAPOR", error_reason(e))
+        return missing("syn_era5_850_diff", "ERA5 850 hPa / Grid-Stat pairs", error_reason(e))
 
 
 def _pairs_diff(pairs_nc):
@@ -446,12 +448,18 @@ def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dic
                 except FIELD_ERRORS as e:
                     out.append(missing(fid, "wrfout_d01", error_reason(e)))
             model_bbox = _model_bbox(np, ds)
+            try:            # read while the file is open: the ERA5 entries run after it closes
+                m850 = _model_850(c)
+            except FIELD_ERRORS as e:
+                m850 = error_reason(e)
+            except Exception as e:      # noqa: BLE001 -- one figure, never the whole set
+                m850 = "%s: %s" % (type(e).__name__, e)
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("syn_maps", "wrf-python/cartopy", str(e)))
         return out
 
     out.append(_era5_diff_entry(c, run_dir, path, model_bbox, fig, missing))
-    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing))
+    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing, m850))
     return out
 
 

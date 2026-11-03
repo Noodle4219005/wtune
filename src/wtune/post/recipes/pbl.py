@@ -364,8 +364,9 @@ def write_stats_csv(rows, out_path):
 def pick_soundings(rows, around=None, n=6):
     """Up to n soundings: the n nearest `around` (datetime, the rain peak) when given, else
     the first n; returned in time order."""
-    if around is not None:
-        rows = sorted(rows, key=lambda r: abs((r["time"] - around).total_seconds()))[:n]
+    if around is not None:      # IGRA times are UTC-aware, the recipe's map time is naive UTC
+        rows = sorted(rows, key=lambda r: abs((r["time"].replace(tzinfo=None) - around)
+                                              .total_seconds()))[:n]
     return sorted(rows, key=lambda r: r["time"])[:n]
 
 

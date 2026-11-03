@@ -181,3 +181,13 @@ def test_sounding_comparison_for_any_case_on_the_finest_domain_holding_the_stati
     assert times == ["3112", "0100", "0112", "0200", "0212", "0300"]   # 6 nearest 01 23Z; 3100 is 47 h off
     monkeypatch.setattr(pb, "_load_stations", lambda d: [])
     assert pb.sounding_figures(["/run"], ["r"], str(tmp_path), case) == []
+
+
+def test_pick_soundings_takes_utc_aware_igra_times():
+    # IGRA times are UTC-aware, the recipe's map time is naive: haitang2017 raised TypeError
+    from wtune.post.recipes import pbl as pb
+    u = dt.timezone.utc
+    rows = [dict(time=dt.datetime(2017, 7, 31, h, tzinfo=u) + dt.timedelta(days=d))
+            for d in range(3) for h in (0, 12)]
+    got = pb.pick_soundings(rows, dt.datetime(2017, 8, 1, 23), n=2)
+    assert [r["time"].strftime("%d%H") for r in got] == ["0112", "0200"]

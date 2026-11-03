@@ -478,6 +478,28 @@
    }
   ],
   [
+   "getvar",
+   "pressure",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "uvmet",
+   1,
+   null
+  ],
+  [
+   "interplevel",
+   850.0
+  ],
+  [
+   "getvar",
+   "QVAPOR",
+   1,
+   null
+  ],
+  [
    "z500_for",
    "2005-08-28T12:00:00",
    [

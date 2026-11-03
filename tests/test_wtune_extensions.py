@@ -645,3 +645,16 @@ def test_tune_filter_rejects_hanging_chem_splits(tmp_path, capsys):
             {"id": "c", "nx": 12, "ny": 6, "omp": 1}, {"id": "d", "nx": 6, "ny": 6, "omp": 1}]
     assert [c["id"] for c in wtune.tune._apply_search_filter(ctx, cfgs)] == ["c", "d"]
     assert "CHEM_MIN_J_PATCH" in capsys.readouterr().out
+
+
+def test_post_help_lists_every_post_subcommand():
+    # it listed 9 of them while post/cli.py had 16 (fetch-era5 is an alias of `fetch era5`)
+    import argparse
+    from wtune.post import cli as post_cli
+    sub = [a for a in post_cli.build_parser()._actions
+           if isinstance(a, argparse._SubParsersAction)][0]
+    text = [h for name, _d, h, _s, _m in wtune.cli._FORWARDED_COMMANDS if name == "post"][0]
+    listed = [w.strip() for w in text.split(":")[-1].split("|")]
+    assert sorted(listed) == sorted(set(sub.choices) - {"fetch-era5"})
+    tune = [h for name, _d, h, _s, _m in wtune.cli._FORWARDED_COMMANDS if name == "tune"][0]
+    assert "(scc)" not in tune

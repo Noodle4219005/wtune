@@ -99,6 +99,22 @@ def _grid_extent(ax, proj, ccrs, lats, lons):
                        float(y[ok].max())], crs=proj)
 
 
+MAP_WIDTH_IN = 8.0
+MAP_FRAME_W_IN, MAP_FRAME_H_IN = 1.8, 1.6     # colour bar + labels; title + caption
+MAP_HEIGHT_IN = (4.5, 11.0)
+
+
+def map_height_in(extent):
+    """Figure height (in) for a map of this projected extent (x0, x1, y0, y1) at MAP_WIDTH_IN:
+    the map fills the width. A fixed 8x6.4 left a third of the figure blank beside a tall nest
+    (haitang2017 d03, 6 deg wide by 9 deg tall)."""
+    x0, x1, y0, y1 = extent
+    if not (x1 > x0 and y1 > y0):
+        return 6.4
+    h = (MAP_WIDTH_IN - MAP_FRAME_W_IN) * (y1 - y0) / (x1 - x0) + MAP_FRAME_H_IN
+    return float(min(max(h, MAP_HEIGHT_IN[0]), MAP_HEIGHT_IN[1]))
+
+
 def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_cmap="viridis",
             contour_field=None, contour_levels=None, contour_color="k", contour_label_fmt="%g",
             u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
@@ -150,9 +166,11 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
 
     # constrained layout: title/colour bar/gridline labels/legend all get room (tight_layout
     # clipped long titles)
-    fig, ax = plt.subplots(figsize=(8, 6.4), subplot_kw=subplot_kw, layout="constrained")
+    fig, ax = plt.subplots(figsize=(MAP_WIDTH_IN, 6.4), subplot_kw=subplot_kw,
+                           layout="constrained")
     if basemap == "cartopy":
         _grid_extent(ax, proj, ccrs, lats, lons)
+        fig.set_size_inches(MAP_WIDTH_IN, map_height_in(ax.get_extent(crs=proj)))
 
     if fill_field is not None:
         kw = dict(transform_kw)

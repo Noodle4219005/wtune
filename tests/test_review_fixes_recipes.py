@@ -104,7 +104,8 @@ def test_radius_time_plot_is_cyclonic_positive_in_the_sh(monkeypatch, tmp_path):
             nc.createVariable(name, "f8", ("Time", "y", "x"))[0] = a
     monkeypatch.setattr(tc_extra.atcf, "parse_file", lambda p: [
         {"tau_h": h, "time": datetime(2020, 1, 1), "lat": lat0, "lon": lon0} for h in (0, 6)])
-    monkeypatch.setattr(tc_extra, "frame_ref", lambda run_dir, domain, t: (path, 0))
+    monkeypatch.setattr(tc_extra, "list_frame_refs", lambda run_dir, domain=1: [
+        ("2020-01-01_00:00:00", path, 0), ("2020-01-01_06:00:00", path, 0)])
     grids = []
     import matplotlib.axes
     real = matplotlib.axes.Axes.pcolormesh
@@ -114,6 +115,44 @@ def test_radius_time_plot_is_cyclonic_positive_in_the_sh(monkeypatch, tmp_path):
     g = grids[0]
     np.testing.assert_allclose(g[1:8], 20.0, atol=0.5)      # +20 m/s, not -20 or 20 cos(alpha)
     assert np.isnan(g[-1]).all()                            # 375-400 km: beyond the domain
+
+
+def test_radius_time_plot_has_a_column_only_where_a_frame_is(monkeypatch, tmp_path):
+    # hourly a-deck on 3-hourly output: two empty columns out of three (haitang2017); a history
+    # time a few time steps off the hour is the same frame
+    monkeypatch.setattr(tc_extra.atcf, "parse_file", lambda p: [
+        {"tau_h": h, "time": datetime(2017, 7, 31), "lat": 25.0, "lon": 120.0}
+        for h in range(0, 10)])
+    refs = [("2017-07-31_00:00:00", "/f0", 0), ("2017-07-31_03:01:30", "/f3", 0),
+            ("2017-07-31_06:00:00", "/f6", 0), ("2017-07-31_09:30:00", "/f9", 0)]
+    monkeypatch.setattr(tc_extra, "list_frame_refs", lambda run_dir, domain=1: refs)
+    opened = []
+
+    class DS:
+        def __init__(self, p):
+            opened.append(p)
+            self.variables = {k: np.zeros((1, 5, 5)) for k in
+                              ("XLAT", "XLONG", "U10", "V10", "SINALPHA")}
+            self.variables["COSALPHA"] = np.ones((1, 5, 5))
+
+        def getncattr(self, name):
+            return 3000.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr("netCDF4.Dataset", DS)
+    monkeypatch.setattr(tc_extra, "ring_means", lambda vt, rr, bins, dx: np.ones(len(bins) - 1))
+    xs = []
+    import matplotlib.axes
+    real = matplotlib.axes.Axes.pcolormesh
+    monkeypatch.setattr(matplotlib.axes.Axes, "pcolormesh",
+                        lambda self, x, y, g, **kw: xs.append(list(x)) or real(self, x, y, g, **kw))
+    assert tc_extra.radius_time_plot("/run", "adeck", str(tmp_path / "rt.png"))
+    assert xs[0] == [0.0, 3.0, 6.0] and opened == ["/f0", "/f3", "/f6"]   # 09:30 is too far
+    assert tc_extra.nearest_frame(refs, datetime(2017, 7, 31, 9)) is None
 
 
 # ---- 3: cyclonic is positive in both hemispheres

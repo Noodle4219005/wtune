@@ -112,3 +112,10 @@ def continuous_lons(lons):
     a = np.asarray(lons, dtype="f8")
     c = float(a.flat[a.size // 2])
     return (a - c + 180.0) % 360.0 - 180.0 + c
+
+
+def lon_in_range(lon, lon_min, lon_max):
+    """Whether lon (deg, scalar or array, any 360 wrap) lies in lon_min..lon_max, a range that
+    may run past 180 (continuous_lons of a domain across 180E: 170..190)."""
+    import numpy as np
+    return (np.asarray(lon, dtype="f8") - lon_min) % 360.0 + lon_min <= lon_max

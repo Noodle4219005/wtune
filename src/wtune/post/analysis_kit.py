@@ -142,15 +142,18 @@ def obs_model_panels(obs, model, levels, title, cmap=None, norm=None, labels=("o
     if norm is None:
         norm = BoundaryNorm(levels, cmap.N, extend="max" if cmap.N > len(levels) - 1
                             else "neither")
+    from wtune.post.basemap import centred_plate_carree, set_lonlat_extent
+    from wtune.post.conventions import continuous_lons
     if extent is None:
-        la, lo = np.asarray(model[0]), np.asarray(model[1])
+        la, lo = np.asarray(model[0]), continuous_lons(model[1])
         extent = [float(np.nanmin(lo)), float(np.nanmax(lo)), float(np.nanmin(la)),
                   float(np.nanmax(la))]
+    proj, c = centred_plate_carree(ccrs, extent[0], extent[1])
     fig, axes = plt.subplots(1, 2, figsize=figsize, layout="constrained",
-                             subplot_kw={"projection": ccrs.PlateCarree()})
+                             subplot_kw={"projection": proj})
     mesh = None
     for ax, (lat, lon, field), lab in zip(axes, (obs, model), labels):
-        ax.set_extent(extent, crs=ccrs.PlateCarree())
+        set_lonlat_extent(ax, extent, c)
         f = np.ma.masked_invalid(np.asarray(field, dtype="f8"))
         mesh = ax.pcolormesh(lon, lat, np.ma.masked_less(f, levels[0]), cmap=cmap, norm=norm,
                              transform=ccrs.PlateCarree(), shading="auto")

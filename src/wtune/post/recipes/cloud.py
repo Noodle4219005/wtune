@@ -10,8 +10,9 @@ product). Times: the last frame; the water-path figure (cheap: no wrf-python) al
 
   cloud_water_path       B1  LWP/RWP/IWP/SWP/TWP panels (g m-2, log 1-2000) + 10 m barbs (kt)
   cloud_top_height       B2  highest level with total condensate >= 0.01 g/kg (km MSL) +
-                             composite reflectivity 15/25 dBZ (lake-effect echo thresholds,
-                             Gaudet et al. 2021, OWLeS)
+                             composite reflectivity 15/25 dBZ (taken from the lake-effect
+                             study of Gaudet et al. 2021, OWLeS; not cited in the title, which
+                             every case type gets)
   cloud_xsec             B3  two sections through the max-TWP column: along the mean boundary-
                              layer wind (the fetch) and perpendicular to it
   cloud_ir_proxy         B4  OLR-derived equivalent blackbody temperature, enhanced-IR palette
@@ -511,9 +512,9 @@ def cloud_top_figure(path, time_str, out_path, run_label, domain, timeidx=0):
         absent = "" if reached else "; no composite reflectivity >= %g dBZ" % ECHO_DBZ[0]
         ax.set_title(wrap_title(
             "%s  d%02d  cloud-top height (highest level with total condensate >= %g g/kg; "
-            "white = no cloud) + composite reflectivity 15/25 dBZ (lake-effect echo thresholds, "
-            "Gaudet et al. 2021)%s\n%s" % (run_label, domain, condensate.CLOUD_EDGE_KGKG * 1000.0,
-                                           absent, ds_time_label(ds, time_str))), fontsize=9)
+            "white = no cloud) + composite reflectivity %g/%g dBZ%s\n%s"
+            % (run_label, domain, condensate.CLOUD_EDGE_KGKG * 1000.0, ECHO_DBZ[0], ECHO_DBZ[1],
+               absent, ds_time_label(ds, time_str))), fontsize=9)
         fig.savefig(out_path, dpi=figdpi.dpi())
         _plt().close(fig)
     return out_path

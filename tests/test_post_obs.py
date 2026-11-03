@@ -5,6 +5,7 @@ import os
 import sys
 from argparse import Namespace
 from datetime import datetime
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -160,6 +161,16 @@ def test_precip_pick_window_and_reasons():
     assert precip.pick_window(frames, 6, idx) == (24, datetime(2005, 8, 28, 12), "a")
     assert precip.pick_window(frames, 18, idx)[0] == 6          # 24 h window would start before spin-up ends
     assert precip.pick_window(frames[:5], 6, idx) is None
+    # around the rain peak: the window centred nearest it among those holding it, not the
+    # latest (Stage IV used to ignore the peak; CMORPH already did this)
+    two = {(24, datetime(2005, 8, 28, 12)): "a", (24, datetime(2005, 8, 29, 0)): "z",
+           (24, datetime(2005, 8, 28, 6)): "e"}
+    assert precip.pick_window(frames, 6, two)[1:] == (datetime(2005, 8, 29, 0), "z")
+    # 27 14Z is in 27 06Z-28 06Z (centre 4 h away) and 27 12Z-28 12Z (10 h away)
+    assert precip.pick_window(frames, 6, two, around=datetime(2005, 8, 27, 14))[2] == "e"
+    assert precip.pick_window(frames, 6, two, around=datetime(2005, 8, 28, 4))[2] == "a"
+    late = datetime(2005, 8, 29, 1)                 # in no window: the latest, as before
+    assert precip.pick_window(frames, 6, two, around=late)[2] == "z"
     r = precip.stage4_missing_reason("/p", "/r", frames, (17, 19, -68, -64), False)
     assert "does not exist" in r and "coverage" in r
     r = precip.stage4_missing_reason("/p", "/r", frames, (25, 30, -90, -85), False)
@@ -215,3 +226,17 @@ def test_station_map_has_a_panel_when_only_dew_point_paired(tmp_path, monkeypatc
                         lambda panels, title, out: seen.setdefault("panels", panels))
     met_pointstat.summarize(str(tmp_path), [(t, None)], str(tmp_path), str(tmp_path))
     assert [p["title"].split()[0] for p in seen["panels"]] == ["Td2"]
+
+
+def test_station_bias_maps_follow_the_stations_box(tmp_path):
+    # a fixed 4.8n x 6.4 drew short wide panels with ~5 pt text in blank margins (haitang2017)
+    pytest.importorskip("cartopy")
+    from PIL import Image
+    from wtune.post import obs_figs
+    assert obs_figs.station_panel_height_in((114.0, 124.0, 20.0, 27.0)) == pytest.approx(3.8 * 0.7)
+    assert obs_figs.station_panel_height_in((0.0, 1.0, 0.0, 10.0)) == 6.0
+    panel = dict(lat=[22.7, 25.1], lon=[116.7, 121.8], bias=[1.0, -1.0], title="T2", vmax=3)
+    out = str(tmp_path / "m.png")
+    obs_figs.station_bias_maps([panel] * 3, "s", out)
+    w, h = Image.open(out).size
+    assert 2.5 < w / h < 4.0          # one row of three maps, no tall blank band

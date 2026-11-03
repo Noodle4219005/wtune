@@ -659,9 +659,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`wtune tune` / `python3 src/wtune/tune/`: 2 for a site other than scc, 1 for an invalid
-    option (message on stderr), else 0. With no level, pipeline or --nodes the run is the default
-    -O2 layout search."""
+    """`wtune tune` / `python3 src/wtune/tune/`: 2 for a site without campaign/sites/<site>.sh,
+    1 for an invalid option (message on stderr), else 0. With no level, pipeline or --nodes the
+    run is the default -O2 layout search."""
     # line-buffered: under nohup stdout is a block-buffered file and the progress log stayed empty
     try:
         sys.stdout.reconfigure(line_buffering=True)

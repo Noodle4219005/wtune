@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -231,8 +232,21 @@ def find_paths(roots, libs=(), seconds=120.0, depth=8) -> dict:
                 if f in found["libs"]:
                     found["libs"][f].append(here)
                 elif f.startswith("env") and f.endswith(".sh") and "wtune" in here:
-                    found["env_files"].append(os.path.join(here, f))
+                    path = os.path.join(here, f)
+                    if _sets_wrf_tree(path):
+                        found["env_files"].append(path)
     return found
+
+
+def _sets_wrf_tree(path) -> bool:
+    """Whether the shell file assigns WRF_TREE, which every env file must (a name match alone
+    also took atlas-f1arm-20261014/_bin/envcheck.sh)."""
+    try:
+        with open(path, errors="replace") as fh:
+            text = fh.read(65536)
+    except OSError:
+        return False
+    return re.search(r"(^|[\s;])(export\s+)?WRF_TREE=", text, re.M) is not None
 
 
 def project_checks(project_dir: str) -> list[tuple[str, str, str]]:

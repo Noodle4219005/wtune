@@ -54,3 +54,60 @@ def test_filled_map_has_no_wedge_at_180(tmp_path):
     core = img[int(0.35 * h):int(0.6 * h), int(0.3 * w):int(0.7 * w)]
     white = (core > 0.97).all(axis=-1).mean()
     assert white < 0.01, white
+
+
+def test_tc_detection_box_crosses_180(tmp_path, monkeypatch):
+    # raw min/max of XLONG made d01 -180..180 wide: any fix at that latitude was "inside"
+    from datetime import datetime
+    from wtune.post import caseinfo
+    from wtune.post.conventions import lon_in_range
+    lat, lon = _grid()
+    with netCDF4.Dataset(os.path.join(tmp_path, "wrfout_d01_" + T0), "w") as d:
+        for name, n in (("Time", 1), ("DateStrLen", 19), ("south_north", NY), ("west_east", NX)):
+            d.createDimension(name, n)
+        d.createVariable("Times", "S1", ("Time", "DateStrLen"))[:] = np.array([list(T0)], "S1")
+        dims = ("Time", "south_north", "west_east")
+        d.createVariable("XLAT", "f4", dims)[:] = lat[None]
+        d.createVariable("XLONG", "f4", dims)[:] = lon[None]
+    box = caseinfo._d01_bbox_and_window(str(tmp_path))
+    assert abs(box[2] - 165.0) < 1e-4 and abs(box[3] - 188.4) < 1e-4
+    t = datetime(2017, 7, 31)
+    for fix, inside in ((-175.0, True), (185.0, True), (170.0, True), (0.0, False),
+                        (-100.0, False), (150.0, False)):
+        monkeypatch.setattr(caseinfo, "_best_track_points", lambda *a, f=fix: [(t, 25.0, f)])
+        assert caseinfo.detect_tc(str(tmp_path), bdeck_path="b")[0] is inside, fix
+    assert list(lon_in_range([-175.0, 0.0], 165.0, 188.4)) == [True, False]
+
+
+def test_base_map_takes_coastline_past_180_and_axes_hold_one_box(monkeypatch):
+    import cartopy.crs as ccrs
+    from wtune.post import basemap
+    seg = np.array([[-176.0, 52.0], [-174.0, 52.5]])          # an Aleutian island east of 180
+    monkeypatch.setattr(basemap, "shapefile_path", lambda *a: "x")
+    monkeypatch.setattr(basemap, "_all_segments", lambda p: [(-176.0, 52.0, -174.0, 52.5, seg)])
+    got = basemap.layer_segments("physical", "coastline", "50m", (165.0, 190.0, 45.0, 60.0))
+    assert len(got) == 1 and np.allclose(got[0][:, 0], [184.0, 186.0])
+    assert basemap.layer_segments("physical", "coastline", "50m", (-180.0, -170.0, 45, 60))[0] is seg
+    proj, c = basemap.centred_plate_carree(ccrs, 165.0, 190.0)
+    assert c == 177.5
+    import matplotlib.pyplot as plt
+    ax = plt.figure().add_subplot(projection=proj)
+    basemap.set_lonlat_extent(ax, (165.0, 190.0, 45.0, 60.0), c)
+    x0, x1, _y0, _y1 = ax.get_extent(crs=proj)
+    assert abs(x0 + 12.5) < 1e-6 and abs(x1 - 12.5) < 1e-6      # 25 deg wide, not the globe
+    plt.close("all")
+
+
+def test_track_map_across_180_is_one_line(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    import matplotlib.axes
+    from wtune.post import tc
+    t0 = datetime(2017, 7, 31)
+    pts = [(t0 + timedelta(hours=6 * k), (20.0 + k, 176.0 + 2 * k - 360 * (k > 2)), 1)
+           for k in range(5)]                                  # 176, 178, 180, -178, -176
+    xs = []
+    real = matplotlib.axes.Axes.plot
+    monkeypatch.setattr(matplotlib.axes.Axes, "plot",
+                        lambda self, x, *a, **k: xs.extend(np.ravel(x)) or real(self, x, *a, **k))
+    tc._track_map_figure(str(tmp_path), {"run0": pts}, None, "T01", dom_dx={1: 15.0})
+    assert xs and max(xs) - min(xs) == 8.0                     # 176..184, no 356 deg jump

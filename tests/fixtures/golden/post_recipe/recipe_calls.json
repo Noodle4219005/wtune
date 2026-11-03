@@ -133,7 +133,7 @@
    [
     "tc_structure",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', '6h'), ('paraview', False), ('times', ['t1']), ('use_track', True)]"
+    "[('every', '6h'), ('paraview', False), ('spinup_hours', 3), ('times', ['t1']), ('use_track', True)]"
    ],
    [
     "dispatch-convection",
@@ -846,7 +846,7 @@
    [
     "tc_structure",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', None), ('paraview', True), ('times', None), ('use_track', False)]"
+    "[('every', None), ('paraview', True), ('spinup_hours', 6), ('times', None), ('use_track', False)]"
    ],
    [
     "advice",

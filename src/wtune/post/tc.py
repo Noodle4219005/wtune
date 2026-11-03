@@ -948,6 +948,19 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     lo, hi = (min(valid) - timedelta(hours=6), max(valid) + timedelta(hours=6)) if valid else (None, None)
     best = [(t, ll) for t, ll in points(bdeck) if lo is None or lo <= t <= hi] if bdeck else []
 
+    # one continuous longitude range: a track across 180E is drawn as one line, not across the map
+    all_lons = [ll[1] for _, ll in best] + [p[1][1] for pts in tracks.values() for p in pts]
+    c = 0.0
+    if all_lons:
+        from wtune.post.conventions import continuous_lons
+        cont = continuous_lons(all_lons)
+        c = float(cont.min() + cont.max()) / 2.0
+
+        def near_c(lon):
+            return (lon - c + 180.0) % 360.0 - 180.0 + c
+        best = [(t, (ll[0], near_c(ll[1]))) for t, ll in best]
+        tracks = {label: [(p[0], (p[1][0], near_c(p[1][1]))) + tuple(p[2:]) for p in pts]
+                  for label, pts in tracks.items()}
     plotting._set_cartopy_data_dir()
     try:
         import cartopy.crs as ccrs
@@ -955,8 +968,9 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     except ImportError:
         coast = False
     if coast:
+        from wtune.post.basemap import centred_plate_carree
         fig = plt.figure(figsize=(7, 6))
-        ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+        ax = fig.add_subplot(1, 1, 1, projection=centred_plate_carree(ccrs, c, c)[0])
         # coastline/lakes/borders/states come from the shared base map after the tracks set
         # the extent (below)
         from wtune.post.basemap import outer_gridlines

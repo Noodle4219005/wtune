@@ -223,7 +223,8 @@ def _stage4_total(project_dir, case_dir, out, window):
         lat, lon, mm = _read_stage4(p)
         total = mm if total is None else total + mm
     la0, la1, lo0, lo1 = caseinfo._d01_bbox_and_window(case_dir)[:4]
-    rows, cols = np.where((lat >= la0) & (lat <= la1) & (lon >= lo0) & (lon <= lo1))
+    from wtune.post.conventions import lon_in_range
+    rows, cols = np.where((lat >= la0) & (lat <= la1) & lon_in_range(lon, lo0, lo1))
     if not rows.size:
         return None
     sl = (slice(rows.min(), rows.max() + 1), slice(cols.min(), cols.max() + 1))

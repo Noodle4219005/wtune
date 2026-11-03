@@ -86,9 +86,32 @@ def layer_segments(category, name, resolution, bbox):
     path = shapefile_path(category, name, resolution)
     if path is None:
         return None
+    import numpy as np
     lon0, lon1, lat0, lat1 = bbox
-    return [s[4] for s in _all_segments(path)
-            if s[2] >= lon0 and s[0] <= lon1 and s[3] >= lat0 and s[1] <= lat1]
+    out = []
+    # a box past 180E (continuous_lons of a domain across it: 165..190) also takes the
+    # segments 360 deg away, shifted onto it
+    for shift in [0.0] + [360.0] * (lon1 > 180.0) + [-360.0] * (lon0 < -180.0):
+        a0, a1 = lon0 - shift, lon1 - shift
+        for s in _all_segments(path):
+            if s[2] >= a0 and s[0] <= a1 and s[3] >= lat0 and s[1] <= lat1:
+                out.append(s[4] + np.array([shift, 0.0]) if shift else s[4])
+    return out
+
+
+def centred_plate_carree(ccrs, lon0, lon1):
+    """(PlateCarree centred on lon0..lon1, its central longitude). With central_longitude 0 a
+    box across 180E (170..190) is two boxes at the map's ends."""
+    c = ((lon0 + lon1) / 2.0 + 180.0) % 360.0 - 180.0
+    return ccrs.PlateCarree(central_longitude=c), c
+
+
+def set_lonlat_extent(ax, extent, c):
+    """set_extent of (lon0, lon1, lat0, lat1), lon0..lon1 continuous (may pass 180), on an axes
+    from centred_plate_carree(..., c): in the axes' own x (lon - c), so nothing is cut at 180."""
+    lon0, lon1, lat0, lat1 = extent
+    x0 = (lon0 - c + 180.0) % 360.0 - 180.0
+    ax.set_extent([x0, x0 + (lon1 - lon0), lat0, lat1], crs=ax.projection)
 
 
 def terrain_interval(hgt_max, hgt_min=0.0):

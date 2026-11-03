@@ -258,13 +258,32 @@ def test_centre_from_smoothed_slp_excludes_boundary():
     assert ts.centre_from_slp(slp, bdy_width=5) == (22, 31)
 
 
+def test_single_time_figures_use_the_strongest_tracked_frame_past_spinup(monkeypatch):
+    # a decaying storm's last tracked frame is its weakest one
+    frames = [("2017-07-31_%02d:00:00" % h, "/w%d" % h, 0) for h in range(0, 24, 3)]
+    track = {t: (25.0, 120.0, 2, p) for (t, _p, _i), p in
+             zip(frames, (980.0, 990.0, 985.0, 991.0, 995.0, 997.0, 999.0, 1001.0))}
+    outside = {"2017-07-31_06:00:00"}
+    monkeypatch.setattr(ts, "_inside", lambda ref, tr, bdy: ref[0] not in outside)
+    # 00Z (980) and 03Z are in the 6 h spin-up, 06Z (985) is outside the domain: 09Z (991)
+    assert ts.strongest_frame(frames, track, 0, spinup_hours=6)[0] == "2017-07-31_09:00:00"
+    assert ts.strongest_frame(frames, track, 0)[0] == "2017-07-31_00:00:00"
+    # every past-spin-up point outside: the spin-up ones are still better than the last frame
+    outside |= {t for t, _p, _i in frames[2:]}
+    assert ts.strongest_frame(frames, track, 0, spinup_hours=6)[0] == "2017-07-31_00:00:00"
+    # no pmin column (an older track file): the latest tracked frame, as before
+    old = {t: v[:3] for t, v in track.items()}
+    assert ts.strongest_frame(frames, old, 0) is None
+    assert ts.latest_tracked_frame(frames, old, 0)[0] == "2017-07-31_03:00:00"
+
+
 def test_track_csv_and_hovmoller_selection(tmp_path):
     p = tmp_path / "track_domains_run0.csv"
     with open(p, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=["time", "domain", "dx_km", "lat", "lon"])
         w.writeheader()
         w.writerow(dict(time=TIMES[0], domain="d02", dx_km=4, lat=25.5, lon=-88.0))
-    assert ts.read_track_csv(str(p)) == {TIMES[0]: (25.5, -88.0, 2)}
+    assert ts.read_track_csv(str(p)) == {TIMES[0]: (25.5, -88.0, 2, None)}
     assert ts.read_track_csv(None) == {}
     times = ["2005-08-28_%02d:00:00" % h for h in range(24)]
     assert ts.hovmoller_frames(times) == times
@@ -397,12 +416,14 @@ def test_recipe_passes_track_csv_to_structure_set(tmp_path, monkeypatch):
     seen = {}
 
     def fake(run_dir, label, out_dir, case_info, track_csv=None, every=None, times=None,
-             paraview=True):
-        seen.update(track_csv=track_csv, out_dir=out_dir, every=every, paraview=paraview)
+             paraview=True, spinup_hours=0):
+        seen.update(track_csv=track_csv, out_dir=out_dir, every=every, paraview=paraview,
+                    spinup_hours=spinup_hours)
         return []
     monkeypatch.setattr(ts, "figures", fake)
-    recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE, every="6h")
-    assert seen["track_csv"] is None and seen["every"] == "6h"
+    recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE, every="6h",
+                                 spinup_hours=12)
+    assert seen["track_csv"] is None and seen["every"] == "6h" and seen["spinup_hours"] == 12
     os.makedirs(tmp_path / "tc")
     (tmp_path / "tc" / "track_domains_run0.csv").write_text("time,domain,lat,lon\n")
     recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE)

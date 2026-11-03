@@ -15,6 +15,11 @@ CWA_COLOURS = ["#9cfdfe", "#01d2fd", "#00a5fd", "#0177fd", "#26a31b", "#00f92e",
                "#fe38fa"]                          # one per bin [CWA_LEVELS[k], CWA_LEVELS[k+1])
 CWA_OVER = "#fed6fd"                               # >= 300 mm
 TAIWAN_BOX = (20.0, 27.0, 116.0, 124.0)            # lat_min, lat_max, lon_min, lon_max
+# event thresholds (mm) for categorical scores and FSS over Taiwan: rain / no rain, 10 mm, then
+# CWA's warning levels -- heavy rain 40 mm/h or 80 mm/24 h, extremely heavy 200 and torrential
+# 350 mm/24 h (cwa.gov.tw W26 definitions, read 2026-11-03). The WPC inch values (0.254..50 mm)
+# stop below CWA's lowest warning level.
+CWA_EVENT_MM = (1.0, 10.0, 40.0, 80.0, 200.0, 350.0)
 
 
 def over_taiwan(lat, lon) -> bool:

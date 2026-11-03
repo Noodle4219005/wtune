@@ -288,6 +288,9 @@ def test_cloud_top_legend_lists_only_reached_echo_thresholds(tmp_path, monkeypat
     labels = legends[0] if legends else []
     assert labels == ["composite reflectivity %g dBZ" % v for v in want]
     assert ("no composite reflectivity >= 15 dBZ" in " ".join(titles[-1].split())) == (not want)
+    # the thresholds come from a lake-effect study; the title, drawn for every case type,
+    # does not cite it
+    assert "15/25 dBZ" in " ".join(titles[-1].split()) and "lake" not in titles[-1]
 
 
 def test_contour_handles_only_for_levels_reached():

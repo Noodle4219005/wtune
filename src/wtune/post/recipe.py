@@ -112,7 +112,7 @@ def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_h
 
 
 def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None,
-                          times=None, use_track=True):
+                          times=None, use_track=True, spinup_hours=0):
     """post/recipes/tc_structure.py on run_dirs[0]: centres from the track post/tc.py just
     wrote (tc/track_domains_<label>.csv) when use_track, else its own smoothed-SLP minimum."""
     from wtune.post.recipes import tc_structure
@@ -120,7 +120,8 @@ def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, e
     return tc_structure.figures(run_dirs[0], labels[0], os.path.join(out_dir, "tc_structure"),
                                 case_info,
                                 track_csv=track_csv if use_track and os.path.exists(track_csv)
-                                else None, every=every, times=times, paraview=paraview)
+                                else None, every=every, times=times, paraview=paraview,
+                                spinup_hours=spinup_hours)
 
 
 def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None,
@@ -304,7 +305,8 @@ def _run_tc(handler, r: _RecipeRun) -> list:
                        r.ebtrk_path, r.paraview, r.spinup_hours,
                        track_smooth_km=r.track_smooth_km)
     out += guarded("tc_structure", _tc_structure_figures, *_args4(r), paraview=r.paraview,
-                   every=r.every, times=r.times, use_track=has_track)
+                   every=r.every, times=r.times, use_track=has_track,
+                   spinup_hours=r.spinup_hours)
     return out
 
 

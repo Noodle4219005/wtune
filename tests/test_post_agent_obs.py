@@ -151,7 +151,7 @@ def test_recipe_draws_agent_grid_figures(tmp_path, monkeypatch):
     def verify(fcst, obs, poly, work, fname, oname, thr, **kw):
         with netCDF4.Dataset(obs) as ds:
             seen["obs"] = np.asarray(ds.variables["APCP_OBS"][0])
-        seen["kw"] = kw
+        seen["kw"], seen["thr"] = kw, thr
         return dict(cts="c", nbrcnt="n", pairs_nc="p")
     monkeypatch.setattr(met_gridstat, "run_verification", verify)
     monkeypatch.setattr(met_gridstat, "parse_cts_table", lambda p: [dict(
@@ -170,6 +170,10 @@ def test_recipe_draws_agent_grid_figures(tmp_path, monkeypatch):
     assert "2016-10-07 00 -> 2016-10-08 00 UTC (24 h)" == figs[0]["window"]
     assert np.allclose(seen["obs"], 48.0) and seen["kw"]["to_grid"] == "OBS"
     assert os.path.isfile(out_dir / "precip_categorical_cmorph_A24.csv")
+    # a grid over Taiwan is scored at CWA's warning levels, not the WPC inch values
+    assert seen["thr"] == [">=1", ">=10", ">=40", ">=80", ">=200", ">=350"]
+    lat_us, lon_us = np.meshgrid([30.0, 31.0], [-90.0, -89.0], indexing="ij")
+    assert precip.event_thresholds(lat_us, lon_us) == precip.THRESHOLDS_MM
 
 
 def test_recipe_notes_a_dataset_that_fails_check(tmp_path):

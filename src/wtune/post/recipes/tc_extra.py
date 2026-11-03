@@ -17,15 +17,28 @@ docstring): no tool derives a model's OWN structure from raw U10/V10.
 from __future__ import annotations
 
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from wtune.post import atcf
 from wtune.post import tc_metrics as tm
-from wtune.post.extract import frame_ref
+from wtune.post.extract import list_frame_refs
 from wtune.post import figdpi
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 RADIUS_BINS_KM = list(range(0, 401, 25))
+# a history time drifts off the hour by whole time steps (haitang2017 d01: 23:01:30)
+FRAME_TOLERANCE = timedelta(minutes=10)
+
+
+def nearest_frame(refs, valid_time, tolerance=FRAME_TOLERANCE):
+    """(path, timeidx) of the frame in refs [(time_str, path, timeidx)] nearest valid_time,
+    None when none is within tolerance."""
+    best = None
+    for t, path, ti in refs:
+        d = abs(datetime.strptime(t, WRF_TIME_FMT) - valid_time)
+        if d <= tolerance and (best is None or d < best[0]):
+            best = (d, path, ti)
+    return best[1:] if best else None
 
 
 def tangential_wind(lat0, lon0, lat, lon, u, v):
@@ -79,18 +92,18 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
     if not points:
         return None
 
+    # one column per a-deck point WITH a frame: an hourly a-deck on 3-hourly output drew two
+    # empty columns out of three (haitang2017)
+    refs = list_frame_refs(run_dir, domain=domain)
+    points = [(r, ref) for r in points
+              for ref in [nearest_frame(refs, r["time"] + timedelta(hours=r["tau_h"]))] if ref]
+    if not points:
+        return None
     n_bins = len(radius_bins_km) - 1
     grid = np.full((n_bins, len(points)), np.nan)
     leads = []
-    any_frame = False
-    for k, r in enumerate(points):
-        valid_time = r["time"] + timedelta(hours=r["tau_h"])
-        time_str = valid_time.strftime(WRF_TIME_FMT)
+    for k, (r, (path, ti)) in enumerate(points):
         leads.append(float(r["tau_h"]))
-        path, ti = frame_ref(run_dir, domain, time_str)
-        if not os.path.exists(path):
-            continue
-        any_frame = True
         with netCDF4.Dataset(path) as ds:
             lat = np.asarray(ds.variables["XLAT"][ti])
             lon = np.asarray(ds.variables["XLONG"][ti])
@@ -106,7 +119,7 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
             vt = -vt
         grid[:, k] = ring_means(vt, rr, radius_bins_km, dx_km)
 
-    if not any_frame or np.all(np.isnan(grid)):
+    if np.all(np.isnan(grid)):
         return None
     radius_centers = [(radius_bins_km[b] + radius_bins_km[b + 1]) / 2.0 for b in range(n_bins)]
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -117,7 +130,7 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
     fig.colorbar(pc, ax=ax, label="tangential wind (m/s, cyclonic +)")
     ax.set_xlabel("lead (h)")
     ax.set_ylabel("radius (km)")
-    ax.set_title("10 m tangential wind, radius-time")
+    ax.set_title("d%02d  10 m tangential wind, radius-time (a-deck centres)" % int(domain))
     fig.tight_layout()
     fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)

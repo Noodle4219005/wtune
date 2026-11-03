@@ -29,8 +29,10 @@ from wtune.post import figdpi
 def _cartopy_axes(fig, spec, extent):
     import cartopy.crs as ccrs
     _set_cartopy_data_dir()
-    ax = fig.add_subplot(spec, projection=ccrs.PlateCarree())
-    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    from wtune.post.basemap import centred_plate_carree, set_lonlat_extent
+    proj, c = centred_plate_carree(ccrs, extent[0], extent[1])
+    ax = fig.add_subplot(spec, projection=proj)
+    set_lonlat_extent(ax, extent, c)
     # shared base map (coastline, lakes, borders, states, labelled gridlines); these maps carry
     # no model grid, so no terrain contours
     from wtune.post.basemap import add_base_map
@@ -40,8 +42,11 @@ def _cartopy_axes(fig, spec, extent):
 
 def _extent(lat, lon, pad=0.3):
     import numpy as np
+    from wtune.post.conventions import continuous_lons
+    lat, lon = np.asarray(lat, dtype="f8"), np.asarray(lon, dtype="f8")
     ok = np.isfinite(lat) & np.isfinite(lon)
-    return [float(lon[ok].min()) - pad, float(lon[ok].max()) + pad,
+    lon = continuous_lons(lon[ok])                              # across 180E: 170..190
+    return [float(lon.min()) - pad, float(lon.max()) + pad,
             float(lat[ok].min()) - pad, float(lat[ok].max()) + pad]
 
 
@@ -184,28 +189,44 @@ def fss_vs_scale(nbr_rows, cell_km, title, out_path, thresh_unit=""):
     return out_path
 
 
+STN_PANEL_W_IN = 3.8
+STN_PANEL_H_IN = (1.2, 6.0)
+
+
+def station_panel_height_in(extent):
+    """Map height (in) of one station panel of width STN_PANEL_W_IN for a PlateCarree extent."""
+    x0, x1, y0, y1 = extent
+    h = STN_PANEL_W_IN * (y1 - y0) / (x1 - x0) if x1 > x0 else STN_PANEL_H_IN[0]
+    return float(min(max(h, STN_PANEL_H_IN[0]), STN_PANEL_H_IN[1]))
+
+
 def station_bias_maps(panels, suptitle, out_path):
     """One row of station maps. panels: [{lat, lon, bias, title, vmax}]; stations coloured by the
-    mean model-minus-observation bias (diverging scale +-vmax, one per panel)."""
+    mean model-minus-observation bias (diverging scale +-vmax, one per panel, colour bar under
+    the panel). The figure follows the stations' box: a fixed 4.8n x 6.4 drew short wide maps
+    with ~5 pt text in large blank margins (haitang2017)."""
     import numpy as np
     plt = _matplotlib()
     n = len(panels)
-    fig = plt.figure(figsize=(4.8 * n, 6.4), layout="constrained")
-    gs = fig.add_gridspec(1, n)
     allx = np.concatenate([np.asarray(p["lon"]) for p in panels])
     ally = np.concatenate([np.asarray(p["lat"]) for p in panels])
-    ext = _extent(ally, allx, pad=2.0)
+    ext = _extent(ally, allx, pad=1.0)
+    fig = plt.figure(figsize=(STN_PANEL_W_IN * n + 0.4, station_panel_height_in(ext) + 1.6),
+                     layout="constrained")
+    gs = fig.add_gridspec(1, n)
     for i, p in enumerate(panels):
         ax, ccrs = _cartopy_axes(fig, gs[0, i], ext)
         from matplotlib.ticker import MaxNLocator
         vm = float(MaxNLocator(nbins=5).tick_values(0, p["vmax"])[-1]) or p["vmax"]
-        sc = ax.scatter(p["lon"], p["lat"], c=p["bias"], s=42, cmap="RdBu_r", vmin=-vm,
+        sc = ax.scatter(p["lon"], p["lat"], c=p["bias"], s=48, cmap="RdBu_r", vmin=-vm,
                         vmax=vm, edgecolor="k", linewidth=0.4,
                         transform=ccrs.PlateCarree(), zorder=5)
-        cb = fig.colorbar(sc, ax=ax, shrink=0.8, extend="both")
-        cb.set_label(p.get("cbar_label", "model - observation"))
-        ax.set_title(p["title"], fontsize=9)
-    fig.suptitle(suptitle, fontsize=10)
+        cb = fig.colorbar(sc, ax=ax, location="bottom", shrink=0.9, aspect=30, extend="both")
+        cb.set_label(p.get("cbar_label", "model - observation"), fontsize=9)
+        cb.ax.xaxis.set_major_locator(MaxNLocator(nbins=6, symmetric=True))
+        cb.ax.tick_params(labelsize=8)
+        ax.set_title(p["title"], fontsize=10)
+    fig.suptitle(suptitle, fontsize=11)
     fig.savefig(out_path, dpi=figdpi.dpi(110))
     plt.close(fig)
     return out_path

@@ -104,6 +104,16 @@ def test_find_skips_environments_and_stops_on_time(tmp_path):
     assert doctor.find_paths([str(tmp_path)], seconds=-1)["stopped"] is True
 
 
+def test_find_lists_only_env_files_that_set_wrf_tree(tmp_path):
+    d = tmp_path / "wtune-f1arm"
+    d.mkdir()
+    (d / "env.sh").write_text("module load nvhpc\nexport WRF_TREE=/w LD_LIBRARY_PATH=/l\n")
+    (d / "env-old.sh").write_text("WRF_TREE=/w2; export WRF_TREE\n")
+    (d / "envcheck.sh").write_text("echo $WRF_TREE\ntest -d \"$WRF_TREE\"\n")
+    got = doctor.find_paths([str(tmp_path)])["env_files"]
+    assert sorted(got) == [str(d / "env-old.sh"), str(d / "env.sh")]
+
+
 def test_a_partition_sinfo_does_not_list_fails(monkeypatch):
     monkeypatch.setattr(doctor, "sinfo_partitions", lambda: {"arm144", "arm576"})
     monkeypatch.setenv("WTUNE_PARTITION", "compute")

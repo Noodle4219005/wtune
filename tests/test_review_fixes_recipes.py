@@ -497,19 +497,25 @@ def test_repro_envelope_compare_error_is_one_missing_entry(monkeypatch, tmp_path
 
 
 def test_era5_850_box_stats_are_the_case_area_means(tmp_path):
-    # a d01-wide RMSE says little about the Taiwan Strait; the box means of the pairs do
+    # a d01-wide RMSE says little about the Taiwan Strait; the box means of the matched cells
+    # do. MET's pairs file holds only DIFF_* (haitang2017: "no FCST_*/OBS_* raw fields")
     netCDF4 = pytest.importorskip("netCDF4")
-    p = str(tmp_path / "pairs.nc")
+    from wtune.post import met_gridstat
+    from datetime import datetime
     lat, lon = np.arange(20.0, 26.0), np.arange(118.0, 124.0)
+    p = str(tmp_path / "pairs.nc")
     with netCDF4.Dataset(p, "w") as ds:
         ds.createDimension("lat", len(lat))
         ds.createDimension("lon", len(lon))
         ds.createVariable("lat", "f8", ("lat",))[:] = lat
         ds.createVariable("lon", "f8", ("lon",))[:] = lon
-        f = np.full((6, 6), 10.0)
-        f[:2] = 20.0                                       # 20-21N: outside the box below
-        ds.createVariable("FCST_WSPD850_ALL", "f4", ("lat", "lon"))[:] = f
-        ds.createVariable("OBS_WSPD850_ALL", "f4", ("lat", "lon"))[:] = np.full((6, 6), 8.0)
-    got = synoptic.box_stats(p, (22.0, 25.0, 119.0, 122.0))
-    assert got == {"model": 10.0, "era5": 8.0, "bias": 2.0, "n": 16}
-    assert synoptic.box_stats(p, (40.0, 41.0, 119.0, 122.0)) is None
+        d = np.full((6, 6), 2.0)
+        d[:2] = 9.0                                        # 20-21N: outside the box below
+        d[3, 3] = np.nan                                   # not matched (masked)
+        ds.createVariable("DIFF_F_WSPD850_0_all_all_O_WSPD850_0_all_all_INTERIOR", "f4",
+                          ("lat", "lon"))[:] = d
+    o = met_gridstat._write_regular_nc(lat, lon, np.full((6, 6), 8.0), datetime(2017, 8, 1, 23),
+                                       str(tmp_path / "era5_WSPD850.nc"), name="O_WSPD850")
+    got = synoptic.box_stats(p, o, (22.0, 25.0, 119.0, 122.0))
+    assert got == {"model": 10.0, "era5": 8.0, "bias": 2.0, "n": 15}
+    assert synoptic.box_stats(p, o, (40.0, 41.0, 119.0, 122.0)) is None

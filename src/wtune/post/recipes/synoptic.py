@@ -304,18 +304,32 @@ def _model_850(c: _Chart) -> dict:
     return {"U850": uv[0], "V850": uv[1], "Q850": q}
 
 
-def box_stats(pairs_nc, box):
-    """{model, era5, bias, n} means of a Grid-Stat pairs file's FCST/OBS inside box (lat0, lat1,
-    lon0, lon1): the case area, which a d01-wide RMSE says little about."""
+def box_stats(pairs_nc, obs_nc, box):
+    """{model, era5, bias, n} means inside box (lat0, lat1, lon0, lon1) over the cells Grid-Stat
+    matched: bias from the pairs file's DIFF (MET writes no FCST/OBS fields there), ERA5 from
+    the obs file on the same verification grid, model = ERA5 + DIFF. The case area, which a
+    d01-wide RMSE says little about."""
+    import netCDF4
     import numpy as np
     from wtune.post.conventions import lon_in_range
-    lat, lon, f, o, _fn, _on = met_gridstat.read_pairs_fields(pairs_nc)
+    with netCDF4.Dataset(pairs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("DIFF_"))
+        d = np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
+        lat = np.asarray(ds.variables["lat"][:], "f8")
+        lon = np.asarray(ds.variables["lon"][:], "f8")
+    with netCDF4.Dataset(obs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("O_"))
+        o = np.ma.filled(ds.variables[name][0], np.nan).astype("f8")
+    if lat.ndim == 1:
+        lon, lat = np.meshgrid(lon, lat)
+    if o.shape != d.shape:
+        raise met_gridstat.METError("pairs %s and obs %s grids differ" % (d.shape, o.shape))
     sel = ((lat >= box[0]) & (lat <= box[1]) & lon_in_range(lon, box[2], box[3])
-           & np.isfinite(f) & np.isfinite(o))
+           & np.isfinite(d) & np.isfinite(o))
     if not sel.any():
         return None
-    return dict(model=float(f[sel].mean()), era5=float(o[sel].mean()),
-                bias=float((f[sel] - o[sel]).mean()), n=int(sel.sum()))
+    return dict(model=float((o[sel] + d[sel]).mean()), era5=float(o[sel].mean()),
+                bias=float(d[sel].mean()), n=int(sel.sum()))
 
 
 def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: Callable,
@@ -352,8 +366,8 @@ def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: 
             stats[name] = met_gridstat.grid_stat_field(
                 np.asarray(c.lats), np.asarray(c.lons), model, e_lat, e_lon, obs, e_valid, poly,
                 os.path.join(work, name), name, units)
-        focus = {n: box_stats(st["pairs_nc"], focus_box) for n, st in stats.items()} \
-            if focus_box else {}
+        focus = {n: box_stats(st["pairs_nc"], os.path.join(work, n, "era5_%s.nc" % n),
+                              focus_box) for n, st in stats.items()} if focus_box else {}
         from wtune.post.conventions import path_time_label
         p = os.path.join(c.out_dir, "syn_era5_850_diff.png")
         _era5_850_map(p, c, path_time_label(path, c.time_str), m, e_lat, e_lon, e_f, stats,

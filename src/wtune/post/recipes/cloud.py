@@ -121,7 +121,11 @@ def finish_plan(ax, ds, lats, lons, crs, caption=True, extent=None, outer_labels
     from wtune.post.basemap import add_base_map
     from wtune.post.plotting import _set_cartopy_data_dir
     _set_cartopy_data_dir()
-    ax.set_extent(extent or projected_extent(crs, lats, lons), crs=crs)
+    ext = extent or projected_extent(crs, lats, lons)
+    ax.set_extent(ext, crs=crs)
+    if outer_labels is None and sum(hasattr(a, "projection") for a in ax.figure.axes) == 1:
+        from wtune.post.recipes.mapfig import MAP_WIDTH_IN, map_height_in
+        ax.figure.set_size_inches(MAP_WIDTH_IN, map_height_in(ext))
     info = add_base_map(ax, ccrs, ds=ds, lats=lats, lons=lons, caption=caption,
                         labels=outer_labels is None)
     if outer_labels is not None:

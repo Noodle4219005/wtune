@@ -317,3 +317,23 @@ def test_cloud_xsec_legend_lists_only_drawn_contours(tmp_path, monkeypatch):
     assert "w up 0.25 m s$^{-1}$" in labels
     assert not any(l.startswith("w down") for l in labels)
     assert "PBLH" in labels
+
+
+def test_single_plan_map_canvas_follows_the_domain_shape(tmp_path):
+    run = _lake_run(tmp_path, n=1)
+    wrf = pytest.importorskip("wrf")
+    from wtune.post.recipes.mapfig import MAP_WIDTH_IN, map_height_in
+    with netCDF4.Dataset(os.path.join(run, "wrfout_d01_" + TIMES[0])) as ds:
+        lats = np.asarray(ds.variables["XLAT"][0])
+        lons = np.asarray(ds.variables["XLONG"][0])
+        crs = wrf.get_cartopy(wrfin=ds)
+        fig, (ax,) = cl.plan_figure(crs)
+        fig.colorbar(ax.pcolormesh(*cl.native_xy(crs, lats, lons), lats, transform=crs), ax=ax)
+        cl.finish_plan(ax, ds, lats, lons, crs)
+        want = map_height_in(cl.projected_extent(crs, lats, lons))
+        assert tuple(fig.get_size_inches()) == pytest.approx((MAP_WIDTH_IN, want))
+        fig2, axes = cl.plan_figure(crs, 1, 2)
+        cl.finish_plan(axes[0], ds, lats, lons, crs, outer_labels=(True, True))
+        assert tuple(fig2.get_size_inches()) == pytest.approx((8, 6.4))
+        cl._plt().close(fig)
+        cl._plt().close(fig2)

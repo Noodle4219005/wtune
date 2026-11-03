@@ -220,9 +220,8 @@ def cmd_report(args: argparse.Namespace) -> int:
 def _recipe_cross_sections(project_doc: dict) -> tuple[dict, float | None, float | None]:
     """(cross_sections, xsec_top_km, xsec_halfwidth_km) from the project doc."""
     import wtune.project
-    cross_sections = dict(
-        terrain=wtune.project.project_cross_section(project_doc, "terrain"),
-        moisture=wtune.project.project_cross_section(project_doc, "moisture"))
+    cross_sections = {kind: wtune.project.project_cross_section(project_doc, kind)
+                      for kind in wtune.project.CROSS_SECTION_KINDS}
     xsec_cfg = wtune.project.project_xsec_config(project_doc)
     return cross_sections, xsec_cfg.get("top_km"), xsec_cfg.get("halfwidth_km")
 

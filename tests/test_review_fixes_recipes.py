@@ -230,10 +230,11 @@ def test_synoptic_charts_survive_a_missing_field(monkeypatch, tmp_path):
                         lambda c, fig: (_ for _ in ()).throw(KeyError("U")))
     monkeypatch.setattr(synoptic, "_model_bbox", lambda np_, ds: (0, 1, 0, 1))
     monkeypatch.setattr(synoptic, "_era5_diff_entry", lambda *a: {"id": "era5"})
+    monkeypatch.setattr(synoptic, "_era5_850_entry", lambda *a: {"id": "era5_850"})
     out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
     assert _ids(out) == [("_z500_vort_chart", False), ("_slp_thickness_chart", False),
                          ("_thetae850_chart", False), ("syn_250_jet", True),
-                         ("_t2_wind10_chart", False), ("era5", False)]
+                         ("_t2_wind10_chart", False), ("era5", False), ("era5_850", False)]
     assert out[3]["reason"] == "history stream lacks U (iofields-reduced output?)"
 
 

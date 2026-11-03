@@ -182,6 +182,17 @@ def test_radar_missing_reason_pre_and_post_mrms():
     assert "fetch nexrad" in old and "MRMS does not exist before 2020-10-14" in old
     new = convection.radar_missing_reason("/p", "/r", [datetime(2024, 9, 5)], None)
     assert "fetch mrms" in new
+    # a Taiwan domain: NEXRAD/MRMS are US radars, so the hint is an agent radar dataset
+    tw = convection.radar_missing_reason("/p", "/r", [datetime(2017, 8, 1)],
+                                         (19.7, 28.1, 116.1, 123.0))
+    assert "do not cover this region" in tw and "agent `radar` dataset" in tw
+    assert "fetch nexrad" not in tw
+    gulf = convection.radar_missing_reason("/p", "/r", [datetime(2005, 8, 27)],
+                                           (25.0, 31.0, -92.0, -85.0))
+    assert "fetch nexrad" in gulf
+    from wtune.post.fetch import nexrad
+    assert nexrad.covers((25.5, 27.0, 127.0, 128.5))           # Okinawa (RODN)
+    assert not nexrad.covers((40.0, 48.0, 172.0, 185.0))       # across 180, no radar
 
 
 def test_mcape_undefined_mask():

@@ -58,9 +58,10 @@ def model_z500_on_latlon(wrfout_path, out_nc, timeidx=0):
     import wrf
     cdo = tools.find_on_path("cdo", install_hint="conda-forge 'cdo' or "
                              "envs/wtune/pixi.toml provides it.")
+    from wtune.post.conventions import continuous_lons
     with netCDF4.Dataset(wrfout_path) as src:
         lat = np.asarray(wrf.getvar(src, "lat", timeidx=timeidx))
-        lon = np.asarray(wrf.getvar(src, "lon", timeidx=timeidx))
+        lon = continuous_lons(np.asarray(wrf.getvar(src, "lon", timeidx=timeidx)))  # across 180E
         z500 = np.asarray(wrf.interplevel(wrf.getvar(src, "z", timeidx=timeidx, units="m"),
                                           wrf.getvar(src, "pressure", timeidx=timeidx), 500))
         valid = wrf.extract_times(src, timeidx)
@@ -118,11 +119,11 @@ def write_interior_polygon(wrfout_path, bdy_width, out_path, name="INTERIOR"):
     return out_path
 
 
-def run_grid_stat(fcst_nc, obs_nc, poly_file, out_dir):
+def run_grid_stat(fcst_nc, obs_nc, poly_file, out_dir, fcst_name=FCST_NAME, obs_name=OBS_NAME):
     """Runs `grid_stat FCST OBS CONFIG -outdir OUT_DIR`; returns (stat_path, cnt_txt_path, pairs_nc_path)."""
     grid_stat = tools.find_postproc_tool("grid_stat")
     os.makedirs(out_dir, exist_ok=True)
-    config = _write_config(out_dir, "grid_stat.conf", FCST_NAME=FCST_NAME, OBS_NAME=OBS_NAME,
+    config = _write_config(out_dir, "grid_stat.conf", FCST_NAME=fcst_name, OBS_NAME=obs_name,
                            POLY_FILE=os.path.abspath(poly_file))
     tools.run([grid_stat, fcst_nc, obs_nc, config, "-outdir", out_dir])
     files = sorted(os.listdir(out_dir))
@@ -163,6 +164,23 @@ def grid_stat_z500(wrfout_path, era5_lat, era5_lon, era5_z500, valid, out_dir, b
     return res
 
 
+def grid_stat_field(lat, lon, model2d, e_lat, e_lon, e_field, valid, poly_file, out_dir, name,
+                    units):
+    """CNT of one 2-D model field (on the WRF grid lat/lon) against the same field on ERA5's
+    regular grid: `cdo remapbil` onto lat/lon, MET Grid-Stat on the ERA5 grid inside poly_file.
+    Returns dict(rmse, bias, n, stat_file, pairs_nc)."""
+    os.makedirs(out_dir, exist_ok=True)
+    fcst = curvilinear_to_latlon(lat, lon, {"F_" + name: (model2d, units, name)}, valid,
+                                 os.path.join(out_dir, "model_%s.nc" % name), method="remapbil")
+    obs = _write_regular_nc(e_lat, e_lon, e_field, valid, os.path.join(out_dir, "era5_%s.nc" % name),
+                            name="O_" + name, units=units, long_name=name)
+    stat, cnt, pairs = run_grid_stat(fcst, obs, poly_file, out_dir, fcst_name="F_" + name,
+                                     obs_name="O_" + name)
+    with open(cnt) as fh:
+        res = parse_cnt(fh.read())
+    return dict(rmse=res["rmse_m"], bias=res["bias_m"], n=res["n"], stat_file=stat, pairs_nc=pairs)
+
+
 # ======================================================================================
 # Model-vs-observation verification on arbitrary fields (Stage IV precipitation, radar
 # composite reflectivity). Same recipe as the z500 chain above: cdo moves the curvilinear WRF
@@ -189,7 +207,9 @@ def curvilinear_to_latlon(lat, lon, fields, valid, out_nc, method="remapcon", gr
     thresholded categories), remapbil = bilinear (smooth fields). Returns out_nc."""
     import netCDF4
     import numpy as np
+    from wtune.post.conventions import continuous_lons
     cdo = tools.find_on_path("cdo", install_hint="envs/wtune/pixi.toml provides it.")
+    lon = continuous_lons(lon)             # across 180E the min/max box would span the globe
     ny, nx = lat.shape
     stem = out_nc[:-3] if out_nc.endswith(".nc") else out_nc
     curv = stem + ".curv.nc"

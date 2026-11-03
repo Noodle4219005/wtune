@@ -123,6 +123,10 @@ def project_bdeck(project_doc):
     return ((project_doc or {}).get("storm") or {}).get("bdeck")
 
 
+# terrain/moisture: the cross-section figures' line; hovmoller: precip_hovmoller's line
+CROSS_SECTION_KINDS = ("terrain", "moisture", "hovmoller")
+
+
 def project_cross_section(project_doc, kind):
     """project.yaml's optional cross_sections.<kind> override (dict with lat0/lon0/lat1/lon1),
     or None -- decision 0057 update: "也可由 project.yaml 指定"."""
@@ -709,9 +713,9 @@ def apply_drawing_options(doc, post_focus=None, cross_sections=None):
         doc["post"] = post
     for spec in cross_sections or []:
         kind, _, line = spec.partition("=")
-        if kind not in ("terrain", "moisture"):
-            raise ProjectError("--cross-section KIND=lat0,lon0,lat1,lon1 with KIND terrain or "
-                               "moisture, got %r" % spec)
+        if kind not in CROSS_SECTION_KINDS:
+            raise ProjectError("--cross-section KIND=lat0,lon0,lat1,lon1 with KIND %s, got %r"
+                               % (" or ".join(CROSS_SECTION_KINDS), spec))
         sections = dict(doc.get("cross_sections") or {})
         sections[kind] = None if line.lower() == "none" else dict(
             zip(("lat0", "lon0", "lat1", "lon1"), _floats(line, 4, "--cross-section")))
@@ -888,8 +892,8 @@ def build_parser():
                             "lat_min,lat_max,lon_min,lon_max); 'none' clears")
     p_set.add_argument("--cross-section", action="append", default=None,
                        metavar="KIND=LAT0,LON0,LAT1,LON1",
-                       help="fixed cross-section line, KIND terrain or moisture; KIND=none clears;"
-                            " repeatable")
+                       help="fixed line, KIND terrain or moisture (cross-section figures) or "
+                            "hovmoller (precip_hovmoller); KIND=none clears; repeatable")
     p_set.add_argument("--agents-md", action="store_true",
                        help="(re)write <project>/AGENTS.md, the pointer to WTune's agent "
                             "instructions (projects made before it existed)")

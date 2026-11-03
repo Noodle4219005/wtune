@@ -53,6 +53,13 @@
    "n": 3825,
    "stat_file": "gs.stat",
    "era5_source": "local.nc"
+  },
+  {
+   "id": "syn_era5_850_diff",
+   "missing": true,
+   "dataset": "ERA5 (ARCO)",
+   "reason": "no local ERA5 850 hPa subset at /proj/input/era5/lev850_2005082803.nc and no internet on this node -- run `wtune post fetch-era5 --project /proj --run-dir R` on the login node",
+   "run": null
   }
  ],
  "calls": [

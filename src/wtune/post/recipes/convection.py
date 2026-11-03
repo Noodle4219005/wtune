@@ -276,7 +276,13 @@ def _nearest(vols, t, tol_min=8):
 
 def radar_missing_reason(project_dir, run_dir, frame_times, bbox):
     """The missing() reason: coverage (data does not exist) or the fetch command."""
-    from wtune.post.fetch import mrms
+    from wtune.post.fetch import mrms, nexrad
+    if bbox is not None and not nexrad.covers(bbox):
+        return ("NEXRAD and MRMS do not cover this region (bbox %s; US radars only) -- radar "
+                "observations for it come as an agent `radar` dataset in wtune-obs/1 under "
+                "<project>/input/obs/<name>/ (skills/wtune-event, part 2), e.g. the national "
+                "radar composite, checked by `wtune event obs-check`"
+                % ", ".join("%.1f" % v for v in bbox))
     t0 = frame_times[0] if frame_times else None
     cmd = "wtune post fetch nexrad --project %s --run-dir %s" % (project_dir or "<project>", run_dir)
     if t0 is not None and t0 >= mrms.FIRST_DAY:

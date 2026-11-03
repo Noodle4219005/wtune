@@ -124,7 +124,8 @@ cite with `ctx.save_table(...)`. Hold your figures to the checklist above.
 
 | case | figures |
 |---|---|
-| heavy rain, Meiyu, SW flow | obs/model accumulated rain side by side (12 h and event total); hourly rain box mean over the target area, obs and model; ETS and bias vs threshold, fixed and percentile; low-level wind and moisture flux at the peak; Hovmöller of rain along the front-normal or the coast |
+| heavy rain, Meiyu, SW flow | obs/model accumulated rain side by side (12 h and event total); hourly rain box mean over the target area, obs and model; ETS and bias vs threshold, fixed and percentile; low-level wind and moisture flux at the peak against ERA5 (`syn_era5_850_diff`); rain Hovmöller across the band, obs and model (`precip_hovmoller`; set the line with `--cross-section hovmoller=...` when the band is not along the low-level flow); soundings against radiosondes (`common_sounding_obs`) |
+| any case | the observations behind each claim: fetch them before the run's post (`wtune post fetch era5\|gridsat\|igra\|stations ...`, agent datasets for the rest); a claim no observation covers is "not verified" |
 | typhoon | track vs best track with the 6-hourly error; minimum SLP and maximum wind vs best track; rain obs/model; wind and rain at landfall; radius-height structure |
 | convection | radar vs model reflectivity at the peak hour; time of first echo; CAPE/CIN before onset; updraft helicity swaths |
 | terrain flow | wind across the ridge (cross-section normal to it); rain vs terrain height; valley wind time-height |

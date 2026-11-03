@@ -88,7 +88,7 @@
     [
      "run_recipe",
      "(['<TMP>/proj/runs/r1'], '<TMP>/proj/post/<ID>-recipe')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['r1']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None, 'hovmoller': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['r1']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ],
     [
      "manifest_append",
@@ -105,7 +105,7 @@
     [
      "run_recipe",
      "(['x/y'], 'o')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['y']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None, 'hovmoller': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['y']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ],
     [
      "manifest_append",
@@ -242,7 +242,7 @@
   "fetch": {
    "rc": 0,
    "stderr": "",
-   "stdout": "usage: wtune post fetch [-h] [--list]\n                        {bdeck,era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n                        ...\n\npositional arguments:\n  {bdeck,era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n    bdeck               NHC ATCF best-track b-deck of the project's storm\n                        (project.yaml storm:)\n    era5                ERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the\n                        synoptic comparison -> <project>/input/era5/\n    era5_monthly        ERA5 monthly means (t2m, sst, tp) aggregated from ARCO\n                        hourly data -> <project>/input/era5/monthly/\n    gpcp_monthly        GPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI)\n                        -> <project>/input/obs/gpcp_monthly/\n    igra                NOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for\n                        stations inside the WRF domain\n    mrms                NOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-\n                        pds; 2020-10-14 onward only)\n    nexrad              NEXRAD Level II volumes (AWS unidata-nexrad-level2)\n                        nearest each hour, per radar\n    stage4              NCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the\n                        IEM archive\n    stations            NOAA ISD-Lite hourly surface stations (T, Td, MSLP,\n                        wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --list                list fetch modules: NAME, HELP, coverage_time\n"
+   "stdout": "usage: wtune post fetch [-h] [--list]\n                        {bdeck,era5,era5_monthly,gpcp_monthly,gridsat,igra,mrms,nexrad,stage4,stations}\n                        ...\n\npositional arguments:\n  {bdeck,era5,era5_monthly,gpcp_monthly,gridsat,igra,mrms,nexrad,stage4,stations}\n    bdeck               NHC ATCF best-track b-deck of the project's storm\n                        (project.yaml storm:)\n    era5                ERA5 z500 and 850 hPa wind/humidity subsets (ARCO-ERA5\n                        zarr, anonymous) for the synoptic comparison ->\n                        <project>/input/era5/\n    era5_monthly        ERA5 monthly means (t2m, sst, tp) aggregated from ARCO\n                        hourly data -> <project>/input/era5/monthly/\n    gpcp_monthly        GPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI)\n                        -> <project>/input/obs/gpcp_monthly/\n    gridsat             NOAA GridSat-B1 IR brightness temperature (0.07 deg,\n                        3-hourly) -> satellite_ir obs\n    igra                NOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for\n                        stations inside the WRF domain\n    mrms                NOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-\n                        pds; 2020-10-14 onward only)\n    nexrad              NEXRAD Level II volumes (AWS unidata-nexrad-level2)\n                        nearest each hour, per radar\n    stage4              NCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the\n                        IEM archive\n    stations            NOAA ISD-Lite hourly surface stations (T, Td, MSLP,\n                        wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --list                list fetch modules: NAME, HELP, coverage_time\n"
   },
   "fetch-bdeck": {
    "rc": 0,
@@ -252,7 +252,7 @@
   "fetch-era5": {
    "rc": 0,
    "stderr": "",
-   "stdout": "usage: wtune post fetch era5 [-h] [--project PROJECT] [--run-dir RUN_DIR]\n                             [--spinup-hours SPINUP_HOURS] [--margin MARGIN]\n                             [--end END] [--bbox BBOX] [--nc-cache DIR]\n\nERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the synoptic comparison ->\n<project>/input/era5/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/era5/ (default:\n                        $WTUNE_PROJECT or a project.yaml above the current\n                        directory)\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --spinup-hours SPINUP_HOURS\n                        pick the last d01 frame at least this many hours after\n                        the first (the synoptic recipe's own rule; default 6)\n  --margin MARGIN       degrees added around the d01 bbox (default 2)\n  --end END             with --bbox, instead of --run-dir: the run's last\n                        valid time (UTC, YYYYmmddHH), which the synoptic\n                        recipe compares at\n  --bbox BBOX           lat0,lat1,lon0,lon1 of d01\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+   "stdout": "usage: wtune post fetch era5 [-h] [--project PROJECT] [--run-dir RUN_DIR]\n                             [--spinup-hours SPINUP_HOURS] [--margin MARGIN]\n                             [--end END] [--bbox BBOX] [--times TIMES]\n                             [--nc-cache DIR]\n\nERA5 z500 and 850 hPa wind/humidity subsets (ARCO-ERA5 zarr, anonymous) for\nthe synoptic comparison -> <project>/input/era5/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/era5/ (default:\n                        $WTUNE_PROJECT or a project.yaml above the current\n                        directory)\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --spinup-hours SPINUP_HOURS\n                        pick the last d01 frame at least this many hours after\n                        the first (the synoptic recipe's own rule; default 6)\n  --margin MARGIN       degrees added around the d01 bbox (default 2)\n  --end END             with --bbox, instead of --run-dir: the run's last\n                        valid time (UTC, YYYYmmddHH), which the synoptic\n                        recipe compares at\n  --bbox BBOX           lat0,lat1,lon0,lon1 of d01\n  --times TIMES         more valid times (UTC, comma-separated YYYYmmddHH) to\n                        fetch\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
   },
   "fetch-era5_monthly": {
    "rc": 0,
@@ -263,6 +263,11 @@
    "rc": 0,
    "stderr": "",
    "stdout": "usage: wtune post fetch gpcp_monthly [-h] [--project PROJECT]\n                                     [--run-dir RUN_DIR] [--start START]\n                                     [--end END] [--bbox BBOX]\n                                     [--skip-days SKIP_DAYS] [--nc-cache DIR]\n\nGPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI) ->\n<project>/input/obs/gpcp_monthly/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/gpcp_monthly/\n                        (default: $WTUNE_PROJECT or a project.yaml above the\n                        current directory)\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --skip-days SKIP_DAYS\n                        skip months starting before window start + this (spin-\n                        up; default 30)\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-gridsat": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch gridsat [-h] [--project PROJECT] [--run-dir RUN_DIR]\n                                [--start START] [--end END] [--bbox BBOX]\n                                [--jobs JOBS] [--nc-cache DIR]\n\nNOAA GridSat-B1 IR brightness temperature (0.07 deg, 3-hourly) -> satellite_ir\nobs\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; data goes to its input/obs/gridsat/\n                     (default: $WTUNE_PROJECT or a project.yaml above the\n                     current directory)\n  --run-dir RUN_DIR  run whose wrfout gives the time window and region\n  --start START      override the window start (UTC, YYYY-MM-DD_HH)\n  --end END          override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX        override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --jobs JOBS        parallel downloads (default 4)\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
   },
   "fetch-igra": {
    "rc": 0,
@@ -423,7 +428,8 @@
    "post_command": "'fetch'",
    "project": "'p'",
    "run_dir": "None",
-   "spinup_hours": "6.0"
+   "spinup_hours": "6.0",
+   "times": "None"
   },
   "fetch-era5_monthly": {
    "bbox": "None",
@@ -451,6 +457,18 @@
    "project": "'p'",
    "run_dir": "None",
    "skip_days": "30.0",
+   "start": "None"
+  },
+  "fetch-gridsat": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'gridsat'",
+   "jobs": "4",
+   "list": "False",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
    "start": "None"
   },
   "fetch-igra": {

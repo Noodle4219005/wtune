@@ -15,6 +15,18 @@
       "common_misreadings": "Reading the nest outline as a straight lon/lat box -- it is curved under WRF's Lambert/Mercator projection; the terrain colour scale carries no simulated variable."
     }
   },
+  "common_sounding_obs": {
+    "zh": {
+      "question": "模式的探空和實際的無線電探空差多少？（任何個案，只要有 IGRA2 資料）",
+      "how_to_read": "每個測站一張圖，每個時刻一個 Skew-T：實線是 WRF、虛線是 IGRA2 探空（溫度與露點，風標內側 WRF、外側探空），並列出 1000–500 hPa 的 T、Td、風速 RMSE。測站畫在涵蓋它的最細網格上，時刻取最接近雨峰的探空；數值在 soundings/sounding_obs_stats.csv。",
+      "common_misreadings": "把探空的漂移（氣球在上升中飄離測站）與探空時間差忽略；一個測站的一次探空不代表整個區域的環境，1000–500 hPa 之外不計入 RMSE。"
+    },
+    "en": {
+      "question": "How far is the model sounding from the radiosonde? (any case with IGRA2 data)",
+      "how_to_read": "One figure per station, one Skew-T per time: WRF solid, IGRA2 radiosonde dashed (temperature and dew point; barbs WRF inner, sonde outer), with the 1000-500 hPa RMSE of T, Td and wind speed. Each station is drawn on the finest domain holding it, at the soundings nearest the rain peak; numbers in soundings/sounding_obs_stats.csv.",
+      "common_misreadings": "Ignoring balloon drift and the sonde-to-model time offset; one sounding is not the whole region's environment; levels outside 1000-500 hPa are not in the RMSE."
+    }
+  },
   "common_repro_envelope": {
     "zh": {
       "question": "只改變 decomposition（切法）而不改變物理，答案漂移了多少？",
@@ -219,6 +231,18 @@
       "common_misreadings": "As for precipitation FSS: rare thresholds have small f0 so low FSS is built in; cells outside radar range are excluded."
     }
   },
+  "precip_hovmoller": {
+    "zh": {
+      "question": "雨帶在什麼時候、落在跨雨帶方向的哪裡？模式與觀測的位置和時間差多少？",
+      "how_to_read": "橫軸是沿一條線的距離（km，0 為線的中心），縱軸是時間（UTC，往上為後）。預設的線穿過雨核、垂直於雨峰時 0–1.5 km 的平均風，所以順著低層氣流排列的雨帶會在圖上呈現跨氣流方向的位置；負值在氣流右側、正值在左側（西南氣流時是東南→西北）。每個觀測資料集兩欄（觀測與同時窗的模式累積），最後一欄是模式逐時雨量；灰色是 spin-up，虛線是雨峰時刻。線可用 `wtune project set --cross-section hovmoller=lat0,lon0,lat1,lon1` 指定；數值在 precip_hovmoller_<run>.csv。",
+      "common_misreadings": "把一條線上的位置差當成整個雨帶的位移；觀測時窗（例如 6 小時）比模式逐時粗，時間差小於時窗長度時看不出來；格點雨量（如 CMORPH 0.25°）解析不了 3 km 模式的地形雨核。"
+    },
+    "en": {
+      "question": "When, and where across the rain band, did it rain? How far off are the model's position and timing?",
+      "how_to_read": "x: distance along a line (km, 0 = the line centre); y: time (UTC, later upward). The default line crosses the rain core perpendicular to the 0-1.5 km mean wind at the rain peak, so a band lying along the low-level flow shows its cross-flow position; negative = right of the flow, positive = left (south-east -> north-west for south-west flow). Two columns per observation dataset (observed and the model over the same windows), then the model's hourly rain; grey = spin-up, dashed = the rain peak. Set the line with `wtune project set --cross-section hovmoller=lat0,lon0,lat1,lon1`; values in precip_hovmoller_<run>.csv.",
+      "common_misreadings": "Reading a position difference on one line as the displacement of the whole band; an observation window (e.g. 6 h) coarser than the model's hour hides timing errors shorter than it; gridded estimates (e.g. CMORPH 0.25 deg) do not resolve a 3 km model's terrain rain cores."
+    }
+  },
   "precip_accum": {
     "zh": {
       "question": "從模擬開始累積到目前，降水總量與空間分佈如何？",
@@ -349,6 +373,18 @@
       "question": "Where and how large is the model's 500 hPa height bias against the ERA5 analysis?",
       "how_to_read": "Fill: model minus ERA5 z500 (m); on the ERA5 0.25 deg grid, model interior only; black solid = model, black dashed = ERA5 z500 every 60 m, so a displaced feature shows as offset contours and a +/- dipole in the fill. RMSE/bias in the title come from MET Grid-Stat.",
       "common_misreadings": "Reading the pale fill as 'no error': the bin around zero (about +/-8 m) is deliberately white, and the lateral boundary zone (spec_bdy_width) is excluded from the statistics and shares that white background."
+    }
+  },
+  "syn_era5_850_diff": {
+    "zh": {
+      "question": "模式的低層噴流和它帶的水氣，與 ERA5 再分析差多少？",
+      "how_to_read": "左圖：850 hPa 風速 model − ERA5（m/s），黑色箭頭是模式風、灰色是 ERA5；右圖：850 hPa 比濕 model − ERA5（g/kg）。紅色＝模式風較強，棕色＝模式較乾。時刻同其他單時刻地圖（雨峰）；RMSE 與偏差由 MET Grid-Stat 在 ERA5 0.25° 網格、模式內部範圍計算。",
+      "common_misreadings": "把 ERA5 當成觀測——它是再分析，在海上與資料稀少處本身也有誤差；850 hPa 在高山（青藏高原、中央山脈）位於地面以下，那裡沒有差值；0.25° 的 ERA5 無法解析 3 km 網格的地形噴流。"
+    },
+    "en": {
+      "question": "How far are the model's low-level jet and the moisture it carries from ERA5?",
+      "how_to_read": "Left: 850 hPa wind speed, model - ERA5 (m/s), model wind black, ERA5 grey; right: 850 hPa specific humidity, model - ERA5 (g/kg). Red = the model's wind is stronger, brown = the model is drier. Same time as the other one-time maps (the rain peak); RMSE and bias from MET Grid-Stat on the ERA5 0.25 deg grid over the model interior.",
+      "common_misreadings": "Taking ERA5 for an observation: it is a reanalysis with its own error over the ocean and where data are sparse; 850 hPa is below the ground over high terrain, where there is no difference; 0.25 deg ERA5 does not resolve terrain jets of a 3 km grid."
     }
   },
   "pbl_cross_terrain": {

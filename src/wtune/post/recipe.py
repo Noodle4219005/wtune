@@ -167,6 +167,8 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["focus_box"] = focus_box
         if "map_time" in params:
             kwargs["map_time"] = map_time
+        if "hovmoller_line" in params:
+            kwargs["hovmoller_line"] = _ignored.get("hovmoller_line")
         return guarded(module_name, mod.figures, run_dirs, labels, sub_out, case_info, **kwargs)
     return run
 
@@ -339,8 +341,14 @@ def _run_simple(handler, r: _RecipeRun) -> list:
                    spinup_days=r.spinup_days, map_time=r.map_time)
 
 
+def _run_precip(handler, r: _RecipeRun) -> list:
+    return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
+                   spinup_days=r.spinup_days, map_time=r.map_time, focus_box=r.focus_box,
+                   hovmoller_line=r.cross_sections.get("hovmoller"))
+
+
 _TYPE_RUNNERS = {"tc": _run_tc, "cloud": _run_cloud, "convection": _run_convection,
-                 "terrain": _run_terrain, "moisture": _run_moisture}
+                 "terrain": _run_terrain, "moisture": _run_moisture, "precip": _run_precip}
 
 
 def _fail_soft(name, fn, *args, **kwargs) -> list:
@@ -464,6 +472,12 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
              ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
               {})]
     tasks += _type_tasks(types, run)
+    if "pbl" not in types:              # the pbl set draws its own radiosonde comparison
+        from wtune.post.recipes import pbl as pbl_mod
+        tasks.append(("soundings", _fail_soft,
+                      ("common_sounding", pbl_mod.sounding_figures, run_dirs, labels,
+                       os.path.join(out_dir, "soundings"), case_info),
+                      dict(project_dir=project_dir, map_time=run.map_time)))
     if every or times:
         tasks.append(("timeseries", _fail_soft,
                       ("timeseries", guarded, "timeseries", _time_series_figures, run_dirs,

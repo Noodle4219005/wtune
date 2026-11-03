@@ -70,6 +70,9 @@ def test_select_stations_spreads_and_filters():
     ids = [s["id"] for s in chosen]
     assert len(ids) == 3 and "OUT" not in ids and "OLD" not in ids
     assert "S0" in ids and "S9" in ids            # spread to the extremes, not the first three
+    # with the project's post.focus centre: the stations nearest it, not a spread
+    near = igra.select_stations(st, (29, 32, -91, -89), u, u, max_n=3, near=(30.85, -89.15))
+    assert [s["id"] for s in near] == ["S7", "S8", "S9"]
 
 
 def test_station_list_parse():
@@ -146,3 +149,35 @@ def test_igra_defaults_to_the_finest_domain(tmp_path, monkeypatch):
         args.run_dir = str(tmp_path)
         igra._resolve_request(args)
         assert seen[-1] == want
+
+
+def test_sounding_comparison_for_any_case_on_the_finest_domain_holding_the_station(
+        tmp_path, monkeypatch):
+    # it used to be drawn only for pbl (LES-type) runs; haitang2017 had IGRA data and no figure
+    from datetime import datetime, timedelta
+    from wtune.post.recipes import pbl as pb
+    st_in = ("TWM00058968", "TAIBEI", 25.03, 121.52, 0.0, {})
+    st_out = ("HKM00045004", "KOWLOON", 22.31, 114.17, 65.0, {})
+    monkeypatch.setattr(pb, "_obs_dir", lambda run_dir, project_dir=None: "/igra")
+    monkeypatch.setattr(pb, "_load_stations", lambda d: [st_in, st_out])
+    monkeypatch.setattr(pb, "list_frame_refs", lambda run_dir, domain=1: [("t", "d%d" % domain, 0)])
+    t0 = datetime(2017, 7, 31)
+
+    def compare(stations, frames_by_time, run_dir):
+        dom = int(frames_by_time["t"][0][1:])
+        holds = {"TWM00058968": 3, "HKM00045004": 2}[stations[0][0]] >= dom
+        return [dict(sid=stations[0][0], name=stations[0][1], time=t0 + timedelta(hours=12 * k),
+                     stats={"T": {"n": 1}}) for k in range(7)] if holds else []
+    monkeypatch.setattr(pb, "_station_comparisons", compare)
+    drawn = []
+    monkeypatch.setattr(pb, "plot_skewt_station",
+                        lambda rows, path, label, domain: drawn.append((path, domain, rows)) or path)
+    monkeypatch.setattr(pb, "write_stats_csv", lambda rows, path: path)
+    case = {"domains": [{"domain": 1}, {"domain": 2}, {"domain": 3}]}
+    out = pb.sounding_figures(["/run"], ["r"], str(tmp_path), case, map_time="2017-08-01_23:00:00")
+    assert [(f["id"], f["domain"], f["station"]) for f in out] == [
+        ("common_sounding_obs", "d03", "TWM00058968"), ("common_sounding_obs", "d02", "HKM00045004")]
+    times = [r["time"].strftime("%d%H") for r in drawn[0][2]]
+    assert times == ["3112", "0100", "0112", "0200", "0212", "0300"]   # 6 nearest 01 23Z; 3100 is 47 h off
+    monkeypatch.setattr(pb, "_load_stations", lambda d: [])
+    assert pb.sounding_figures(["/run"], ["r"], str(tmp_path), case) == []

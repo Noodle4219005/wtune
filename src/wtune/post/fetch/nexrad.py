@@ -24,6 +24,23 @@ NAME = "nexrad"
 HELP = "NEXRAD Level II volumes (AWS unidata-nexrad-level2) nearest each hour, per radar"
 PROVENANCE = dict(sources.REGISTRY["nexrad"])
 
+# (lat0, lat1, lon0, lon1) the WSR-88D network reaches (about one 230 km range around its sites):
+# CONUS, Alaska, Hawaii, Puerto Rico, Guam, and the DoD sites in Korea and Okinawa
+COVERAGE = ((23.0, 51.0, -127.0, -65.0), (50.0, 72.0, -170.0, -128.0), (18.0, 23.5, -161.5, -154.0),
+            (16.5, 20.0, -68.5, -64.0), (11.5, 16.0, 142.5, 146.5), (34.0, 39.5, 124.5, 130.5),
+            (24.0, 28.5, 125.5, 130.5))
+
+
+def covers(bbox):
+    """Whether the region (lat0, lat1, lon0, lon1) overlaps the NEXRAD network's coverage."""
+    from wtune.post.conventions import lon_in_range
+    la0, la1, lo0, lo1 = bbox
+    for c0, c1, d0, d1 in COVERAGE:
+        if la0 <= c1 and la1 >= c0 and (lon_in_range(d0, lo0, lo1) or lon_in_range(lo0, d0, d1)):
+            return True
+    return False
+
+
 BUCKET = "https://unidata-nexrad-level2.s3.amazonaws.com"
 HOMR = "https://www.ncei.noaa.gov/access/homr/file/nexrad-stations.txt"
 _KEY_RE = re.compile(r"<Key>([^<]+)</Key>")

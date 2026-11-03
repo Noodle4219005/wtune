@@ -204,6 +204,10 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             out_path = os.path.join(out_dir, "%s_d%02d_%s%s.%s"
                                     % (field, domain, time_str.replace(":", ""), lev_tag, fmt))
             from wtune.post.basemap import caption_rect
+            if basemap == "cartopy":
+                # a tall nest on a fixed 8x6 left a third of the width blank (haitang2017 d03)
+                from wtune.post.recipes.mapfig import MAP_WIDTH_IN, map_height_in
+                fig.set_size_inches(MAP_WIDTH_IN, map_height_in(ax.get_extent(crs=crs)))
             fig.tight_layout(rect=caption_rect(fig))
             fig.savefig(out_path, dpi=figdpi.dpi(), bbox_inches="tight", pad_inches=0.1)
             plt.close(fig)

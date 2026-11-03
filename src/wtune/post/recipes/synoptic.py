@@ -293,6 +293,124 @@ def _era5_diff_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig:
         return missing("syn_era5_diff", "MET grid_stat", str(e))
 
 
+def _model_850(c: _Chart) -> dict:
+    """Model 850 hPa earth-relative wind (m/s) and specific humidity (g/kg) on the WRF grid;
+    NaN where 850 hPa is below the ground."""
+    np, wrf_mod = c.np, c.wrf
+    p = wrf_mod.getvar(c.ds, "pressure", timeidx=c.ti)
+    uv = np.asarray(wrf_mod.interplevel(wrf_mod.getvar(c.ds, "uvmet", timeidx=c.ti), p, 850.0))
+    w = np.asarray(wrf_mod.interplevel(wrf_mod.getvar(c.ds, "QVAPOR", timeidx=c.ti), p, 850.0))
+    q = 1000.0 * w / (1.0 + w)                     # mixing ratio -> specific humidity (ERA5's)
+    return {"U850": uv[0], "V850": uv[1], "Q850": q}
+
+
+def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: Callable,
+                    missing: Callable) -> dict:
+    """ERA5 850 hPa wind speed and specific humidity, model - ERA5 with MET Grid-Stat RMSE/bias
+    (interior of the model domain): the low-level jet and the moisture it carries."""
+    np = c.np
+    try:
+        from wtune.post.recipes.era5 import Era5UnavailableError, level_for
+    except ImportError as e:
+        return missing("syn_era5_850_diff", "ERA5 (ARCO)", str(e))
+    try:
+        from datetime import datetime
+        from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+        try:
+            from wtune.project import find_project
+            project_dir = find_project(c.out_dir)
+        except Exception:
+            project_dir = None
+        e_lat, e_lon, e_f, e_valid, e_src = level_for(
+            datetime.strptime(c.time_str, WRF_TIME_FMT), model_bbox, project_dir)
+        m = _model_850(c)
+        work = os.path.join(c.out_dir, "gridstat_era5_850")
+        os.makedirs(work, exist_ok=True)
+        poly = met_gridstat.write_interior_polygon(path, spec_bdy_width(run_dir),
+                                                   os.path.join(work, "interior.poly"))
+        stats = {}
+        for name, model, obs, units in (
+                ("WSPD850", np.hypot(m["U850"], m["V850"]), np.hypot(e_f["U850"], e_f["V850"]),
+                 "m s-1"),
+                ("Q850", m["Q850"], e_f["Q850"], "g kg-1")):
+            stats[name] = met_gridstat.grid_stat_field(
+                np.asarray(c.lats), np.asarray(c.lons), model, e_lat, e_lon, obs, e_valid, poly,
+                os.path.join(work, name), name, units)
+        from wtune.post.conventions import path_time_label
+        p = os.path.join(c.out_dir, "syn_era5_850_diff.png")
+        _era5_850_map(p, c, path_time_label(path, c.time_str), m, e_lat, e_lon, e_f, stats)
+        return fig("syn_era5_850_diff", p, c.run_label, domain="d01", valid_time=c.time_str,
+                   extra={"wspd850_rmse_ms": stats["WSPD850"]["rmse"],
+                          "wspd850_bias_ms": stats["WSPD850"]["bias"],
+                          "q850_rmse_gkg": stats["Q850"]["rmse"],
+                          "q850_bias_gkg": stats["Q850"]["bias"], "n": stats["Q850"]["n"],
+                          "era5_source": e_src})
+    except Era5UnavailableError as e:
+        return missing("syn_era5_850_diff", "ERA5 (ARCO)", str(e))
+    except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError) as e:
+        return missing("syn_era5_850_diff", "MET grid_stat", str(e))
+    except FIELD_ERRORS as e:
+        return missing("syn_era5_850_diff", "wrfout_d01 850 hPa wind / QVAPOR", error_reason(e))
+
+
+def _pairs_diff(pairs_nc):
+    import netCDF4
+    import numpy as np
+    with netCDF4.Dataset(pairs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("DIFF_"))
+        lat = np.asarray(ds.variables["lat"][:])
+        lon = np.asarray(ds.variables["lon"][:])
+        return lat, lon, np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
+
+
+def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats):
+    """Two panels on the model projection: 850 hPa wind speed and specific humidity, model -
+    ERA5 (Grid-Stat DIFF on the ERA5 grid); model wind black, ERA5 wind grey."""
+    import numpy as np
+    import cartopy.crs as ccrs
+    from wtune.post.plotting import _coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir
+    plt = _matplotlib()
+    _set_cartopy_data_dir()
+    pc = ccrs.PlateCarree()
+    fig_, axes = plt.subplots(1, 2, figsize=(13.0, 5.6), layout="constrained",
+                              subplot_kw={"projection": c.crs})
+    ny, nx = np.shape(c.lats)
+    ms = max(1, min(ny, nx) // 15)
+    elon2, elat2 = np.meshgrid(e_lon, e_lat)
+    es = max(1, min(len(e_lat), len(e_lon)) // 15)
+    for ax, name, label, cmap in ((axes[0], "WSPD850", "850 hPa wind speed, model - ERA5 (m/s)",
+                                   "RdBu_r"),
+                                  (axes[1], "Q850", "850 hPa specific humidity, model - ERA5 (g/kg)",
+                                   "BrBG")):
+        ax.set_extent([c.xlim[0], c.xlim[1], c.ylim[0], c.ylim[1]], crs=c.crs)
+        d_lat, d_lon, diff = _pairs_diff(stats[name]["pairs_nc"])
+        finite = diff[np.isfinite(diff)]
+        vmax = max(float(np.percentile(np.abs(finite), 99)), 1e-3) if finite.size else 1.0
+        levels = symmetric_levels(vmax)
+        cf = ax.contourf(d_lon, d_lat, np.ma.masked_invalid(diff), levels=levels,
+                         cmap=plt.get_cmap(cmap), extend="both", transform=pc)
+        fig_.colorbar(cf, ax=ax, ticks=levels, shrink=0.85, label=label)
+        if name == "WSPD850":
+            ax.quiver(elon2[::es, ::es], elat2[::es, ::es], e_f["U850"][::es, ::es],
+                      e_f["V850"][::es, ::es], color="0.55", width=0.003, scale=400,
+                      transform=pc, zorder=4)
+            q = ax.quiver(np.asarray(c.lons)[::ms, ::ms], np.asarray(c.lats)[::ms, ::ms],
+                          m["U850"][::ms, ::ms], m["V850"][::ms, ::ms], color="k", width=0.003,
+                          scale=400, transform=pc, zorder=5)
+            ax.quiverkey(q, 0.88, -0.07, 10, "10 m/s (model black, ERA5 grey)",
+                         labelpos="W", fontproperties={"size": 8})
+        if _natural_earth_ready():
+            _coastline(ax, None, ccrs, True, lats=c.lats, lons=c.lons, terrain=False, nest_rings=[])
+        st = stats[name]
+        ax.set_title("%s\nRMSE %.2f  bias %+.2f  (MET Grid-Stat, ERA5 0.25\u00b0, interior, n=%d)"
+                     % (label, st["rmse"], st["bias"], st["n"]), fontsize=9)
+    fig_.suptitle("%s d01 850 hPa: the low-level flow and its moisture against ERA5  %s"
+                  % (c.run_label, time_label), fontsize=10)
+    fig_.savefig(out_path, dpi=figdpi.dpi())
+    plt.close(fig_)
+    return out_path
+
+
 def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dict,
             spinup_hours: float = 6, map_time: str | None = None) -> list[dict]:
     """The synoptic charts of the first run's d01 frame nearest map_time (run_recipe: the rain
@@ -333,6 +451,7 @@ def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dic
         return out
 
     out.append(_era5_diff_entry(c, run_dir, path, model_bbox, fig, missing))
+    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing))
     return out
 
 

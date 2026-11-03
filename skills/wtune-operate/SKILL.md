@@ -120,7 +120,9 @@ wtune project info          # resolved layout, machine and post settings
 - Storm settings: `project init --storm --hurdat2` (NHC); for another agency's best track
   `wtune project set --storm WP122017 --bdeck <ATCF b-deck>`.
 - Post settings: `--post-types`, `--post-every`, `--post-fetch`, `--post-focus
-  LAT0,LAT1,LON0,LON1`, `--cross-section KIND=LAT0,LON0,LAT1,LON1`.
+  LAT0,LAT1,LON0,LON1`, `--cross-section KIND=LAT0,LON0,LAT1,LON1` (KIND `terrain` or
+  `moisture`: the cross-section figures; `hovmoller`: the line of `precip_hovmoller`, which
+  otherwise crosses the rain core across the low-level wind).
 - Layout: `case/`, `input/` (forcing, obs), `tune/<id>/`, `runs/<id>/`, `post/<id>/`,
   `analysis/`, `manifest.jsonl` (every command that changed the project).
 
@@ -186,7 +188,8 @@ The recipe, preview, brief, custom and check are in `wtune-post`. The single too
 | one skew-T | `wtune post sounding <run> --point LAT,LON --time T --out D` |
 | TC track (TempestExtremes) and MET a-deck/b-deck | `wtune post tc <runs...> [--storm --hurdat2\|--bdeck]` |
 | did a STRICT change move the answer? | `wtune post compare <run_a> <run_b> [--vars] [--json]` |
-| observations | `wtune post fetch --list`; `post fetch <bdeck\|era5\|era5_monthly\|gpcp_monthly\|igra\|mrms\|nexrad\|stage4\|stations>` (login node) |
+| observations | `wtune post fetch --list`; `post fetch <bdeck\|era5\|era5_monthly\|gpcp_monthly\|gridsat\|igra\|mrms\|nexrad\|stage4\|stations> --project P --run-dir R` (login node) |
+| which fetch for which figure | `era5`: z500 and 850 hPa wind/humidity at the rain peak and the last post-spin-up frame (`syn_era5_diff`, `syn_era5_850_diff`; `--times` adds more); `gridsat`: geostationary IR brightness temperature, any region 70S-70N (`cloud_ir_compare/scores/fss`); `igra`: radiosondes, the stations nearest `post.focus` (`--stations ID,...` to choose; `common_sounding_obs` for every case type); `nexrad`/`mrms`/`stage4`: US only -- elsewhere radar and gridded rain come as agent datasets (skill `wtune-event`, part 2) |
 | 3D viewers | `wtune post cf3d <run>` (CF NetCDF for ParaView/Met.3D); `post vapor-bundle <run>` (VAPOR, on a workstation) |
 | an HTML page from a folder of PNG/CSV | `wtune post report <dir>` |
 | wrf-python diagnostics / tracking without a project | `wtune analyze diag --wrfout F --vars V --out D`; `analyze tc-track --wrfout F --hurdat2 H --storm S --out D` |

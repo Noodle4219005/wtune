@@ -95,6 +95,36 @@ prediction point and ran 38 % over). The tc bands follow that run's own step tim
 `storm.bdeck`, so a JMA-tracked typhoon is planned as tc. `wtune post fetch` finds the project it
 runs in.
 
+**Observations behind every claim (haitang2017 review).** The comparisons an assessment needs
+are WTune commands, not one-off scripts:
+- `wtune post fetch era5` fetches z500 and 850 hPa wind and specific humidity at the recipe's
+  rain peak and its last post-spin-up frame (`--times` adds more); it fetched one z500 time,
+  and after the one-time maps moved to the rain peak `syn_era5_diff` found no subset. New
+  `syn_era5_850_diff`: 850 hPa wind speed and humidity, model - ERA5, MET Grid-Stat RMSE and
+  bias (the low-level jet and its moisture).
+- `wtune post fetch gridsat`: NOAA GridSat-B1 IR brightness temperature (0.07 deg, 3-hourly,
+  70S-70N) written as an agent `satellite_ir` dataset, so `cloud_ir_compare/scores/fss` work
+  for any region without a conversion step.
+- `common_sounding_obs`: WRF against IGRA radiosondes for every case type with IGRA data (the
+  pbl set, LES-type runs only, was the only one), each station on the finest domain holding
+  it, the soundings nearest the rain peak. `fetch igra` takes the stations nearest
+  `post.focus` when the project has one.
+- `precip_hovmoller`: rain against distance and time across the band (default line through the
+  rain core across the 0-1.5 km wind; `--cross-section hovmoller=...`), each agent gridded
+  rain dataset beside the model over the same windows, plus the model's hourly rain.
+- The missing-radar message names NEXRAD/MRMS as US-only and points a domain elsewhere to an
+  agent `radar` dataset instead of `fetch nexrad`.
+
+**Figure fixes from the haitang2017 review.** tc_structure uses the strongest tracked frame past
+spin-up, not the last one; tc_radius_time_wind has a column only where a frame is (nearest
+within 10 min); the cloud_top_height title no longer cites lake-effect thresholds; maps
+(`save_map`, `plot_field`) follow the domain's aspect instead of a fixed 8x6.4; precip_stn_map
+panels follow the stations' box; the Stage IV window is centred on the rain peak; gridded rain
+scores over Taiwan use CWA's warning levels (1/10/40/80/200/350 mm). Across 180E: the d01 box,
+TC detection, the preview Stage IV mask, coastlines past 180, PlateCarree axes and the cdo
+regrid target. `doctor --find` lists only env files that set WRF_TREE; `post` help lists all
+its subcommands.
+
 **Other fixes.**
 - Maps keep to the grid's own box in the map projection (a Lambert d01 reaching 7 S drew to the
   pole), have 2/5/10-degree gridlines, and draw no isobars over ground above 1500 m.

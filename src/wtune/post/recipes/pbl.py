@@ -13,6 +13,8 @@ WRF output (Katrina 12 km d01, hourly, 48 h; 2026-09-29):
   pbl_height_compare  PBL height, radiosonde vs model, per station/sounding (bulk-Richardson on
                       both, plus the scheme's PBLH), with model-minus-obs T/Td/wspd statistics
                       written to pbl_obs_stats.csv
+  common_sounding_obs (sounding_figures, every case type with IGRA data) the same Skew-T, each
+                      station on the finest domain holding it, soundings nearest the rain peak
 
 wrf-python getvar/vertcross for all model fields; MetPy for Skew-T and thermodynamics; IGRA
 soundings come from `wtune post fetch igra` (post/fetch/igra.py) in <project>/input/obs/igra/.
@@ -357,6 +359,57 @@ def write_stats_csv(rows, out_path):
                         "%.2f" % s["Td"]["rmse"], "%.2f" % s["wspd"]["bias"], "%.2f" % s["wspd"]["rmse"],
                         s["T"]["n"]])
     return out_path
+
+
+def pick_soundings(rows, around=None, n=6):
+    """Up to n soundings: the n nearest `around` (datetime, the rain peak) when given, else
+    the first n; returned in time order."""
+    if around is not None:
+        rows = sorted(rows, key=lambda r: abs((r["time"] - around).total_seconds()))[:n]
+    return sorted(rows, key=lambda r: r["time"])[:n]
+
+
+def sounding_figures(run_dirs, labels, out_dir, case_info, project_dir=None, map_time=None):
+    """common_sounding_obs: WRF vs IGRA radiosonde Skew-T per station for any case type with
+    <project>/input/obs/igra (the pbl set, LES-type runs only, draws pbl_skewt_obs). Each station
+    on the finest domain whose interior holds it; the soundings nearest map_time (the rain
+    peak). [] without IGRA data."""
+    from wtune.post.recipe import fig, missing
+    run_dir, run_label = run_dirs[0], labels[0]
+    obs_dir = _obs_dir(run_dir, project_dir)
+    stations = _load_stations(obs_dir) if obs_dir else []
+    if not stations:
+        return []
+    os.makedirs(out_dir, exist_ok=True)
+    around = datetime.strptime(map_time, WRF_FMT) if map_time else None
+    doms = sorted((d["domain"] for d in case_info.get("domains", [])), reverse=True) or [1]
+    out, all_rows = [], []
+    try:
+        for st in stations:
+            for domain in doms:
+                frames = list_frame_refs(run_dir, domain=domain)
+                rows = _station_comparisons([st], {t: (p, ti) for t, p, ti in frames}, run_dir)
+                if rows:
+                    break
+            if not rows:
+                continue
+            rows = pick_soundings(rows, around)
+            all_rows += rows
+            path = plot_skewt_station(rows, os.path.join(out_dir, "sounding_%s.png" % st[0]),
+                                      run_label, domain)
+            out.append(fig("common_sounding_obs", path, run_label, domain="d%02d" % domain,
+                           valid_time=",".join(r["time"].strftime("%d%H") for r in rows),
+                           extra={"station": st[0], "name": st[1]}))
+    except (tools.ToolNotFoundError, ImportError) as e:
+        return out + [missing("common_sounding_obs", "metpy / wrf-python", str(e))]
+    except FIELD_ERRORS as e:
+        return out + [missing("common_sounding_obs", "wrfout / IGRA", error_reason(e))]
+    if not all_rows:
+        return [missing("common_sounding_obs", "IGRA radiosondes",
+                        "no sounding of %s lies inside a domain interior at an hourly wrfout frame"
+                        % ", ".join(st[0] for st in stations))]
+    write_stats_csv(all_rows, os.path.join(out_dir, "sounding_obs_stats.csv"))
+    return out
 
 
 def figures(run_dirs, labels, out_dir, case_info, project_dir=None, xsec_top_km=None,

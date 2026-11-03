@@ -495,7 +495,8 @@ def _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, pr
     return out
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None, map_time=None):
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None, map_time=None,
+            focus_box=None, hovmoller_line=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -531,4 +532,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
     out += _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
+    from wtune.post.recipes import hovmoller
+    out.append(hovmoller.figure(run_dir, run_label, domain, frames, out_dir, spinup_hours,
+                                project_dir, focus_box, map_time, line_override=hovmoller_line))
     return out

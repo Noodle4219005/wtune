@@ -170,11 +170,13 @@ REGISTRY = {
 # `obs_sources` key themselves (they are not mine): id prefix -> registry names. Used only by
 # used_sources() as a fallback so the licence section still lists ERA5 / HURDAT2.
 _FIGURE_ID_SOURCES = (("syn_z500_diff", ("era5",)), ("syn_gridstat", ("era5",)),
+                      ("syn_era5", ("era5",)),
                       ("tc_track", ("hurdat2",)), ("tc_intensity", ("hurdat2",)),
                       ("climate_annual_cycle", ("era5_monthly", "gpcp_monthly")),
                       ("climate_bias_t2", ("era5_monthly",)),
                       ("climate_bias_precip", ("gpcp_monthly",)),
-                      ("pbl_skewt_obs", ("igra",)), ("pbl_height_compare", ("igra",)))
+                      ("pbl_skewt_obs", ("igra",)), ("pbl_height_compare", ("igra",)),
+                      ("common_sounding_obs", ("igra",)))
 
 
 class FetchIncomplete(RuntimeError):

@@ -262,6 +262,28 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+def cmd_stations(args: argparse.Namespace) -> int:
+    import wtune.post.station_compare as sc
+    try:
+        res = sc.compare(args.run, args.obs, _parse_vars(args.stations), _parse_vars(args.vars),
+                         method=args.method, calm_kt=args.calm_kt, tol_min=args.tol_min,
+                         domains=[int(d) for d in _parse_vars(args.domains)] if args.domains
+                         else None, out_dir=args.out)
+    except sc.StationError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    for n in res["notes"]:
+        print("note: %s" % n)
+    for st in res["stats"]:
+        print("%-6s %-4s %-7s n=%-4d bias=%s rmse=%s" % (
+            st["station"], st["domain"], st["variable"], st["n"],
+            "nan" if st["bias"] != st["bias"] else "%.2f" % st["bias"],
+            "nan" if st["rmse"] != st["rmse"] else "%.2f" % st["rmse"]))
+    print("wrote %s and %d figure(s) under %s" % (", ".join(os.path.basename(f) for f in res["files"]),
+                                                  len(res["figures"]), args.out))
+    return 0
+
+
 def _print_recipe_result(result: dict) -> None:
     n_fig = sum(1 for f in result["figures"] if not f["missing"])
     n_missing = sum(1 for f in result["figures"] if f["missing"])
@@ -288,6 +310,13 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         if args.types is None and defaults["types"]:
             args.types = defaults["types"]
             used.append("--types %s" % args.types)
+        if args.times is None and defaults["times"]:
+            try:
+                args.times = ",".join(recipe.resolve_project_times(run_dirs[0], defaults["times"]))
+            except ValueError as e:
+                print("error: %s" % e, file=sys.stderr)
+                return 1
+            used.append("--times %s" % ",".join(defaults["times"]))
         if args.every is None and args.times is None and defaults["every"]:
             args.every = defaults["every"]
             used.append("--every %s" % args.every)
@@ -623,6 +652,22 @@ _COMMANDS = [
                    "numbers -- for the agent that reviews a recipe"), [
         _arg("post_dir", help="a `wtune post recipe` output directory (has figures.json)"),
         _PROJECT, _arg("--spinup-hours", type=float, default=6.0)]),
+    ("stations", dict(help="model vs. station observations (a wtune-obs/1 `stations` dataset): "
+                      "per station, variable and domain series, bias/RMSE (circular for wind "
+                      "direction, calm winds excluded), station-height mismatch"), [
+        _arg("--run", required=True, help="a wrfout directory (or a project with one run)"),
+        _arg("--obs", required=True, help="stations dataset folder (see `wtune event obs-convert`)"),
+        _arg("--stations", default="all", help="comma-separated station ids, or all (default: every "
+             "station in the dataset; a subset is reported as a partial analysis)"),
+        _arg("--vars", default="all", help="of t2,td2,wspd10,wdir10,gust, or all (default: every "
+             "variable the dataset has and the model side supports)"),
+        _arg("--method", choices=["nearest", "bilinear"], default="nearest"),
+        _arg("--calm-kt", type=float, default=3.0, dest="calm_kt",
+             help="observed speed below this is left out of the direction statistics"),
+        _arg("--tol-min", type=float, default=None, dest="tol_min",
+             help="pairing tolerance in minutes (default 10)"),
+        _arg("--domains", default=None, help="comma-separated domain numbers (default: all)"),
+        _arg("--out", required=True, help="post directory for the CSVs, figures and figures.json")]),
     ("check", dict(help="decision 0078 stage 5: check the agent's POST_DIR/review.json and "
                    "assessment.md (sections, citations, numbers against the cited CSVs); "
                    "exit 1 on an error"), [
@@ -716,7 +761,8 @@ def main(argv: list[str] | None = None) -> int:
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
                     recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d,
-                    preview=cmd_preview, brief=cmd_brief, check=cmd_check)
+                    preview=cmd_preview, brief=cmd_brief, check=cmd_check,
+                    stations=cmd_stations)
     dispatch["fetch-era5"] = cmd_fetch
     dispatch["vapor-bundle"] = cmd_vapor_bundle
     fn = dispatch.get(args.post_command)

@@ -29,7 +29,10 @@ ASSESSMENT_FILE = "assessment.md"
 VERDICTS = ("ok", "fix", "drop")
 ACTIONS = ("project_set", "analysis", "wtune_defect")
 # `wtune project set` flags a figure fix may use (drawing options, never machine or run ones)
-DRAWING_FLAGS = ("--post-focus", "--cross-section", "--post-types", "--post-every")
+DRAWING_FLAGS = ("--post-focus", "--cross-section", "--post-types", "--post-every",
+                 "--post-times", "--post-map-domains", "--post-figures-off",
+                 "--post-figures-on", "--post-stations", "--post-station-vars",
+                 "--post-station-method", "--post-calm-kt", "--post-overlay")
 # section -> heading words that satisfy it (English or Traditional Chinese)
 SECTIONS = {
     "setup": ("setup", "configuration", "設定"),
@@ -67,7 +70,8 @@ def _check_action(where, action, project_dir, preview, errors, warnings):
             import wtune.project
             try:
                 ns = wtune.project.build_parser().parse_args(["set"] + list(args))
-                wtune.project.apply_drawing_options({}, ns.post_focus, ns.cross_section)
+                wtune.project.apply_drawing_options(
+                    {}, ns.post_focus, ns.cross_section, wtune.project.post_option_values(ns))
             except (SystemExit, wtune.project.ProjectError) as e:
                 errors.append("%s: project_set args %s rejected: %s" % (where, args, e))
     elif kind == "analysis":
@@ -210,6 +214,25 @@ def index_kind(post_dir):
         return json.load(fh).get("kind", "recipe")
 
 
+def check_coverage(post_dir, warnings):
+    """The analysis must cover all the data, not only what a spec asked for: a station that
+    station_stats.csv has and the assessment never names is a warning (a partial analysis)."""
+    stats = os.path.join(post_dir, "station_stats.csv")
+    path = os.path.join(post_dir, ASSESSMENT_FILE)
+    if not (os.path.isfile(stats) and os.path.isfile(path)):
+        return
+    import csv
+    with open(stats, newline="") as fh:
+        ids = sorted({r["station"] for r in csv.DictReader(fh) if r.get("station")})
+    with open(path) as fh:
+        text = fh.read()
+    missing = [i for i in ids if i not in text]
+    if missing:
+        warnings.append("%s: station(s) in station_stats.csv never named: %s -- analyse every "
+                        "station and variable the data has, not only the ones the task names"
+                        % (ASSESSMENT_FILE, ", ".join(missing)))
+
+
 def check(post_dir, project_dir=None) -> tuple[list, list]:
     """(errors, warnings) of an agent's post/<id>/ (or post/preview/) outputs."""
     post_dir = os.path.abspath(post_dir)
@@ -218,4 +241,5 @@ def check(post_dir, project_dir=None) -> tuple[list, list]:
     check_review(post_dir, errors, warnings, project_dir=project_dir, preview=preview)
     if not preview:
         check_assessment(post_dir, project_dir, errors, warnings)
+        check_coverage(post_dir, warnings)
     return errors, warnings

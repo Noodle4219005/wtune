@@ -5,8 +5,12 @@ here does not match it. Development before 0.1.0 is in the git history, not in r
 
 ## Unreleased
 
+- `wtune post stations`: per-station model vs. observation series, bias/RMSE (circular wind direction, calm winds excluded) from a new `stations` obs kind; `wtune event obs-convert asos` turns an IEM ASOS CSV into one.
+
 Fixes from the 2026-10-26 mock competition on f1-arm (haitang2017, MeiYu-2020), and the agent
 half of `wtune post` (decision 0078).
+
+**Agent-set drawing choices.** `wtune project set --post-times/--post-map-domains/--post-figures-off/--post-figures-on/--post-overlay` (and the station keys `--post-stations/--post-station-vars/--post-station-method/--post-calm-kt`, stored only) pick the times, the nests with terrain and zoomed maps, and figure switches for `wtune post recipe`; `post check` accepts them in a `project_set` action. Domain labels now sit outside their boxes.
 
 **`wtune post` with an agent.** `wtune post brief POST_DIR` writes `brief.json` (case, runs,
 the observations that pass obs-check, drawn figures with the question each answers, missing

@@ -211,6 +211,80 @@ def _map_time(run_dir, case_info, spinup_hours, focus_box):
     return f["peak_time"]
 
 
+def resolve_project_times(run_dir, iso_times, domain=1):
+    """post.times (ISO UTC strings) -> WRF time strings for `--times`, each snapped to the nearest
+    wrfout frame of `domain`. ValueError naming the available range when a time lies outside it
+    or the run has no frames."""
+    from datetime import datetime
+    from wtune.post.extract import list_frames
+    from wtune.post.timeseries import WRF_TIME_FMT
+    import wtune.project
+    frames = [t for t, _p in list_frames(run_dir, domain=domain)]
+    if not frames:
+        raise ValueError("post.times: no wrfout_d%02d_* frames under %s" % (domain, run_dir))
+    t0 = datetime.strptime(frames[0], WRF_TIME_FMT)
+    t1 = datetime.strptime(frames[-1], WRF_TIME_FMT)
+    out = []
+    for text in iso_times:
+        want = wtune.project.parse_iso_time(text, "post.times")
+        if not t0 <= want <= t1:
+            raise ValueError(
+                "post.times: %s is outside the wrfout d%02d range %s .. %s (%d frames); change "
+                "it with `wtune project set --post-times ...`"
+                % (text, domain, t0.strftime("%Y-%m-%dT%H:%M"), t1.strftime("%Y-%m-%dT%H:%M"),
+                   len(frames)))
+        out.append(want.strftime(WRF_TIME_FMT))
+    return out
+
+
+def _project_post(project_dir):
+    """project.yaml's post defaults for a recipe run, {} (all-off) without a readable project."""
+    if not project_dir or not os.path.isfile(os.path.join(project_dir, "project.yaml")):
+        return {}
+    import wtune.project
+    try:
+        return wtune.project.project_post_defaults(wtune.project.load_project(project_dir))
+    except wtune.project.ProjectError:
+        return {}
+
+
+def apply_figure_switches(out_dir, figures, figures_off, figures_on):
+    """(figures without the ids in figures_off, [note]): the excluded figures' files under
+    out_dir are deleted. figures_on can force nothing yet -- no figure is off by default -- and
+    that is said in a note, not faked."""
+    notes = []
+    off = set(figures_off or [])
+    kept = []
+    root = os.path.abspath(out_dir) + os.sep
+    for f in figures:
+        if f.get("id") not in off:
+            kept.append(f)
+            continue
+        path = f.get("path")
+        if path and os.path.abspath(path).startswith(root) and os.path.isfile(path):
+            os.remove(path)
+    gone = off - {f.get("id") for f in figures}
+    if off and gone:
+        notes.append(note("figures_off", "post.figures_off lists %s, which this run did not "
+                          "produce" % ", ".join(sorted(gone)), level="info"))
+    if figures_on:
+        notes.append(note("figures_on", "post.figures_on = %s is recorded; every catalog figure "
+                          "is already drawn by default, so nothing was forced"
+                          % ", ".join(figures_on), level="info"))
+    return kept, notes
+
+
+def _overlay_time(run_dir, post_cfg, map_time):
+    """WRF time string the zoomed-map wind overlay is drawn at: the first post.times entry
+    (snapped to a frame), else the one-time-map time, else None (the last frame)."""
+    if post_cfg.get("times"):
+        try:
+            return resolve_project_times(run_dir, post_cfg["times"][:1])[0]
+        except ValueError:
+            return map_time
+    return map_time
+
+
 def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
     """Best-track fix nearest the run's last available time, for moisture's default
     cross-section point (decision 0057 update: "剖面線預設過颶風中心 ... 或由 project.yaml
@@ -467,8 +541,14 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
         track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box,
         map_time=_map_time(run_dirs[0], case_info, spinup_hours, focus_box))
+    post_cfg = _project_post(project_dir)
+    common_kwargs = dict(decomposition_only=decomposition_only)
+    if post_cfg.get("map_domains"):
+        common_kwargs.update(map_domains=post_cfg["map_domains"],
+                             overlay=post_cfg.get("map_overlay") or [],
+                             overlay_time=_overlay_time(run_dirs[0], post_cfg, run.map_time))
     tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
-                                     case_info), dict(decomposition_only=decomposition_only)),
+                                     case_info), common_kwargs),
              ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
               {})]
     tasks += _type_tasks(types, run)
@@ -486,6 +566,10 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     all_figures = list(pre_notes or []) + _in_parallel(tasks)
 
     notes, all_figures = _split_notes(all_figures)
+    if post_cfg.get("figures_off") or post_cfg.get("figures_on"):
+        all_figures, switch_notes = apply_figure_switches(
+            out_dir, all_figures, post_cfg.get("figures_off"), post_cfg.get("figures_on"))
+        notes += [{k: n[k] for k in ("source", "level", "text")} for n in switch_notes]
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)

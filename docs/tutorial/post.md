@@ -202,12 +202,56 @@ wtune post check post/<id>              # 有 error 就 exit 1
 
 preview 也走同樣的流程：`wtune post preview` 之後跑 `wtune post brief post/preview`，agent 審 preview 的圖，在 `review.json` 寫出跑完後要畫的圖（`plan`），再跑 `wtune post check post/preview`。每個 `fix` 都要附上修正方式（`action`），共三種：
 
-- `project_set`：用 `wtune project set --post-focus/--cross-section/--post-types/--post-every` 調整標準圖。
+- `project_set`：用 `wtune project set --post-focus/--cross-section/--post-types/--post-every/--post-times/--post-map-domains/--post-figures-off/--post-figures-on/--post-overlay` 等繪圖旗標調整標準圖（見下一節）。
 - `analysis`：交給 `analysis/*.py` 重畫。
 - `wtune_defect`：WTune 本身畫錯，回報給使用者。
 
 agent 的完整說明在 repo 根目錄的 `AGENT.md`，裡面也說明了怎麼把任何 agent 或 harness 接到 WTune。`wtune project init` 會在專案寫一份 `AGENTS.md` 指向它；舊專案可以用 `wtune project set --agents-md` 補上。
 
 `project.yaml` 的 `post.focus: [lat_min, lat_max, lon_min, lon_max]` 指定研究區域，也可以用 `wtune project set --post-focus 21.8,25.4,119.9,122.1` 設定。剖面、時高圖、探空和最大回波圖會改在這個區域內 spin-up 後雨量最大的地方取點，並畫在該處降雨高峰的時刻。沒設定時，取點範圍是整個最內層網域（避開邊界）。
+
+### agent 用旗標調整後處理並重畫
+
+agent 看完圖覺得要改，不必手寫程式，用 `wtune project set` 改 `project.yaml` 的 `post` 區塊，再重跑 `wtune post recipe`。`review.json` 的 `project_set` action 可以用同樣的旗標，`wtune post check` 會用 project 自己的解析器試解析，格式錯或圖 id 不存在就報錯。
+
+| 旗標 | project.yaml 鍵 | 作用 |
+|---|---|---|
+| `--post-times T1,T2` | `post.times` | 指定時間序列圖的時刻（UTC，`YYYY-MM-DDTHH` 或 `YYYY-MM-DDTHH:MM`）。優先序：`wtune post recipe --times` > `post.times` > `--every`／`post.every`。時刻不在 wrfout 範圍內會報錯並列出可用範圍；範圍內的時刻取最近的一幀。 |
+| `--post-map-domains d01,d03` 或 `all` | `post.map_domains` | 網域配置圖也替列出的巢狀網格畫地形，並多畫一張放大到該網格的地形圖（圖 id `common_domain_map_zoom`，檔名 `common_domain_map_d03.png`）。預設只有 d01。 |
+| `--post-overlay wind10` | `post.map_overlay` | 在上面的放大圖疊 10 m 風羽（節）；時刻是 `post.times` 的第一個，沒有就用一次性地圖的時刻（雨量高峰，無雨則最後一幀）。目前只支援 `wind10`。 |
+| `--post-figures-off ID,ID` | `post.figures_off` | 這幾張圖不出現在 `figures.json`、報告和輸出資料夾；id 以 `catalog.json` 為準。 |
+| `--post-figures-on ID,ID` | `post.figures_on` | 只驗證 id 並記一則 note；目前沒有預設不畫的圖，所以不會多畫任何東西。 |
+| `--post-stations ID,ID`、`--post-station-vars t2,wspd10,wdir10,gust`、`--post-station-method nearest\|bilinear`、`--post-calm-kt 3` | `post.stations`、`post.station_vars`、`post.station_method`、`post.calm_kt` | 測站清單與變數（`t2,td2,wspd10,wdir10,gust,slp`）。這些旗標只負責寫入與驗證；由 `wtune post stations` 讀取。 |
+
+每個旗標的值是整組取代，`none` 清除該鍵。完整的例子：agent 發現下坡風最強的一刻是 2019-01-30 09 UTC，d03 的地形圖沒畫出來，又覺得 `timeseries_mcape` 沒用。
+
+```bash
+wtune project set --post-times 2019-01-30T09 --post-map-domains d01,d03 \
+    --post-overlay wind10 --post-figures-off timeseries_mcape
+wtune post recipe                       # 重畫：只畫 09 UTC，多出 common_domain_map_d03.png
+wtune post check post/<新的 id>         # review.json 的 project_set args 照同樣旗標寫
+```
+
+`wtune project info` 會列出非預設的 `post` 鍵。這些旗標改的是選擇（時刻、網格、圖的開關），不改圖本身的畫法；要畫新的圖還是用 `analysis/*.py`。
+
+## 測站逐站比對
+
+有測站觀測（`wtune-obs/1` 的 `stations` 資料夾）時，`wtune post stations` 對每個指定測站、每個包含該站的 domain 各畫一條時間序列，並算 bias 與 RMSE。
+
+```bash
+wtune event obs-convert asos sba.csv --out input/obs/asos --dataset "IEM ASOS" \
+  --provider "Iowa Environmental Mesonet" --url https://mesonet.agron.iastate.edu \
+  --license "public domain" [--station SBA=34.426,-119.84,3]
+wtune post stations --run runs/run1 --obs input/obs/asos --stations SBA,IZA,OXR \
+  --vars t2,wspd10,wdir10,gust --method nearest --calm-kt 3 --out post/stations
+```
+
+`obs-convert asos` 讀 Iowa Environmental Mesonet 的 ASOS CSV（欄位依名稱讀取，缺值 `M`／空白／`null`），°F 轉 °C、knot 轉 m/s；CSV 沒有的站高 `elev_m` 留空，可用 `--station ID=lat,lon,elev` 補。輸出有 `station_series.csv`（逐時配對）、`station_stats.csv`（n、bias、RMSE、格點與站高差）和每個測站與變數一張圖，圖登記在 `figures.json`，`wtune post check` 看得到。
+
+- 模式值取最近格點（`nearest`）或雙線性（`bilinear`）；最外一圈格點不比較。沒有站高修正，站高差記在 `model_hgt_minus_elev_m`。
+- 風用 `COSALPHA`／`SINALPHA` 轉成地球座標後再算風速與風向（來向）。
+- 觀測與最近的模式輸出時間差在 `--tol-min`（預設 10 分鐘）以內才配對。
+- 風向差用環狀差，bias 取環狀差的平均；觀測風速低於 `--calm-kt` 的配對不進風向統計，筆數記在 `n_calm_excluded`。
+- 支援 `t2`、`td2`（由 Q2 與 PSFC 算）、`wspd10`、`wdir10`、`gust`；`slp` 尚未支援。陣風的模式值是 `WSPD10MAX`（有寫出時），否則是 UPP 式估計。
 
 教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

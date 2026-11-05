@@ -369,3 +369,17 @@ def test_wtune_rebuild_predict_out_defaults_to_project_predict_dir(tmp_path):
     proj.init_project(project_dir)
     out_dir = proj.default_out_dir(proj.find_project(explicit=project_dir), "predict")
     assert out_dir.startswith(os.path.join(project_dir, "predict"))
+
+
+def test_project_set_post_flags_round_trip_and_show_in_info(tmp_path):
+    project_dir = str(tmp_path / "p")
+    proj.init_project(project_dir)
+    doc = proj.set_project_defaults(
+        project_dir, post_options=dict(post_times="2019-01-30T06", post_map_domains="all",
+                                       post_station_method="nearest", post_calm_kt="2.5"))
+    post = proj.project_post_defaults(doc)
+    assert post["times"] == ["2019-01-30T06"] and post["map_domains"] == ["all"]
+    assert post["station_method"] == "nearest" and post["calm_kt"] == 2.5
+    assert "times=['2019-01-30T06']" in proj.info_project(project_dir)
+    with pytest.raises(proj.ProjectError, match="--post-times"):
+        proj.set_project_defaults(project_dir, post_options=dict(post_times="noon"))

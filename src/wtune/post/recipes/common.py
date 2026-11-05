@@ -35,7 +35,17 @@ def _bucket_mm(ds):
     return bucket if bucket > 0 and has else 0.0
 
 
-def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None):
+def _wanted_domains(map_domains, max_dom):
+    """Domain numbers of post.map_domains ('all' or ['d01', 'd03']) that exist, d01 excluded
+    (its terrain is always drawn)."""
+    if not map_domains:
+        return []
+    if "all" in map_domains:
+        return list(range(2, max_dom + 1))
+    return sorted({int(d[1:]) for d in map_domains} - {1})
+
+
+def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None, map_domains=None):
     """The domain/nest configuration map (post/domain_map.py): every domain's box in the model
     projection, its own colour and 'dNN dx km nx x ny' label, d01's extent, d01 terrain shaded.
     frame_of(dom) -> (valid time, path) or None: the file each domain is drawn from, default its
@@ -47,10 +57,46 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None):
     time0 = frame_of(1)[0]
     paths = {d: frame_of(d)[1] for d in range(1, max_dom + 1) if frame_of(d)}
     crs, doms, terrain = domain_map.domains_from_files(paths)
+    wanted = _wanted_domains(map_domains, max_dom)
+    nests = domain_map.domain_terrain(paths, wanted)
+    shaded = "d01" + "".join(",d%02d" % d for d in sorted(nests))
     return domain_map.draw(
         crs, doms, os.path.join(out_dir, "common_domain_map.png"),
-        "%s: %d domain(s), terrain of d01, valid %s" % (run_label, len(doms), time0),
-        terrain=terrain)
+        "%s: %d domain(s), terrain of %s, valid %s" % (run_label, len(doms), shaded, time0),
+        terrain=terrain, extra_terrain=[nests[d] for d in sorted(nests)])
+
+
+def plot_domain_zooms(run_dir, max_dom, out_dir, run_label, map_domains, overlay=None,
+                      overlay_time=None):
+    """One terrain map zoomed to each nest of post.map_domains (common_domain_map_dNN.png).
+    overlay ['wind10']: 10 m wind barbs at overlay_time (WRF time string, else the last frame).
+    Returns [(dom, path, valid time, note or None)]."""
+    from wtune.post import domain_map
+    paths = {d: (list_frames(run_dir, domain=d) or [None])[0] for d in range(1, max_dom + 1)}
+    paths = {d: p[1] for d, p in paths.items() if p}
+    crs, doms, _t = domain_map.domains_from_files(paths)
+    by_dom = {d["dom"]: d for d in doms}
+    out = []
+    for dom in _wanted_domains(map_domains, max_dom):
+        if dom not in by_dom:
+            out.append((dom, None, None, "d%02d has no wrfout frames" % dom))
+            continue
+        terr = domain_map.domain_terrain(paths, [dom])
+        time0, wind, why = list_frames(run_dir, domain=dom)[0][0], None, None
+        if overlay and "wind10" in overlay:
+            try:
+                time0, wlat, wlon, wu, wv = domain_map.wind10_at(run_dir, dom, overlay_time)
+                wind = (wlat, wlon, wu, wv)
+            except (ValueError, KeyError, OSError) as e:
+                why = "wind10 overlay left out on d%02d: %s" % (dom, e)
+        inside = [d for d in doms if d["dom"] >= dom]
+        path = domain_map.draw(
+            crs, inside, os.path.join(out_dir, "common_domain_map_d%02d.png" % dom),
+            "%s: d%02d terrain%s, valid %s" % (run_label, dom, " + 10 m wind" if wind else "",
+                                                time0),
+            terrain=terr.get(dom), zoom=by_dom[dom], wind=wind)
+        out.append((dom, path, time0, why))
+    return out
 
 
 def plot_repro_envelope(run_dirs, labels, out_dir):
@@ -99,23 +145,34 @@ def _plt():
     return plt
 
 
-def figures(run_dirs, labels, out_dir, case_info, decomposition_only=False):
+def figures(run_dirs, labels, out_dir, case_info, decomposition_only=False, map_domains=None,
+            overlay=None, overlay_time=None):
     """Returns the list of common-type figure records (post.recipe's fig()/missing() shape).
     decomposition_only: True when the caller asserts the extra run dirs differ only in
     decomposition (e.g. --repro-pairs) -- the envelope is only meaningful under that
     condition, so it is otherwise skipped rather than drawn on runs that also differ
     physically."""
-    from wtune.post.recipe import fig, missing
+    from wtune.post.recipe import fig, missing, note
 
     out = []
     run_label = labels[0]
     try:
         _, domains = _domain_physics(run_dirs[0])
         max_dom = len(domains)
-        path = plot_domain_map(run_dirs[0], max_dom, out_dir, run_label)
+        path = plot_domain_map(run_dirs[0], max_dom, out_dir, run_label,
+                               **(dict(map_domains=map_domains) if map_domains else {}))
         if path:
             out.append(fig("common_domain_map", path, run_label, domain="all",
                           valid_time=list_frames(run_dirs[0], domain=1)[0][0]))
+            if map_domains:
+                for dom, zpath, ztime, why in plot_domain_zooms(
+                        run_dirs[0], max_dom, out_dir, run_label, map_domains, overlay,
+                        overlay_time):
+                    if why:
+                        out.append(note("map_domains", why))
+                    if zpath:
+                        out.append(fig("common_domain_map_zoom", zpath, run_label,
+                                       domain="d%02d" % dom, valid_time=ztime))
         else:
             out.append(missing("common_domain_map", "d01 wrfout", "no wrfout_d01_* frames found"))
     except (tools.ToolNotFoundError, ImportError) as e:

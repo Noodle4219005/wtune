@@ -975,7 +975,7 @@ _FORWARDED_COMMANDS = (
      'wtune/calibrate.py', 'wtune.calibrate'),
     ('post', 'post_args', 'post-processing/analysis, advisory only (decision 0056; post/cli.py): '
                           'inventory | extract | plot | sounding | tc | compare | preview | report | '
-                          'recipe | cf3d | vapor-bundle | custom | brief | check | fetch',
+                          'recipe | cf3d | vapor-bundle | custom | brief | stations | check | fetch',
      'post/cli.py', 'wtune.post.cli'),
     ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune/geog.py): '
                           'geog list | fetch | import-dem | verify | bounds | srtm-fetch; wps | real',

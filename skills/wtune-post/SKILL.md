@@ -44,6 +44,35 @@ You never change WRF output or the namelist. The figure checklist and the fix ac
    the recipe and review again), `analysis` (the analysis/*.py that redraws it) or
    `wtune_defect` (WTune draws it wrong and no option fixes it; tell the user).
 
+   Drawing flags a `project_set` action may use (replace the whole value; `none` clears):
+   `--post-focus`, `--cross-section`, `--post-types`, `--post-every`, plus
+   - `--post-times 2019-01-30T09,2019-01-30T12:30` (UTC): draw the time series at exactly these
+     times, e.g. the hour of the strongest downslope wind, instead of every N hours.
+     Precedence: `wtune post recipe --times` > `post.times` > `--every`. A time outside the
+     wrfout range is an error that lists the available range.
+   - `--post-map-domains d01,d03` (or `all`): shade terrain for those nests in the domain map
+     and draw one zoomed terrain map per nest (`common_domain_map_zoom`,
+     `common_domain_map_d03.png`). Default is d01 only.
+   - `--post-overlay wind10`: 10 m wind barbs on those zoomed maps, at the first `post.times`
+     entry (else the rain-peak time of the one-time maps).
+   - `--post-figures-off ID,ID`: drop figures by catalog id from `figures.json`, the report and
+     the folder. `--post-figures-on` only validates ids (nothing is off by default yet).
+   - `--post-stations ID,ID --post-station-vars t2,wspd10,wdir10,gust
+     --post-station-method nearest|bilinear --post-calm-kt 3`: stored and validated for
+     `wtune post stations`; they draw nothing by themselves.
+
+   Example: the downslope wind peaks at 09 UTC, d03 shows no terrain, `timeseries_mcape` is noise.
+   ```bash
+   wtune project set --post-times 2019-01-30T09 --post-map-domains d01,d03 \
+       --post-overlay wind10 --post-figures-off timeseries_mcape
+   wtune post recipe          # redraws into a new post/<id>/
+   wtune post brief post/<id> # then review the new figures and write review.json
+   wtune post check post/<id> # project_set args are parsed with the same parser
+   ```
+   A malformed value or an unknown figure id is rejected at `project set` and by `post check`
+   with the accepted form. These flags only choose times, nests and figure switches; a new
+   kind of figure still needs `analysis/*.py`.
+
    Look for: unreadable text or overlapping labels; a colour scale that saturates or is in
    the wrong units; an extent cut at the domain edge; a valid time after the event (F072
    when the rain ended at F048); a cross-section, sounding or box placed away from the
@@ -82,3 +111,42 @@ You never change WRF output or the namelist. The figure checklist and the fix ac
    report the remaining errors.
 7. Reply to the user in their language: the 3 main findings, the figures to look at first,
    and any WTune figure defect you found.
+
+## Analyse all of the data, not only what the task names
+
+A task statement (a SPEC, an exam question) lists the least that is wanted. The analysis covers
+everything the run and the observations contain:
+
+- every station in the observation folder, every variable it has, every domain that contains the
+  station (`wtune post stations` defaults to all of them; naming a subset makes the tool print
+  "NOT analysed (partial analysis)");
+- every output time of the run, not only the hours the task mentions; look for the strongest
+  event in the whole series and plot that instant (`--post-times`);
+- every domain, including the ones the task does not score, when they change the story (nest
+  feedback, terrain resolution, where a front enters);
+- what could not be compared (a variable with no model counterpart, a station outside every
+  domain, observations missing for a stretch) is written down with the reason.
+
+`wtune post check` warns when `station_stats.csv` has a station the assessment never names. A
+section that quotes only the requested stations or hours is a partial analysis; say what was left
+out and why, or analyse it.
+
+## Reviewing many files with a fast model
+
+A recipe draws 200-300 figures. Screening them one by one is bulk work, so give it to the fast
+model of the same harness (Claude Code: a Sonnet or Haiku subagent; Codex: `gpt-6-luna` at low
+effort), in batches of about 20 figures, with the checklist below and the figure's caption from
+`figures.json`:
+
+1. Is the map extent, colour scale and units right for the variable named in the caption?
+2. Is anything cut off, overlapped (labels over a domain box), empty, or all one colour?
+3. Is the field physically plausible at this time (spin-up frame, wind direction against the
+   terrain, rain where the terrain forces it)?
+4. Does it answer the question in its caption, and does the number in its title match
+   `brief.json`?
+
+Each batch returns one row per figure: `path`, `verdict` (ok | fix | drop), `issues`. The lead
+agent then opens every figure marked fix or drop, a sample of about 10 % of those marked ok, and
+the figures that carry the conclusions; the lead writes `review.json` and the assessment itself.
+The fast model screens; it never signs off a figure the lead did not look at when the
+conclusion rests on it. `wtune post check` stays the programmatic gate.

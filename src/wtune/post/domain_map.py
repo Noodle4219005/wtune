@@ -115,6 +115,44 @@ def domains_from_files(paths):
     return crs, doms, terrain
 
 
+def domain_terrain(paths, domains):
+    """{dom: (lat, lon, hgt)} for the listed domains of {dom: file} that have a terrain field."""
+    import netCDF4
+    out = {}
+    for d in domains:
+        if d not in paths:
+            continue
+        with netCDF4.Dataset(paths[d]) as ds:
+            lat, lon, hgt = _grid(ds)
+        if hgt is not None:
+            out[d] = (lat, lon, hgt)
+    return out
+
+
+def wind10_at(run_dir, dom, time_str):
+    """(lat, lon, u, v) of the earth-relative 10 m wind in m/s on domain `dom` at WRF time
+    `time_str` (None = last frame), from U10/V10 rotated with COSALPHA/SINALPHA when the file
+    has them. Returns (frame time, lat, lon, u, v)."""
+    import netCDF4
+    import numpy as np
+    from wtune.post.extract import frame_ref, list_frames
+    frames = list_frames(run_dir, domain=dom)
+    if not frames:
+        raise ValueError("no wrfout_d%02d_* frames" % dom)
+    time_str = time_str if time_str in dict(frames) else frames[-1][0]
+    path, idx = frame_ref(run_dir, dom, time_str)
+    with netCDF4.Dataset(path) as ds:
+        lat, lon, _hgt = _grid(ds)
+        v = ds.variables
+        if "U10" not in v or "V10" not in v:
+            raise ValueError("%s has no U10/V10 (reduced history stream)" % os.path.basename(path))
+        u10, v10 = np.asarray(v["U10"][idx]), np.asarray(v["V10"][idx])
+        if "COSALPHA" in v and "SINALPHA" in v:
+            ca, sa = np.asarray(v["COSALPHA"][idx]), np.asarray(v["SINALPHA"][idx])
+            u10, v10 = u10 * ca - v10 * sa, v10 * ca + u10 * sa
+    return time_str, lat, lon, u10, v10
+
+
 def _geo_em_namelist_text(ds):
     """A minimal &geogrid text from a geo_em's global attributes (MAP_PROJ, CEN_LAT, ...)."""
     proj = {1: "lambert", 2: "polar", 3: "mercator"}.get(int(getattr(ds, "MAP_PROJ", 1)), "lambert")
@@ -123,9 +161,50 @@ def _geo_em_namelist_text(ds):
                                   ds.STAND_LON))
 
 
-def draw(crs, doms, out_path, title, terrain=None, caption=None):
+def _label_anchors(doms, w, h):
+    """[(x, y)] label anchors at each box's upper-left corner, just outside it, lifted by
+    0.035*h when an earlier label sits within 0.12*w horizontally and 0.03*h vertically."""
+    placed, out = [], []
+    for d in doms:
+        x, y = d["x0"], d["y1"] + 0.004 * h
+        for px, py in placed:
+            if abs(px - x) < 0.12 * w and abs(py - y) < 0.03 * h:
+                y = py + 0.035 * h
+        placed.append((x, y))
+        out.append((x, y))
+    return out
+
+
+def draw(crs, doms, out_path, title, terrain=None, caption=None, extra_terrain=None,
+         zoom=None, wind=None):
     """The map: d01's box (+3 %) as the extent, terrain shaded (if given), coastlines, each
-    domain's box in its own colour with a 'dNN  dx km  nx x ny' label. Returns out_path."""
+    domain's box in its own colour with a 'dNN  dx km  nx x ny' label above its upper-left
+    corner (white translucent background, outside the box so a small nest stays visible).
+    extra_terrain: [(lat, lon, hgt)] of nests shaded over d01's terrain on the shared colour
+    scale. zoom: one of `doms`; the extent is that domain's box and `terrain` should be its own.
+    wind: (lat, lon, u, v) m/s drawn as barbs in knots. Returns out_path."""
+    import numpy as np
+    import cartopy.crs as ccrs
+    from matplotlib.patches import Rectangle
+    from wtune.post.plotting import _matplotlib, _set_cartopy_data_dir
+    plt = _matplotlib()
+    _set_cartopy_data_dir()
+    d1 = zoom or doms[0]
+    w, h = d1["x1"] - d1["x0"], d1["y1"] - d1["y0"]
+    aspect = h / w if w else 1.0
+    fig = plt.figure(figsize=(8.0, max(4.0, min(9.0, 8.0 * aspect + 1.2))))
+    ax = fig.add_subplot(1, 1, 1, projection=crs)
+    ax.set_extent([d1["x0"] - 0.03 * w, d1["x1"] + 0.03 * w,
+                   d1["y0"] - 0.03 * h, d1["y1"] + 0.06 * h], crs=crs)
+    layers = ([terrain] if terrain is not None else []) + list(extra_terrain or [])
+    if layers:
+        top = max(500.0, max(float(np.nanmax(t[2])) for t in layers))
+        levels = [0, 1, 50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000]
+        levels = [lv for lv in levels if lv < top] + [top]
+        for z, (lat, lon, hgt) in enumerate(layers):
+            cf = ax.contourf(lon, lat, hgt, levels=levels, cmap="terrain", extend="max",
+                             transform=ccrs.PlateCarree(), zorder=1 + 0.1 * z)
+        fig.colorbar(cf, ax=ax, shrink=0.8, pad=0.02, label="terrain height (m)")
     import numpy as np
     import cartopy.crs as ccrs
     from matplotlib.patches import Rectangle
@@ -155,15 +234,22 @@ def draw(crs, doms, out_path, title, terrain=None, caption=None):
                         nest_rings=[], terrain=False, caption=False)
     from wtune.post.basemap import gridline_step
     gridline_step(base.get("gridliner"), lat_span)
+    if wind is not None:
+        wlat, wlon, wu, wv = wind
+        step = max(1, int(round(max(wlat.shape) / 14.0)))
+        ax.barbs(wlon[::step, ::step], wlat[::step, ::step], wu[::step, ::step] * 1.94384,
+                 wv[::step, ::step] * 1.94384, length=5.5, linewidth=0.7, color="black",
+                 transform=ccrs.PlateCarree(), zorder=4)
+    anchors = _label_anchors(doms, w, h)
     for i, d in enumerate(doms):
         colour = DOMAIN_COLOURS[i % len(DOMAIN_COLOURS)]
         ax.add_patch(Rectangle((d["x0"], d["y0"]), d["x1"] - d["x0"], d["y1"] - d["y0"],
                                fill=False, edgecolor=colour, linewidth=2.0 if i else 2.4,
                                transform=crs, zorder=5))
         label = "d%02d  %g km  %d×%d" % (d["dom"], round(d["dx_km"], 3), d["nx"], d["ny"])
-        ax.text(d["x0"] + 0.01 * w, d["y1"] - 0.01 * h, label, transform=crs, ha="left",
-                va="top", fontsize=9, color=colour, fontweight="bold", zorder=6,
-                bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1.5))
+        ax.text(anchors[i][0], anchors[i][1], label, transform=crs, ha="left",
+                va="bottom", fontsize=9, color=colour, fontweight="bold", zorder=6,
+                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1.5))
     ax.set_title(title, fontsize=11)
     if caption:
         fig.text(0.01, 0.005, caption, fontsize=7, ha="left", va="bottom", wrap=True)

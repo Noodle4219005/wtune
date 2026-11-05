@@ -162,7 +162,15 @@ def project_post_defaults(project_doc):
         raise ProjectError("post.focus must be [lat_min, lat_max, lon_min, lon_max], got %r"
                            % (focus,))
     return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [],
-                focus=[float(v) for v in focus] if focus else None)
+                focus=[float(v) for v in focus] if focus else None,
+                times=list(post.get("times") or []),
+                map_domains=list(post.get("map_domains") or []),
+                figures_off=list(post.get("figures_off") or []),
+                figures_on=list(post.get("figures_on") or []),
+                stations=list(post.get("stations") or []),
+                station_vars=list(post.get("station_vars") or []),
+                station_method=post.get("station_method"), calm_kt=post.get("calm_kt"),
+                map_overlay=list(post.get("map_overlay") or []))
 
 
 def project_case_id(project_doc):
@@ -703,9 +711,132 @@ def _floats(text, n, flag):
     return vals
 
 
-def apply_drawing_options(doc, post_focus=None, cross_sections=None):
-    """--post-focus and --cross-section onto a project document (in place); raises ProjectError
-    on a malformed value. Also what `wtune post check` validates a review's fix with."""
+STATION_VARS = ("t2", "td2", "wspd10", "wdir10", "gust", "slp")
+STATION_METHODS = ("nearest", "bilinear")
+MAP_OVERLAYS = ("wind10",)
+# `wtune project set` flag -> (namespace attribute, post.* key); all values are comma lists
+# except --post-station-method and --post-calm-kt. "none" clears a key.
+POST_LIST_FLAGS = (("--post-times", "post_times", "times"),
+                   ("--post-map-domains", "post_map_domains", "map_domains"),
+                   ("--post-figures-off", "post_figures_off", "figures_off"),
+                   ("--post-figures-on", "post_figures_on", "figures_on"),
+                   ("--post-stations", "post_stations", "stations"),
+                   ("--post-station-vars", "post_station_vars", "station_vars"),
+                   ("--post-overlay", "post_overlay", "map_overlay"))
+POST_SCALAR_FLAGS = (("--post-station-method", "post_station_method", "station_method"),
+                     ("--post-calm-kt", "post_calm_kt", "calm_kt"))
+_TIME_FORMATS = ("%Y-%m-%dT%H", "%Y-%m-%dT%H:%M")
+
+
+def parse_iso_time(text, flag="--post-times"):
+    """'YYYY-MM-DDTHH' or 'YYYY-MM-DDTHH:MM' (UTC) -> naive datetime; ProjectError otherwise."""
+    for fmt in _TIME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    raise ProjectError("%s: %r is not YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM (UTC)" % (flag, text))
+
+
+def figure_catalog_ids():
+    """Figure ids `wtune post recipe` can draw (post/recipes/catalog.json keys)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "post", "recipes",
+                        "catalog.json")
+    with open(path) as fh:
+        return [k for k in json.load(fh) if not k.startswith("_")]
+
+
+def _check_post_list(key, flag, items):
+    if key == "times":
+        for t in items:
+            parse_iso_time(t, flag)
+    elif key == "map_domains":
+        if items != ["all"]:
+            for d in items:
+                if not re.fullmatch(r"d\d{2}", d) or d == "d00":
+                    raise ProjectError("%s: use all or dNN domains such as d01,d03, got %r"
+                                       % (flag, d))
+    elif key in ("figures_off", "figures_on"):
+        known = figure_catalog_ids()
+        bad = [i for i in items if i not in known]
+        if bad:
+            raise ProjectError("%s: unknown figure id %s; catalog ids (first 40 of %d): %s"
+                               % (flag, ", ".join(bad), len(known), ", ".join(known[:40])))
+    elif key == "stations":
+        for sid in items:
+            if not re.fullmatch(r"[A-Za-z0-9]+", sid):
+                raise ProjectError("%s: station id must be letters and digits only, got %r"
+                                   % (flag, sid))
+    elif key == "station_vars":
+        bad = [v for v in items if v not in STATION_VARS]
+        if bad:
+            raise ProjectError("%s: unknown variable %s; use %s"
+                               % (flag, ", ".join(bad), ",".join(STATION_VARS)))
+    elif key == "map_overlay":
+        bad = [v for v in items if v not in MAP_OVERLAYS]
+        if bad:
+            raise ProjectError("%s: unknown overlay %s; supported: %s"
+                               % (flag, ", ".join(bad), ",".join(MAP_OVERLAYS)))
+
+
+def apply_post_options(doc, values):
+    """The --post-times/--post-map-domains/--post-figures-off/--post-figures-on/--post-stations/
+    --post-station-vars/--post-station-method/--post-calm-kt/--post-overlay values (dict
+    namespace attribute -> text or None) onto doc["post"] (in place); each flag replaces its
+    key, 'none' clears it, ProjectError names the flag and the accepted form."""
+    post = None
+    for flag, attr, key in POST_LIST_FLAGS:
+        text = values.get(attr)
+        if text is None:
+            continue
+        items = [v.strip() for v in text.split(",") if v.strip()]
+        if text.strip().lower() == "none":
+            items = []
+        elif not items:
+            raise ProjectError("%s: empty value (use 'none' to clear)" % flag)
+        if key == "map_domains" and "all" in items:
+            items = ["all"]
+        _check_post_list(key, flag, items)
+        post = post if post is not None else dict(doc.get("post") or {})
+        post[key] = items or None
+    for flag, attr, key in POST_SCALAR_FLAGS:
+        text = values.get(attr)
+        if text is None:
+            continue
+        text = str(text).strip()
+        if text.lower() == "none":
+            val = None
+        elif key == "station_method":
+            if text not in STATION_METHODS:
+                raise ProjectError("%s: use %s, got %r" % (flag, "|".join(STATION_METHODS), text))
+            val = text
+        else:
+            try:
+                val = float(text)
+            except ValueError:
+                val = -1.0
+            if not 0 < val <= 50:
+                raise ProjectError("%s: calm threshold in knots, 0 < x <= 50, got %r"
+                                   % (flag, text))
+        post = post if post is not None else dict(doc.get("post") or {})
+        post[key] = val
+    if post is not None:
+        doc["post"] = post
+    return doc
+
+
+def post_option_values(ns):
+    """{attribute: value} of the new post flags on a parsed `project set` namespace."""
+    return {attr: getattr(ns, attr, None)
+            for _f, attr, _k in POST_LIST_FLAGS + POST_SCALAR_FLAGS}
+
+
+def apply_drawing_options(doc, post_focus=None, cross_sections=None, post_options=None):
+    """--post-focus, --cross-section and the new --post-* drawing flags (post_options, see
+    apply_post_options) onto a project document (in place); raises ProjectError on a malformed
+    value. Also what `wtune post check` validates a review's fix with."""
+    if post_options:
+        apply_post_options(doc, post_options)
     if post_focus is not None:
         focus = None if post_focus.lower() == "none" else _floats(post_focus, 4, "--post-focus")
         post = dict(doc.get("post") or {}, focus=focus)
@@ -725,7 +856,7 @@ def apply_drawing_options(doc, post_focus=None, cross_sections=None):
 
 def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
                          post_fetch=None, register_case=False, argv=None, machine=None,
-                         post_focus=None, cross_sections=None):
+                         post_focus=None, cross_sections=None, post_options=None):
     """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/--post-focus/
     --cross-section/--register-case` and the machine flags: updates those keys in place. "none"
     clears post_every, post_fetch, post_focus and a cross-section. Returns the updated
@@ -746,7 +877,7 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
         doc["case"] = case
     if exclude_nodes is not None:
         doc["exclude_nodes"] = project_exclude_nodes(dict(exclude_nodes=exclude_nodes))
-    apply_drawing_options(doc, post_focus, cross_sections)
+    apply_drawing_options(doc, post_focus, cross_sections, post_options)
     if post_every is not None or post_types is not None or post_fetch is not None:
         post = dict(doc.get("post") or {})
         if post_every is not None:
@@ -784,6 +915,10 @@ def info_project(project_dir):
     post = project_post_defaults(doc)
     lines.append("post defaults: --types %s --every %s; submit fetches: %s"
                  % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
+    extra = ["%s=%s" % (k, v) for k, v in post.items()
+             if k not in ("types", "every", "fetch") and v not in (None, [], {})]
+    if extra:
+        lines.append("post drawing options: " + "; ".join(extra))
     report = latest_tune_report(project_dir, case.get("id"))
     if report:
         lines.append("latest tune report: %s" % os.path.relpath(report, project_dir))
@@ -894,6 +1029,34 @@ def build_parser():
                        metavar="KIND=LAT0,LON0,LAT1,LON1",
                        help="fixed line, KIND terrain or moisture (cross-section figures) or "
                             "hovmoller (precip_hovmoller); KIND=none clears; repeatable")
+    p_set.add_argument("--post-times", default=None, metavar="T1,T2,...",
+                       help="valid times (UTC, YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM) the recipe "
+                            "draws its time series at (post.times); beats --every, loses to "
+                            "`wtune post recipe --times`; 'none' clears")
+    p_set.add_argument("--post-map-domains", default=None, metavar="d01,d03|all",
+                       help="domains whose terrain the domain map shades, plus one zoomed "
+                            "terrain map per listed nest (post.map_domains); default d01 only; "
+                            "'none' clears")
+    p_set.add_argument("--post-figures-off", default=None, metavar="ID,ID",
+                       help="catalog figure ids the recipe leaves out of the output "
+                            "(post.figures_off); 'none' clears")
+    p_set.add_argument("--post-figures-on", default=None, metavar="ID,ID",
+                       help="catalog figure ids to force on (post.figures_on; validated and "
+                            "noted, no figure is off by default yet); 'none' clears")
+    p_set.add_argument("--post-stations", default=None, metavar="ID,ID",
+                       help="station ids for `wtune post stations` (post.stations; letters and "
+                            "digits); 'none' clears")
+    p_set.add_argument("--post-station-vars", default=None, metavar="VAR,VAR",
+                       help="station variables, from %s (post.station_vars); 'none' clears"
+                            % ",".join(STATION_VARS))
+    p_set.add_argument("--post-station-method", default=None, metavar="nearest|bilinear",
+                       help="model-to-station interpolation (post.station_method)")
+    p_set.add_argument("--post-calm-kt", default=None, metavar="KT",
+                       help="wind speed in knots below which the direction is calm "
+                            "(post.calm_kt)")
+    p_set.add_argument("--post-overlay", default=None, metavar="wind10",
+                       help="field drawn over the zoomed domain terrain maps (post.map_overlay): "
+                            "wind10 = 10 m wind barbs; 'none' clears")
     p_set.add_argument("--agents-md", action="store_true",
                        help="(re)write <project>/AGENTS.md, the pointer to WTune's agent "
                             "instructions (projects made before it existed)")
@@ -957,12 +1120,15 @@ def main(argv=None):
                 print(write_agents_pointer(project_dir))
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
             machine = _machine_flags(args)
+            post_options = post_option_values(args)
             if (any(v is not None for v in defaults) or args.register_case or machine
-                    or args.post_focus is not None or args.cross_section):
+                    or args.post_focus is not None or args.cross_section
+                    or any(v is not None for v in post_options.values())):
                 doc = set_project_defaults(project_dir, *defaults, machine=machine,
                                            register_case=args.register_case, argv=full_argv,
                                            post_focus=args.post_focus,
-                                           cross_sections=args.cross_section)
+                                           cross_sections=args.cross_section,
+                                           post_options=post_options)
                 if machine:
                     print(machine_line(doc))
                 post = project_post_defaults(doc)
@@ -970,6 +1136,10 @@ def main(argv=None):
                       % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
                          ",".join(project_exclude_nodes(doc)) or "-", post["types"] or "auto",
                          post["every"] or "-"))
+                shown = ["%s=%s" % (k, v) for k, v in post.items()
+                         if k not in ("types", "every", "fetch") and v not in (None, [], {})]
+                if shown:
+                    print("post drawing options: " + "; ".join(shown))
                 if not (args.storm or args.hurdat2 or args.bdeck):
                     return 0
             if args.agents_md and not (args.storm or args.hurdat2 or args.bdeck):

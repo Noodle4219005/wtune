@@ -12,6 +12,7 @@ import wtune.config
 import wtune.extensions
 from ._deps import campaign_configs, decomp_space, sweep
 from .common import _cluster_rank, _log_key, _notes_kv, parse_run_id
+from . import shortlist
 from .context import Ctx, cores_used
 
 FULL_SPACE_CONFIGS_PER_JOB = 24      # configs in one full-space job (~1 h at 20 steps)
@@ -58,8 +59,19 @@ def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
     fresh = [c for c in candidates if sweep._identity(c) not in seen]
     if not fresh or k <= 0:
         return []
-    chosen, _coverage = decomp_space.sample_design(fresh, min(k, len(fresh)), seed,
-                                                     must_include=None)
+    k = min(k, len(fresh))
+    model = shortlist.load(ctx.hardware_id)
+    ranked = shortlist.rank(model, fresh, ctx.case_json.get("e_vert", 1))[:(k + 1) // 2] if model else []
+    if ranked:       # the machine's ranker picks the first half, the design sample the rest
+        taken = {id(c) for c in ranked}
+        rest = [c for c in fresh if id(c) not in taken]
+        more = decomp_space.sample_design(rest, k - len(ranked), seed, must_include=None)[0] \
+            if k > len(ranked) and rest else []
+        chosen = ranked + list(more)
+        print("config: %d of %d new layouts are the %s ranker's first picks"
+              % (len(ranked), len(chosen), ctx.hardware_id))
+    else:
+        chosen, _coverage = decomp_space.sample_design(fresh, k, seed, must_include=None)
     out = decomp_space.to_campaign_configs(chosen, prefix="D")
     # ids continue after the D ids already used in this tune: a restart at D0001 would overwrite
     # an earlier round's measurement of a different layout

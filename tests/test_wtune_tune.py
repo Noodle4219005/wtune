@@ -966,6 +966,19 @@ def test_sample_more_diverse_configs_respects_search_cfg_before_sampling():
     assert all(c["omp"] in (1, 2) for c in fresh)
 
 
+def test_sample_more_diverse_configs_takes_the_machine_rankers_first_half(monkeypatch, capsys):
+    for k, v in (("HARDWARE_ID", "f1-grace"), ("CORES_PER_NODE", "144"), ("NUMA_PER_NODE", "2")):
+        monkeypatch.setenv("WTUNE_" + k, v)
+    ctx = _ctx(case_json=dict(MATTHEW_LIKE, prep_dir="/fake/matthew", e_we=400, e_sn=400),
+               nodes=1, hardware_id="f1-grace", cores_per_node=144)
+    fresh = wtune.tune.sample_more_diverse_configs(ctx, [], k=6, seed=1)
+    assert len(fresh) == 6 and "ranker's first picks" in capsys.readouterr().out
+    assert all(c["omp"] == 1 and not c["tile_strategy"] for c in fresh[:3])   # model-fitted layouts
+    monkeypatch.setenv("WTUNE_SHORTLIST", "0")
+    again = wtune.tune.sample_more_diverse_configs(ctx, [], k=6, seed=1)
+    assert len(again) == 6 and "ranker" not in capsys.readouterr().out
+
+
 def test_run_confirm_uses_ctx_confirm_reps_not_a_hardcoded_default():
     sbatch_runner, sbatch_calls, _paths = make_fake_sbatch()
     ctx = _ctx(sbatch_runner=sbatch_runner, confirm_reps=3)

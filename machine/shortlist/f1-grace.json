@@ -1,0 +1,63 @@
+{
+ "note": "Grace f1-arm omp=1 dmpar only; relative model: predict log(s/step) minus group mean; rank candidates within one (case,nodes) group ascending. Features computed with d01 patch ceil sizes; H = sum_d ceil(e_we/nx)*ceil(e_sn/ny)*e_vert*cum_dt_ratio; log_HoverMin = log(H/min H over legal candidates). tile_sz_* not used (all 0 in data). Trained on 632 settings in 29 groups.",
+ "features": [
+  "logH",
+  "log_HoverMin",
+  "log_aspect",
+  "halo_",
+  "log_nt",
+  "ts_",
+  "ntx_",
+  "nty_",
+  "block",
+  "log_nxny"
+ ],
+ "alpha": 3.0,
+ "scaler_mean": [
+  10.253466404950132,
+  0.13000259090747077,
+  0.06075514635488398,
+  0.2700063780050342,
+  1.498760380824394,
+  0.3971518987341772,
+  1.8639240506329113,
+  0.7958860759493671,
+  0.6107594936708861,
+  0.1072090661311973
+ ],
+ "scaler_scale": [
+  1.3745461441531241,
+  0.24409979896081352,
+  0.6885368307100728,
+  0.09433094900341789,
+  1.041775202955262,
+  0.48930794809201195,
+  3.046137175249044,
+  1.172380802689545,
+  0.48757802920329474,
+  0.7134911858453019
+ ],
+ "coef": [
+  -0.012047520248926354,
+  0.019975571974246886,
+  -0.17906506426128585,
+  -0.033459361992126936,
+  0.006148809159169539,
+  0.028172219349313347,
+  0.1500889895849477,
+  -0.026485905660219102,
+  -0.045984968749390856,
+  -0.04754175731773269
+ ],
+ "intercept": 2.2884657898998695e-17,
+ "feature_defs": {
+  "halo_": "2*(px+py)/(px*py), px=ceil(e_we_d01/nx), py=ceil(e_sn_d01/ny)",
+  "log_aspect": "log(px/py)",
+  "ts_": "1 if tile_strategy!=0 else 0",
+  "ntx_": "numtiles_x",
+  "nty_": "numtiles_y",
+  "block": "1 if dist==block",
+  "log_nt": "log(numtiles)",
+  "log_nxny": "log(nx/ny)"
+ }
+}

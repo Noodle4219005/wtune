@@ -15,6 +15,7 @@ from wtune.tools import scc_sweep as sweep
 from wtune.tune import cli as tune_cli
 
 REAL_BUILD_ID = tune_cli._build_id          # at collection, before conftest stubs it
+REAL_PROBE_TREE = tune_cli._probe_tree
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIELDS = ["case_base", "hardware_id", "n_nodes", "s_per_step_median", "notes"]
@@ -231,7 +232,7 @@ def test_calibrate_run_caches_the_tables_it_computed(tmp_path):
 
 
 def test_tune_build_id_wiring(tmp_path, monkeypatch, capsys):
-    """tune/cli._build_id (conftest stubs it elsewhere): the env.sh the jobs source, the site
+    """tune/cli._probe_tree and _build_id (conftest stubs them elsewhere): the env.sh the jobs source, the site
     file of the campaign the sbatch script belongs to, the fallback and what it prints."""
     import wtune.machine
     tree = _tree(tmp_path)
@@ -240,8 +241,9 @@ def test_tune_build_id_wiring(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(wtune.machine, "site", lambda: "f1arm")
     script = os.path.join(REPO, "campaign", "strict_campaign.sbatch")
     args = argparse.Namespace(env_source=str(tmp_path / "env.sh"), sbatch_script=script)
-    assert REAL_BUILD_ID(args) == sweep.wrf_build_id(tree) != ""
+    assert REAL_PROBE_TREE(args) == tree
+    assert REAL_BUILD_ID(REAL_PROBE_TREE(args)) == sweep.wrf_build_id(tree) != ""
     assert "build %s (%s/main/wrf.exe)" % (sweep.wrf_build_id(tree), tree) in capsys.readouterr().out
     (tmp_path / "env.sh").write_text("export WRF_TREE=%s\n" % (tmp_path / "gone"))
-    assert REAL_BUILD_ID(args) == ""
+    assert REAL_BUILD_ID(REAL_PROBE_TREE(args)) == ""
     assert "no wrf.exe under %s" % (tmp_path / "gone") in capsys.readouterr().out

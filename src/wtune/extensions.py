@@ -374,6 +374,35 @@ def scan_binary(path):
     return caps
 
 
+# Parallel-region entry points a wrf.exe compiled with OpenMP calls (LLVM/NVHPC/Intel, GNU).
+# Linked libraries do not tell: NVHPC links libnvomp.so into a dmpar wrf.exe too (f1-arm).
+OPENMP_ENTRY_SYMBOLS = (b'__kmpc_fork_call', b'GOMP_parallel')
+
+
+def build_has_openmp(wrf_exe):
+    """True/False when wrf_exe does/does not call an OpenMP parallel region; None when it cannot
+    be read or has no BUILD_CONTROL symbol (stripped: cannot tell)."""
+    try:
+        with open(wrf_exe, 'rb') as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                if not any(mm.find(c) >= 0 for c in BUILD_CONTROL):
+                    return None
+                return any(mm.find(s) >= 0 for s in OPENMP_ENTRY_SYMBOLS)
+            finally:
+                mm.close()
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def omp_cap_for_build(wrf_tree):
+    """1 when <wrf_tree>/main/wrf.exe was built without OpenMP (dmpar), else None."""
+    if not wrf_tree:
+        return None
+    exe = os.path.join(os.path.expanduser(os.path.expandvars(wrf_tree)), 'main', 'wrf.exe')
+    return 1 if build_has_openmp(exe) is False else None
+
+
 def wrf_auto_mesh(ranks):
     """(nproc_x, nproc_y) WRF picks when neither is set: MPASPECT (external/RSL_LITE/module_dm.F:98-
     133) -- the factor pair closest to square, ties to the smaller M, with M <= N."""

@@ -658,3 +658,43 @@ def test_post_help_lists_every_post_subcommand():
     assert sorted(listed) == sorted(set(sub.choices) - {"fetch-era5"})
     tune = [h for name, _d, h, _s, _m in wtune.cli._FORWARDED_COMMANDS if name == "tune"][0]
     assert "(scc)" not in tune
+
+
+# ---------------------------------------------------------------- no OpenMP in a dmpar wrf.exe
+def _wrf_tree(tmp_path, body):
+    (tmp_path / "WRF" / "main").mkdir(parents=True)
+    (tmp_path / "WRF" / "main" / "wrf.exe").write_bytes(b"\x7fELF" + body)
+    return str(tmp_path / "WRF")
+
+
+@pytest.mark.parametrize("body,expect", [
+    (b"solve_em libnvomp.so start_domain", False),       # NVHPC links libnvomp.so into dmpar too
+    (b"solve_em __kmpc_fork_call", True), (b"start_domain GOMP_parallel", True),
+    (b"__kmpc_fork_call", None)])                          # no WRF symbol: stripped, cannot tell
+def test_build_has_openmp_reads_the_parallel_region_entry(tmp_path, body, expect):
+    tree = _wrf_tree(tmp_path, body)
+    assert we.build_has_openmp(os.path.join(tree, "main", "wrf.exe")) is expect
+    assert we.omp_cap_for_build(tree) == (1 if expect is False else None)
+
+
+def test_omp_cap_for_build_is_none_without_a_wrf_exe(tmp_path):
+    assert we.omp_cap_for_build(str(tmp_path / "none")) is None
+    assert we.omp_cap_for_build("") is None and we.omp_cap_for_build(None) is None
+
+
+@pytest.mark.parametrize("body,cap", [(b"solve_em", 1), (b"solve_em __kmpc_fork_call", None)])
+def test_tune_caps_omp_at_1_on_a_dmpar_build(tmp_path, monkeypatch, body, cap):
+    from wtune.tune import cli
+    monkeypatch.setenv("WTUNE_MAX_OMP", "0")
+    tree = _wrf_tree(tmp_path, body)
+    monkeypatch.setattr(cli, "_probe_tree", lambda args: tree)
+    captured = {}
+    monkeypatch.setattr(cli, "Ctx", lambda **kw: captured.update(kw) or types.SimpleNamespace(**kw))
+    args = cli.build_arg_parser().parse_args(["c1"])
+    o = types.SimpleNamespace(case="c1", minutes=10.0, confirm_reps=1, restart_io_form=14,
+                              cfg={"search": {}, "exclude": [], "prediction": {}, "probe": {}})
+    ns = types.SimpleNamespace(nodes=1, node_seeds=None, hotspot_fill=None)
+    (tmp_path / "namelist.input").write_text("&domains\n/\n")
+    cli._build_ctx(args, o, ns, {}, str(tmp_path / "namelist.input"), False, 10, None, 4,
+                   str(tmp_path / "tout"), None, None, None, None, None, None)
+    assert captured["omp_cap"] == cap and captured["extension_omp_cap"] is None

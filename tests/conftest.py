@@ -45,7 +45,8 @@ def _no_account_ledgers(monkeypatch, tmp_path_factory):
     monkeypatch.delenv("WTUNE_PREFLIGHT_EXCLUDE", raising=False)
     monkeypatch.setattr(wtune.tools.scc_sweep, "HISTORY_LEDGER_DIR",
                         str(tmp_path_factory.getbasetemp() / "no-history-ledgers"))
-    monkeypatch.setattr(wtune.tune.cli, "_build_id", lambda args: "")
+    monkeypatch.setattr(wtune.tune.cli, "_probe_tree", lambda args: "")
+    monkeypatch.setattr(wtune.tune.cli, "_build_id", lambda tree: "")
     yield
     for v, value in saved.items():          # what a test that ran a real tune left set
         if value is None:

@@ -36,6 +36,7 @@ if _CONFIGS_BEFORE is None:
 
 # captured before tests/conftest.py's autouse fixture stubs it (absent on OLD)
 _REAL_BUILD_ID = getattr(wtune.tune.cli, "_build_id", None)
+_REAL_PROBE_TREE = getattr(wtune.tune.cli, "_probe_tree", None)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMPAIGN = os.path.join(REPO, "campaign")
@@ -114,6 +115,8 @@ def test_tune_build_id_is_the_wrf_exe_the_probe_jobs_run(monkeypatch, tmp_path, 
     exports WRF_TREE=B (scc: W=${WRF_TREE:-...} -> B); f1.sh hard-codes W under $HOME."""
     if _REAL_BUILD_ID is not None:
         monkeypatch.setattr(wtune.tune.cli, "_build_id", _REAL_BUILD_ID)
+    if _REAL_PROBE_TREE is not None:
+        monkeypatch.setattr(wtune.tune.cli, "_probe_tree", _REAL_PROBE_TREE)
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))

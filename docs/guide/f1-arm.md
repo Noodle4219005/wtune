@@ -67,7 +67,6 @@ env_source: $HOME/wtune-f1arm/env.sh
 wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
 geog: /work2/u5727520/wrf-newcase/WPS_GEOG_LOW_RES
 max_hours: 8.0
-max_omp: 1
 node_preflight: false
 node_memory_gib: 218.0
 copy_probe_inputs: false
@@ -85,7 +84,7 @@ measured:
 | `hardware_cores_per_node` | 只用部分核心時（例如 `cores_per_node: 72`）設成 144：job 會加 `--cpus-per-task`，讓申請的 CPU 數等於 `--exclusive` 計費的整節點數。f1-arm 的 partition 依 CPU 數分層，不設的話 2 節點與 5–7 節點的 72 核 job 沒有 partition 能跑 |
 | `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
 | `measured.boundary_s_adios2`、`history_write_s_adios2`、`restart_write_s_adios2` | 整段預測的 I/O 項。內建值是 scc 的；f1-arm 上 haitang2017 72 h（job 57791，216 ranks，ADIOS2，work2 GPFS）實測：每次邊界更新那一步多 12.85 s（逐筆 BP 的 wrfbdy 開檔），history 每幀每個 domain 約 1.7 s 且與網格大小無關，restart 每次 6.4 s。用內建值時 I/O 只算 21 s，預測 24:37 比實際 35:05 少 30%；換成這三個值後 I/O 是 702 s，預測 35:59（+2.5%）。只量過這一個個案，網格差很多的個案要再對一次 |
-| `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
+| 不設 `max_omp` | tune 會讀 `wrf.exe`：沒有 OpenMP 平行區（`__kmpc_fork_call`、`GOMP_parallel`）的 dmpar 版，自動把 OpenMP 執行緒限制在 1，並印出 `omp capped at 1`。`ldd` 看不出來：NVHPC 的 dmpar 版也會連到 `libnvomp.so`。只有要強制更低的上限時才設 `max_omp` |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |
 | `geog` | `wtune prep wps` 的 WPS 靜態資料。f1-arm 上只有低解析度版（1.5 G）；完整的 `geog_high_res_mandatory` 解開約 29 GB，home2 與 work2 的配額都放不下。所以個案要附 `namelist.wps` 並設 `geog_data_res = 'lowres'` |

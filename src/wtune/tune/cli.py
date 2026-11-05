@@ -194,6 +194,11 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
     extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
+    tree = _probe_tree(args)
+    build_omp_cap = wtune.extensions.omp_cap_for_build(tree)
+    if build_omp_cap:
+        print("wtune tune: %s/main/wrf.exe has no OpenMP (dmpar build): omp capped at 1" % tree)
+    case_caps = [c for c in (extension_omp_cap, build_omp_cap) if c]
     return Ctx(case=o.case, case_json=case_json, namelist_path=namelist_path, nodes=ns.nodes,
                cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
                seed=args.seed, kappa=args.kappa,
@@ -204,10 +209,10 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
-               build_id=_build_id(args),
+               build_id=_build_id(tree),
                history_dirs=sweep.history_ledger_dirs(ledger_dir),
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
-               omp_cap=wtune.machine.omp_cap(extension_omp_cap),
+               omp_cap=wtune.machine.omp_cap(min(case_caps) if case_caps else None),
                extension_omp_cap=extension_omp_cap,
                chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
@@ -458,11 +463,15 @@ def _ledger_dir(args: argparse.Namespace) -> str:
     return sweep._expand(ledger_dir)
 
 
-def _build_id(args: argparse.Namespace) -> str:
-    """The WRF build the probe jobs will run (sweep.wrf_build_id of the tree they resolve); ''
-    when there is no wrf.exe there, and the ledger estimates then use every build's rows."""
-    tree = (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
+def _probe_tree(args: argparse.Namespace) -> str:
+    """The WRF tree the probe jobs will run: the site file's $W, else machine.wrf_tree()."""
+    return (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
             or wtune.machine.wrf_tree())
+
+
+def _build_id(tree: str) -> str:
+    """The WRF build the probe jobs will run (sweep.wrf_build_id of `tree`); '' when there is no
+    wrf.exe there, and the ledger estimates then use every build's rows."""
     build_id = sweep.wrf_build_id(tree)
     print("build %s (%s/main/wrf.exe)" % (build_id, tree) if build_id else
           "wtune tune: no wrf.exe under %s -- the ledger estimates use every build's rows" % tree)

@@ -198,7 +198,6 @@ site: f1arm
 env_source: $HOME/wtune-f1arm/env.sh
 wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 geog: <WPS_GEOG 目錄>       # 只有 wtune prep 需要
-max_omp: 1                 # WRF 編成 dmpar
 node_preflight: false
 copy_probe_inputs: false   # 有配額的檔案系統
 ```

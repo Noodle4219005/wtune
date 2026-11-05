@@ -13,6 +13,7 @@ import types
 import pytest
 
 from wtune.tune.cli import _build_id as REAL_BUILD_ID   # before conftest's stub
+from wtune.tune.cli import _probe_tree as REAL_PROBE_TREE
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMPAIGN = os.path.join(REPO, "campaign")
@@ -492,6 +493,7 @@ def test_d4_tune_filters_on_the_machine_wrf_build(tmp_path, monkeypatch):
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     from wtune.tune import cli
     monkeypatch.setattr(cli, "_build_id", REAL_BUILD_ID)    # conftest stubs it for hermeticity
+    monkeypatch.setattr(cli, "_probe_tree", REAL_PROBE_TREE)
     kw = _tune_ctx_kwargs(tmp_path, monkeypatch, ["--ledger-dir", str(tmp_path / "l"),
                                                   "--env-source", str(tmp_path / "no-env.sh")])
     assert kw.get("build_id"), "the tune does not know which WRF build it measures"

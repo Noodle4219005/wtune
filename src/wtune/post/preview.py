@@ -272,6 +272,7 @@ def run_preview(project_dir, project_doc, out) -> dict:
     """Writes out/ (per-type folders, figures/, expected_figures.csv, preview.html). Returns
     {out_dir, figures, expected, notes, report_path, figures_dir}."""
     import wtune.project
+    out = os.path.abspath(out)
     case_dir = os.path.join(project_dir, "case")
     storm_id, hurdat2 = wtune.project.project_storm(project_doc)
     bdeck = wtune.project.project_bdeck(project_doc)

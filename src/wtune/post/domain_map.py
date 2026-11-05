@@ -79,6 +79,27 @@ def domains_from_namelist(nlw_path):
     return crs, doms
 
 
+SEA_COLOUR = "#bcdcf2"      # light blue under the terrain shading (the colour scale starts at 0 m)
+
+
+def sea_masked(hgt, landmask=None):
+    """hgt with the sea set to NaN: LANDMASK == 0 where the file has it, else HGT <= 0.5 m. The
+    terrain colour scale starts at 0 m, so sea drawn as height 0 was white (Santa Barbara d03)."""
+    import numpy as np
+    hgt = np.asarray(hgt, dtype="f8")
+    sea = (np.asarray(landmask) == 0) if landmask is not None else (hgt <= 0.5)
+    return np.where(sea, np.nan, hgt)
+
+
+def _sea_fill(hgt):
+    """The sea cells (NaN in hgt) grown by one cell, so the light-blue fill runs under the land's
+    first row and no white seam is left along the coast (the land is drawn over it)."""
+    import numpy as np
+    from scipy.ndimage import binary_dilation
+    return binary_dilation(~np.isfinite(hgt), iterations=1) if (~np.isfinite(hgt)).any() \
+        else ~np.isfinite(hgt)
+
+
 def _grid(ds):
     """(lat, lon, terrain or None) 2-D arrays of a wrfout / wrfinput / geo_em dataset."""
     import numpy as np
@@ -86,6 +107,9 @@ def _grid(ds):
         if la in ds.variables:
             lat, lon = np.asarray(ds.variables[la][0]), continuous_lons(ds.variables[lo][0])
             hgt = np.asarray(ds.variables[h][0]) if h in ds.variables else None
+            if hgt is not None:
+                hgt = sea_masked(hgt, ds.variables["LANDMASK"][0]
+                                 if "LANDMASK" in ds.variables else None)
             return lat, lon, hgt
     raise ValueError("no XLAT/XLONG or XLAT_M/XLONG_M")
 
@@ -202,29 +226,12 @@ def draw(crs, doms, out_path, title, terrain=None, caption=None, extra_terrain=N
         levels = [0, 1, 50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000]
         levels = [lv for lv in levels if lv < top] + [top]
         for z, (lat, lon, hgt) in enumerate(layers):
+            sea = _sea_fill(hgt)
+            if sea.any():
+                ax.contourf(lon, lat, sea.astype(float), levels=[0.5, 1.5], colors=[SEA_COLOUR],
+                            transform=ccrs.PlateCarree(), zorder=0.95 + 0.1 * z)
             cf = ax.contourf(lon, lat, hgt, levels=levels, cmap="terrain", extend="max",
                              transform=ccrs.PlateCarree(), zorder=1 + 0.1 * z)
-        fig.colorbar(cf, ax=ax, shrink=0.8, pad=0.02, label="terrain height (m)")
-    import numpy as np
-    import cartopy.crs as ccrs
-    from matplotlib.patches import Rectangle
-    from wtune.post.plotting import _matplotlib, _set_cartopy_data_dir
-    plt = _matplotlib()
-    _set_cartopy_data_dir()
-    d1 = doms[0]
-    w, h = d1["x1"] - d1["x0"], d1["y1"] - d1["y0"]
-    aspect = h / w if w else 1.0
-    fig = plt.figure(figsize=(8.0, max(4.0, min(9.0, 8.0 * aspect + 1.2))))
-    ax = fig.add_subplot(1, 1, 1, projection=crs)
-    ax.set_extent([d1["x0"] - 0.03 * w, d1["x1"] + 0.03 * w,
-                   d1["y0"] - 0.03 * h, d1["y1"] + 0.03 * h], crs=crs)
-    if terrain is not None:
-        lat, lon, hgt = terrain
-        top = max(500.0, float(np.nanmax(hgt)))
-        levels = [0, 1, 50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000]
-        levels = [lv for lv in levels if lv < top] + [top]
-        cf = ax.contourf(lon, lat, hgt, levels=levels, cmap="terrain", extend="max",
-                         transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, shrink=0.8, pad=0.02, label="terrain height (m)")
     from wtune.post.basemap import add_base_map
     lat_span = (float(np.nanmax(terrain[0])) - float(np.nanmin(terrain[0]))
@@ -233,7 +240,9 @@ def draw(crs, doms, out_path, title, terrain=None, caption=None, extra_terrain=N
                         lons=None if terrain is None else terrain[1], labels=True,
                         nest_rings=[], terrain=False, caption=False)
     from wtune.post.basemap import gridline_step
-    gridline_step(base.get("gridliner"), lat_span)
+    lon_span = (float(np.nanmax(terrain[1])) - float(np.nanmin(terrain[1]))
+                if terrain is not None else None)
+    gridline_step(base.get("gridliner"), lat_span, lon_span)
     if wind is not None:
         wlat, wlon, wu, wv = wind
         step = max(1, int(round(max(wlat.shape) / 14.0)))

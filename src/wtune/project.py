@@ -725,17 +725,38 @@ POST_LIST_FLAGS = (("--post-times", "post_times", "times"),
                    ("--post-overlay", "post_overlay", "map_overlay"))
 POST_SCALAR_FLAGS = (("--post-station-method", "post_station_method", "station_method"),
                      ("--post-calm-kt", "post_calm_kt", "calm_kt"))
-_TIME_FORMATS = ("%Y-%m-%dT%H", "%Y-%m-%dT%H:%M")
+_CANONICAL_TIME_FORMATS = ("%Y-%m-%dT%H", "%Y-%m-%dT%H:%M")
+# Also WRF's own spelling (2022-04-05_06:00:00) and a space instead of T or _.
+_TIME_FORMATS = _CANONICAL_TIME_FORMATS + tuple(
+    "%%Y-%%m-%%d%s%s" % (sep, tail) for sep in ("T", "_", " ")
+    for tail in ("%H", "%H:%M", "%H:%M:%S")
+    if (sep, tail) not in (("T", "%H"), ("T", "%H:%M")))
+TIME_EXAMPLES = "2022-04-05T06, 2022-04-05T06:00, 2022-04-05_06:00:00, 2022-04-05 06:00"
 
 
 def parse_iso_time(text, flag="--post-times"):
-    """'YYYY-MM-DDTHH' or 'YYYY-MM-DDTHH:MM' (UTC) -> naive datetime; ProjectError otherwise."""
+    """A UTC time as YYYY-MM-DDTHH[:MM[:SS]] with T, _ or a space between date and hour (WRF's
+    2022-04-05_06:00:00 included) -> naive datetime; ProjectError otherwise."""
     for fmt in _TIME_FORMATS:
         try:
-            return datetime.strptime(text, fmt)
+            return datetime.strptime(text.strip(), fmt)
         except ValueError:
             pass
-    raise ProjectError("%s: %r is not YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM (UTC)" % (flag, text))
+    raise ProjectError("%s: %r is not a time; accepted: YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM (UTC), "
+                       "also with _ or a space instead of T and with :SS; e.g. %s"
+                       % (flag, text, TIME_EXAMPLES))
+
+
+def _canonical_time(text, flag):
+    """text unchanged when it is already YYYY-MM-DDTHH[:MM], else YYYY-MM-DDTHH:MM."""
+    dt = parse_iso_time(text, flag)
+    for fmt in _CANONICAL_TIME_FORMATS:
+        try:
+            datetime.strptime(text, fmt)
+            return text
+        except ValueError:
+            pass
+    return dt.strftime("%Y-%m-%dT%H:%M")
 
 
 def figure_catalog_ids():
@@ -784,20 +805,25 @@ def apply_post_options(doc, values):
     --post-station-vars/--post-station-method/--post-calm-kt/--post-overlay values (dict
     namespace attribute -> text or None) onto doc["post"] (in place); each flag replaces its
     key, 'none' clears it, ProjectError names the flag and the accepted form."""
-    post = None
+    post, errors = {}, []
     for flag, attr, key in POST_LIST_FLAGS:
         text = values.get(attr)
         if text is None:
             continue
-        items = [v.strip() for v in text.split(",") if v.strip()]
-        if text.strip().lower() == "none":
-            items = []
-        elif not items:
-            raise ProjectError("%s: empty value (use 'none' to clear)" % flag)
-        if key == "map_domains" and "all" in items:
-            items = ["all"]
-        _check_post_list(key, flag, items)
-        post = post if post is not None else dict(doc.get("post") or {})
+        try:
+            items = [v.strip() for v in text.split(",") if v.strip()]
+            if text.strip().lower() == "none":
+                items = []
+            elif not items:
+                raise ProjectError("%s: empty value (use 'none' to clear)" % flag)
+            if key == "map_domains" and "all" in items:
+                items = ["all"]
+            _check_post_list(key, flag, items)
+            if key == "times":
+                items = [_canonical_time(t, flag) for t in items]
+        except ProjectError as e:
+            errors.append(str(e))
+            continue
         post[key] = items or None
     for flag, attr, key in POST_SCALAR_FLAGS:
         text = values.get(attr)
@@ -808,7 +834,8 @@ def apply_post_options(doc, values):
             val = None
         elif key == "station_method":
             if text not in STATION_METHODS:
-                raise ProjectError("%s: use %s, got %r" % (flag, "|".join(STATION_METHODS), text))
+                errors.append("%s: use %s, got %r" % (flag, "|".join(STATION_METHODS), text))
+                continue
             val = text
         else:
             try:
@@ -816,12 +843,13 @@ def apply_post_options(doc, values):
             except ValueError:
                 val = -1.0
             if not 0 < val <= 50:
-                raise ProjectError("%s: calm threshold in knots, 0 < x <= 50, got %r"
-                                   % (flag, text))
-        post = post if post is not None else dict(doc.get("post") or {})
+                errors.append("%s: calm threshold in knots, 0 < x <= 50, got %r" % (flag, text))
+                continue
         post[key] = val
-    if post is not None:
-        doc["post"] = post
+    if errors:      # all-or-nothing: nothing above touched doc, so project.yaml stays as it was
+        raise ProjectError("; ".join(errors) + " (no flag was applied; project.yaml unchanged)")
+    if post:
+        doc["post"] = dict(doc.get("post") or {}, **post)
     return doc
 
 
@@ -862,6 +890,9 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
     clears post_every, post_fetch, post_focus and a cross-section. Returns the updated
     document."""
     doc = load_project(project_dir)
+    # Validate the drawing flags before anything with a side effect (register_case writes
+    # cases.json): a bad flag rejects the whole call and leaves every file as it was.
+    apply_drawing_options(doc, post_focus, cross_sections, post_options)
     if machine:
         doc["machine"] = project_machine(
             dict(machine=wtune.machine.merged(doc.get("machine"), machine)))
@@ -877,7 +908,6 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
         doc["case"] = case
     if exclude_nodes is not None:
         doc["exclude_nodes"] = project_exclude_nodes(dict(exclude_nodes=exclude_nodes))
-    apply_drawing_options(doc, post_focus, cross_sections, post_options)
     if post_every is not None or post_types is not None or post_fetch is not None:
         post = dict(doc.get("post") or {})
         if post_every is not None:
@@ -1055,8 +1085,9 @@ def build_parser():
                        help="wind speed in knots below which the direction is calm "
                             "(post.calm_kt)")
     p_set.add_argument("--post-overlay", default=None, metavar="wind10",
-                       help="field drawn over the zoomed domain terrain maps (post.map_overlay): "
-                            "wind10 = 10 m wind barbs; 'none' clears")
+                       help="field drawn over the zoomed domain maps and the time-series t2 and "
+                            "wspd10 maps (post.map_overlay): wind10 = 10 m wind barbs; "
+                            "other figures are unaffected; 'none' clears")
     p_set.add_argument("--agents-md", action="store_true",
                        help="(re)write <project>/AGENTS.md, the pointer to WTune's agent "
                             "instructions (projects made before it existed)")

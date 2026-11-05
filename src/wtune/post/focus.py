@@ -13,6 +13,10 @@ from __future__ import annotations
 from datetime import datetime
 
 SMOOTH_KM = 30.0
+# rain_focus()["peak_rate_mm_h"] below this is "no rain": the heaviest output interval's
+# smoothed area-mean rate, i.e. less than 0.1 mm accumulated per hour of that interval. At or
+# above it the peak time is a usable time for the one-time maps (recipe._map_time).
+MIN_PEAK_RATE_MM_H = 0.1
 
 
 def _hours(a, b):

@@ -289,6 +289,11 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
         ax.plot(ring_lon, ring_lat, linestyle="--", color="k", linewidth=1.1, zorder=4,
                 **transform_kw)
     gl = _gridlines(ax, ccrs_mod) if (ccrs_mod is not None and labels) else None
+    if gl is not None and lats is not None and np.isfinite(lats).any():
+        lat_span = float(np.nanmax(lats) - np.nanmin(lats))
+        lon_span = float(np.nanmax(lons) - np.nanmin(lons))
+        if min(lat_span, lon_span) < SMALL_DOMAIN_DEG:
+            small_domain_ticks(gl)
     if ccrs_mod is None:
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
@@ -333,11 +338,31 @@ def interior_mask(shape, bdy_width=0, fill=None):
     return m
 
 
-def gridline_step(gl, lat_span):
+SMALL_DOMAIN_DEG = 8.0      # a map whose shorter side spans less than this gets MaxNLocator ticks
+
+
+def small_domain_ticks(gl):
+    """3-5 gridlines per axis whatever the span: MaxNLocator on 1/2/2.5/5 x 10^n degrees, and
+    explicit lat/lon formatters (119.5W, 34.5N style degree labels). The fixed 2-degree step of
+    gridline_step gave a 1.2 x 1.5 degree nest (Santa Barbara d03) one meridian and one parallel."""
+    import matplotlib.ticker as mticker
+    from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
+    gl.xlocator = mticker.MaxNLocator(nbins=5, min_n_ticks=3, steps=[1, 2, 2.5, 5, 10])
+    gl.ylocator = mticker.MaxNLocator(nbins=5, min_n_ticks=3, steps=[1, 2, 2.5, 5, 10])
+    gl.xformatter = LongitudeFormatter()
+    gl.yformatter = LatitudeFormatter()
+
+
+def gridline_step(gl, lat_span, lon_span=None):
     """Lat/lon gridlines every 2, 5 or 10 degrees by the map's latitude span: cartopy's own
-    choice on a Lambert map labelled one meridian (120E) on haitang2017's d01."""
+    choice on a Lambert map labelled one meridian (120E) on haitang2017's d01. A map whose
+    shorter side (lat_span, lon_span in degrees) is under SMALL_DOMAIN_DEG gets
+    small_domain_ticks instead."""
     import matplotlib.ticker as mticker
     if gl is None:
+        return
+    if min(lat_span, lon_span if lon_span else lat_span) < SMALL_DOMAIN_DEG:
+        small_domain_ticks(gl)
         return
     step = 2 if lat_span < 12 else 5 if lat_span < 30 else 10
     gl.xlocator = mticker.FixedLocator(range(-180, 181, step))

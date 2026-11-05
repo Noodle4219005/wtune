@@ -216,12 +216,12 @@ agent 看完圖覺得要改，不必手寫程式，用 `wtune project set` 改 `
 
 | 旗標 | project.yaml 鍵 | 作用 |
 |---|---|---|
-| `--post-times T1,T2` | `post.times` | 指定時間序列圖的時刻（UTC，`YYYY-MM-DDTHH` 或 `YYYY-MM-DDTHH:MM`）。優先序：`wtune post recipe --times` > `post.times` > `--every`／`post.every`。時刻不在 wrfout 範圍內會報錯並列出可用範圍；範圍內的時刻取最近的一幀。 |
-| `--post-map-domains d01,d03` 或 `all` | `post.map_domains` | 網域配置圖也替列出的巢狀網格畫地形，並多畫一張放大到該網格的地形圖（圖 id `common_domain_map_zoom`，檔名 `common_domain_map_d03.png`）。預設只有 d01。 |
-| `--post-overlay wind10` | `post.map_overlay` | 在上面的放大圖疊 10 m 風羽（節）；時刻是 `post.times` 的第一個，沒有就用一次性地圖的時刻（雨量高峰，無雨則最後一幀）。目前只支援 `wind10`。 |
+| `--post-times T1,T2` | `post.times` | 指定時間序列圖的時刻（UTC）。接受 `2022-04-05T06`、`2022-04-05T06:00`、WRF 慣用的 `2022-04-05_06:00:00` 與 `2022-04-05 06:00`，存成 `YYYY-MM-DDTHH[:MM]`。**第一個時刻同時決定一次性地圖**（地形、對流、雲、綜觀、水氣 PW/IVT、探空）的時間，取 finest domain 最近的一幀；沒設 `post.times` 時這些圖用雨量高峰時刻，若該 domain 在 spin-up 之後雨量最大的輸出間隔，平均雨率低於 0.1 mm/h（`focus.MIN_PEAK_RATE_MM_H`），視為無雨，改用最後一幀並在報告 note 說明。優先序：`wtune post recipe --times` > `post.times` > `--every`／`post.every`。時刻不在 wrfout 範圍內會報錯並列出可用範圍；範圍內的時刻取最近的一幀。`project set` 有任何旗標格式錯就整筆不寫入，錯誤訊息列出每個有問題的旗標、值與可接受的範例。 |
+| `--post-map-domains d01,d03` 或 `all` | `post.map_domains` | 網域配置圖也替列出的巢狀網格畫地形，並多畫一張放大到該網格的地形圖（圖 id `common_domain_map_zoom`，檔名 `common_domain_map_d03.png`）。預設只有 d01。海面（有 `LANDMASK` 用 `LANDMASK == 0`，否則 `HGT <= 0.5 m`）畫淺藍色；小 domain 的經緯度軸至少 3 個刻度，標 °N／°W。 |
+| `--post-overlay wind10` | `post.map_overlay` | 在上面的放大圖，以及時間序列的 `t2`、`wspd10` 地圖疊 10 m 風羽（節）；放大圖的時刻是 `post.times` 的第一個，沒有就用一次性地圖的時刻（雨量高峰，無雨則最後一幀）。其他圖不受影響。目前只支援 `wind10`。 |
 | `--post-figures-off ID,ID` | `post.figures_off` | 這幾張圖不出現在 `figures.json`、報告和輸出資料夾；id 以 `catalog.json` 為準。 |
 | `--post-figures-on ID,ID` | `post.figures_on` | 只驗證 id 並記一則 note；目前沒有預設不畫的圖，所以不會多畫任何東西。 |
-| `--post-stations ID,ID`、`--post-station-vars t2,wspd10,wdir10,gust`、`--post-station-method nearest\|bilinear`、`--post-calm-kt 3` | `post.stations`、`post.station_vars`、`post.station_method`、`post.calm_kt` | 測站清單與變數（`t2,td2,wspd10,wdir10,gust,slp`）。這些旗標只負責寫入與驗證；由 `wtune post stations` 讀取。 |
+| `--post-stations ID,ID`、`--post-station-vars t2,wspd10,wdir10,gust`、`--post-station-method nearest\|bilinear`、`--post-calm-kt 3` | `post.stations`、`post.station_vars`、`post.station_method`、`post.calm_kt` | 測站清單與變數（`t2,td2,wspd10,wdir10,gust,slp`）。設了 `post.stations` 之後，`wtune post recipe` 會在結束前自動做逐站比對：用 `input/obs/` 下第一個通過 obs-check 的 `stations` 資料夾，沒有就只印一則 note；逐站圖登記進 `figures.json`。`wtune post stations --project P` 對沒給的 `--stations/--vars/--method/--calm-kt` 讀同樣的鍵。 |
 
 每個旗標的值是整組取代，`none` 清除該鍵。完整的例子：agent 發現下坡風最強的一刻是 2019-01-30 09 UTC，d03 的地形圖沒畫出來，又覺得 `timeseries_mcape` 沒用。
 
@@ -253,5 +253,7 @@ wtune post stations --run runs/run1 --obs input/obs/asos --stations SBA,IZA,OXR 
 - 觀測與最近的模式輸出時間差在 `--tol-min`（預設 10 分鐘）以內才配對。
 - 風向差用環狀差，bias 取環狀差的平均；觀測風速低於 `--calm-kt` 的配對不進風向統計，筆數記在 `n_calm_excluded`。
 - 支援 `t2`、`td2`（由 Q2 與 PSFC 算）、`wspd10`、`wdir10`、`gust`；`slp` 尚未支援。陣風的模式值是 `WSPD10MAX`（有寫出時），否則是 UPP 式估計。
+- **陣風的樣本有偏**：ASOS 只在真的有陣風時才填 gust 欄（`M` 代表沒有陣風，不是缺值），所以陣風的配對只含有陣風的時刻，bias 與 RMSE 描述的是「有陣風時」的表現，不是全時段（Run 1 的 SBA 只有 n=4、bias −8.03）。`station_stats.csv` 的 `note` 欄對 gust 列寫 `obs only when gusts occur; model gust source = WSPD10MAX|estimated`，逐站圖的 gust 面板標題附 `(gust reports only)`，compare 的 notes 也會列出 n。引用時要帶著 n 與這個限制。
+- 設了 `post.stations` 時，`wtune post recipe` 會自動跑這項比對（見上表），結果與逐站圖放在同一個 post 目錄。
 
 教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

@@ -14,6 +14,9 @@ XLAT/XLONG mass points):
 - variables: t2 (T2, degC), td2 (from Q2 and PSFC, degC), wspd10 (m/s), wdir10 (meteorological,
   degrees from north clockwise), gust (WSPD10MAX when the run wrote it, else post/surface_diag's
   UPP-style estimate). slp is not supported.
+  gust caveat: ASOS reports a gust only when one occurred, so the paired gust sample is
+  conditional on gusty hours; station_stats.csv carries a `note` column saying so and the
+  compare notes and the gust panel title repeat it.
 - pairing: a model output time is paired with the observation of that station and variable
   nearest in time, if within `tol_min` (default 10 min: hourly ASOS reports at :51-:55 pair with
   the on-the-hour output). A grid point on the outermost ring is not compared.
@@ -37,7 +40,10 @@ UNITS = {"t2": "degC", "td2": "degC", "wspd10": "m/s", "wdir10": "deg", "gust": 
 KT_MS = 1852.0 / 3600.0
 SERIES_COLS = ("station", "domain", "variable", "time_utc", "obs", "model", "diff", "calm")
 STATS_COLS = ("station", "domain", "variable", "n", "bias", "rmse", "n_calm_excluded",
-              "model_hgt_minus_elev_m", "method", "grid_j", "grid_i", "model_hgt_m")
+              "model_hgt_minus_elev_m", "method", "grid_j", "grid_i", "model_hgt_m", "note")
+# ASOS reports a gust only when one occurred ("M" = no gust, not a missing value), so the paired
+# gust sample is conditional on gusty hours and its bias/RMSE are not a general gust skill.
+GUST_SAMPLING_NOTE = "obs only when gusts occur; model gust source = %s"
 FIGURE_ID = "station_series"
 
 
@@ -170,6 +176,14 @@ def _surface_fields(ds, idx, wanted):
             g, text = surface_diag.gust(ds, idx)
             out["gust"], method["gust"] = g, text
     return out, method
+
+
+def _gust_source(methods):
+    """WSPD10MAX or estimated (surface_diag's UPP-style gust) from _surface_fields' method text."""
+    text = methods.get("gust")
+    if text is None:
+        return "unknown (no model frame paired)"
+    return "WSPD10MAX" if text.startswith("WSPD10MAX") else "estimated"
 
 
 def _stat(pairs):
@@ -346,7 +360,16 @@ def compare(run_dir, stations_ds_dir, station_ids, variables, domains=None, meth
                                   model_hgt_minus_elev_m=None if pos[sid][2] is None
                                   else h - pos[sid][2], method=method,
                                   grid_j=mine[sid][0][0], grid_i=mine[sid][0][1],
-                                  model_hgt_m=h))
+                                  model_hgt_m=h,
+                                  note=GUST_SAMPLING_NOTE % _gust_source(methods)
+                                  if var == "gust" else ""))
+    gust_stats = [st for st in stats if st["variable"] == "gust"]
+    if gust_stats:
+        notes.append("gust sampling bias: ASOS reports a gust only when one occurred (M = no "
+                     "gust), so these samples are gust-reports-only, not all hours -- "
+                     + ", ".join("%s %s n=%d bias=%s" % (st["station"], st["domain"], st["n"],
+                                                         _fmt(st["bias"], 2)) for st in gust_stats)
+                     + "; read bias/RMSE as skill at gusty times, not overall")
     for sid, ok in placed.items():
         if not ok:
             notes.append("station %s (%.3f, %.3f): outside every selected domain" % (
@@ -380,7 +403,8 @@ def _write(result, out_dir, run_dir, stations, variables, pos, calm_kt, method):
         for r in result["stats"]:
             w.writerow([r["station"], r["domain"], r["variable"], r["n"], _fmt(r["bias"]),
                         _fmt(r["rmse"]), r["n_calm_excluded"], _fmt(r["model_hgt_minus_elev_m"], 1),
-                        r["method"], r["grid_j"], r["grid_i"], _fmt(r["model_hgt_m"], 1)])
+                        r["method"], r["grid_j"], r["grid_i"], _fmt(r["model_hgt_m"], 1),
+                        r["note"]])
     result["files"].append(p)
     figs = _draw(result, out_dir, stations, variables, pos, calm_kt, method)
     result["figures"] = figs
@@ -437,7 +461,8 @@ def _draw(result, out_dir, stations, variables, pos, calm_kt, method):
                 ax.set_ylim(0, 360)
                 ax.set_yticks(range(0, 361, 90))
             ax.set_ylabel("%s (%s)" % (var, UNITS[var]))
-            ax.set_title("%s  %s   %s\n%s" % (sid, var, " | ".join(summ), ("elev %.0f m, %s" % (pos[sid][2], method)
+            ax.set_title("%s  %s   %s\n%s" % (sid, var + (" (gust reports only)"
+                                                          if var == "gust" else ""), " | ".join(summ), ("elev %.0f m, %s" % (pos[sid][2], method)
                                                     if pos[sid][2] is not None
                                                     else "elev unknown, %s" % method)), fontsize=8)
             ax.grid(alpha=0.3)

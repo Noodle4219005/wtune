@@ -262,11 +262,33 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+def _station_settings(args: argparse.Namespace) -> tuple:
+    """(stations, vars, method, calm_kt) of `post stations`: each flag as given, else (with an
+    explicit --project) project.yaml's post.stations / station_vars / station_method / calm_kt,
+    else the built-in default (all, all, nearest, 3.0)."""
+    from_project = {}
+    if getattr(args, "project", None):
+        import wtune.project
+        _dir, doc = _project_context(args)
+        defaults = wtune.project.project_post_defaults(doc)
+        from_project = dict(stations=",".join(defaults["stations"]),
+                            vars=",".join(defaults["station_vars"]),
+                            method=defaults["station_method"], calm_kt=defaults["calm_kt"])
+
+    def pick(name, given, builtin):
+        if given is not None:
+            return given
+        return from_project.get(name) or builtin
+    return (pick("stations", args.stations, "all"), pick("vars", args.vars, "all"),
+            pick("method", args.method, "nearest"), pick("calm_kt", args.calm_kt, 3.0))
+
+
 def cmd_stations(args: argparse.Namespace) -> int:
     import wtune.post.station_compare as sc
+    stations, variables, method, calm_kt = _station_settings(args)
     try:
-        res = sc.compare(args.run, args.obs, _parse_vars(args.stations), _parse_vars(args.vars),
-                         method=args.method, calm_kt=args.calm_kt, tol_min=args.tol_min,
+        res = sc.compare(args.run, args.obs, _parse_vars(stations), _parse_vars(variables),
+                         method=method, calm_kt=calm_kt, tol_min=args.tol_min,
                          domains=[int(d) for d in _parse_vars(args.domains)] if args.domains
                          else None, out_dir=args.out)
     except sc.StationError as e:
@@ -657,13 +679,20 @@ _COMMANDS = [
                       "direction, calm winds excluded), station-height mismatch"), [
         _arg("--run", required=True, help="a wrfout directory (or a project with one run)"),
         _arg("--obs", required=True, help="stations dataset folder (see `wtune event obs-convert`)"),
-        _arg("--stations", default="all", help="comma-separated station ids, or all (default: every "
-             "station in the dataset; a subset is reported as a partial analysis)"),
-        _arg("--vars", default="all", help="of t2,td2,wspd10,wdir10,gust, or all (default: every "
-             "variable the dataset has and the model side supports)"),
-        _arg("--method", choices=["nearest", "bilinear"], default="nearest"),
-        _arg("--calm-kt", type=float, default=3.0, dest="calm_kt",
-             help="observed speed below this is left out of the direction statistics"),
+        _arg("--stations", default=None, help="comma-separated station ids, or all (default: with "
+             "--project its post.stations, else every station in the dataset; a subset is "
+             "reported as a partial analysis)"),
+        _arg("--vars", default=None, help="of t2,td2,wspd10,wdir10,gust, or all (default: with "
+             "--project its post.station_vars, else every variable the dataset has and the "
+             "model side supports)"),
+        _arg("--method", choices=["nearest", "bilinear"], default=None,
+             help="default: with --project its post.station_method, else nearest"),
+        _arg("--calm-kt", type=float, default=None, dest="calm_kt",
+             help="observed speed below this is left out of the direction statistics "
+             "(default: with --project its post.calm_kt, else 3.0)"),
+        _arg("--project", default=None, help="project dir whose project.yaml post.stations / "
+             "station_vars / station_method / calm_kt fill in the flags not given (an explicit "
+             "--project only; no walk-up discovery here)"),
         _arg("--tol-min", type=float, default=None, dest="tol_min",
              help="pairing tolerance in minutes (default 10)"),
         _arg("--domains", default=None, help="comma-separated domain numbers (default: all)"),

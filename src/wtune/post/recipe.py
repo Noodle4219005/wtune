@@ -101,12 +101,12 @@ def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bd
 
 
 def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours,
-                        focus_box=None):
+                        focus_box=None, map_time=None):
     from wtune.post.recipes import convection
     conv_out = os.path.join(out_dir, "convection")
     os.makedirs(conv_out, exist_ok=True)
     out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours,
-                             focus_box=focus_box)
+                             focus_box=focus_box, map_time=map_time)
     # the 3-D render is the cloud set's (d01 + finest nest), not repeated here
     return out
 
@@ -193,18 +193,45 @@ for _name in ("precip", "synoptic", "pbl", "chem", "climate", "ensemble", "terra
 del _name
 
 
-def _map_time(run_dir, case_info, spinup_hours, focus_box):
-    """Valid time of the one-time maps: the rain peak on the finest domain (post/focus.py), or
-    None (each figure set's last frame) when there is no post-spin-up rain or no frame."""
-    from wtune.post.focus import rain_focus
+def _map_time(run_dir, case_info, spinup_hours, focus_box, post_times=None, notes=None):
+    """Valid time of the one-time maps (WRF time string), or None (each figure set's last frame).
+    1. the first post.times entry (post_times, ISO), snapped to the nearest wrfout frame of the
+       finest domain; one outside the run's range is a note and falls through to 2.;
+    2. the rain peak on the finest domain (post/focus.py) when it is at least
+       focus.MIN_PEAK_RATE_MM_H (0.1 mm/h);
+    3. None: no post-spin-up rain (or no frame), the last frame.
+    Why the peak was not used is appended to notes (a list) as a note() entry and printed."""
+    from wtune.post import focus as focus_mod
+    from wtune.post.focus import frame_at
     domain = case_info["domains"][-1]["domain"] if case_info.get("domains") else 1
+
+    def say(text, level="info"):
+        print("post recipe: " + text)
+        if notes is not None:
+            notes.append(note("one_time_maps", text, level=level))
+
+    if post_times:
+        try:
+            t = resolve_project_times(run_dir, post_times[:1], domain=domain)[0]
+            from wtune.post.extract import list_frames
+            t = frame_at(list_frames(run_dir, domain=domain), t)[0]       # nearest wrfout frame
+            print("post recipe: one-time maps at post.times %s (d%02d frame %s)"
+                  % (post_times[0], domain, t))
+            return t
+        except ValueError as e:
+            say("%s; one-time maps fall back to the rain peak" % e, level="warning")
     try:
-        f = rain_focus(run_dir, domain, spinup_hours, box=focus_box)
+        f = focus_mod.rain_focus(run_dir, domain, spinup_hours, box=focus_box)
     except Exception as e:                                  # noqa: BLE001
         print("post recipe: no rain peak on d%02d (%s: %s); one-time maps at the last frame"
               % (domain, type(e).__name__, e))
         return None
-    if not f or f["peak_rate_mm_h"] <= 0:
+    if not f:
+        return None
+    if f["peak_rate_mm_h"] < focus_mod.MIN_PEAK_RATE_MM_H:
+        say("one-time maps use the last frame, not the rain peak: d%02d peak rain %.4f mm/h at %s "
+            "is below %g mm/h; set --post-times to choose the time"
+            % (domain, f["peak_rate_mm_h"], f["peak_time"], focus_mod.MIN_PEAK_RATE_MM_H))
         return None
     print("post recipe: one-time maps at the d%02d rain peak %s (%s)"
           % (domain, f["peak_time"], f["rule"]))
@@ -285,6 +312,47 @@ def _overlay_time(run_dir, post_cfg, map_time):
     return map_time
 
 
+def _station_comparison(run_dir, label, out_dir, project_dir, post_cfg):
+    """([station_series figures], [note dicts]): `wtune post stations` run as part of the recipe
+    when project.yaml has post.stations. Uses the first stations dataset under input/obs/ that
+    passes obs-check, post.station_vars (default all), post.station_method (default nearest) and
+    post.calm_kt (default 3.0), and writes station_series.csv, station_stats.csv and stations/
+    under out_dir. Without post.stations: nothing. Without a usable dataset, or when the
+    comparison cannot run: one note, never a failed recipe."""
+    stations = post_cfg.get("stations") or []
+    if not stations:
+        return [], []
+
+    def info(text, level="info"):
+        text = "post.stations: " + text
+        print("post recipe: " + text)
+        return [], [dict(source="stations", level=level, text=text)]
+    from wtune.post import agent_obs, station_compare
+    usable, bad = agent_obs.usable(project_dir, "stations") if project_dir else ([], [])
+    if not usable:
+        return info("no stations dataset under input/obs/ that passes obs-check%s; the station "
+                    "comparison was not run (`wtune event obs-convert asos`, then `wtune post "
+                    "stations`)" % "".join(" (%s: %s)" % b for b in bad))
+    name, ds_dir, _prov = usable[0]
+    try:
+        res = station_compare.compare(
+            run_dir, ds_dir, stations, post_cfg.get("station_vars") or ["all"],
+            method=post_cfg.get("station_method") or "nearest",
+            calm_kt=post_cfg.get("calm_kt") or 3.0, out_dir=out_dir)
+    except station_compare.StationError as e:
+        return info("station comparison against %s not run: %s" % (name, e), level="warning")
+    print("post recipe: station comparison against %s: %d figure(s)" % (name, len(res["figures"])))
+    figs = [fig(station_compare.FIGURE_ID, p, label) for p in res["figures"]]
+    out_notes = [dict(source="stations",
+                      level="warning" if t.startswith("gust sampling bias") else "info", text=t)
+                 for t in res["notes"]]
+    if len(usable) > 1:
+        out_notes.append(dict(source="stations", level="info", text="compared against %s; the "
+                              "other stations dataset(s) were not used: %s"
+                              % (name, ", ".join(u[0] for u in usable[1:]))))
+    return figs, out_notes
+
+
 def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
     """Best-track fix nearest the run's last available time, for moisture's default
     cross-section point (decision 0057 update: "剖面線預設過颶風中心 ... 或由 project.yaml
@@ -310,6 +378,9 @@ def run_recipe(run_dirs, out_dir, **kwargs) -> dict:
     then _run_recipe. A run whose BP history cannot be converted (adios2 missing) gives a report
     with one missing entry naming the fix; single files that failed become notes."""
     from wtune.post import extract
+    # absolute from here on: every recipe module joins its figure paths onto out_dir, and a
+    # cwd-relative out_dir leaked "post/x/fig.png" into figures.json (check resolves against it)
+    out_dir = os.path.abspath(out_dir)
     labels = kwargs.get("labels") or [("run%d" % i) for i in range(len(run_dirs))]
     with extract.nc_cache(base=kwargs.get("project_dir") or out_dir):
         gaps, bp_notes = [], []
@@ -393,7 +464,7 @@ def _run_cloud(handler, r: _RecipeRun) -> list:
 
 def _run_convection(handler, r: _RecipeRun) -> list:
     return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours,
-                   focus_box=r.focus_box)
+                   focus_box=r.focus_box, map_time=r.map_time)
 
 
 def _run_terrain(handler, r: _RecipeRun) -> list:
@@ -516,6 +587,7 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     docs/ post section (decisions 0057/0058); None keeps each recipe module's own default."""
     from wtune.post.recipes import common as common_mod
 
+    out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
     if len(labels) != len(run_dirs):
@@ -533,6 +605,8 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         except Exception:
             tc_centre = None
 
+    post_cfg = _project_post(project_dir)
+    map_notes = []
     run = _RecipeRun(
         run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours,
         hurdat2_path=hurdat2_path, storm_id=storm_id, bdeck_path=bdeck_path,
@@ -540,8 +614,8 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
         track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box,
-        map_time=_map_time(run_dirs[0], case_info, spinup_hours, focus_box))
-    post_cfg = _project_post(project_dir)
+        map_time=_map_time(run_dirs[0], case_info, spinup_hours, focus_box,
+                           post_times=post_cfg.get("times"), notes=map_notes))
     common_kwargs = dict(decomposition_only=decomposition_only)
     if post_cfg.get("map_domains"):
         common_kwargs.update(map_domains=post_cfg["map_domains"],
@@ -561,15 +635,20 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     if every or times:
         tasks.append(("timeseries", _fail_soft,
                       ("timeseries", guarded, "timeseries", _time_series_figures, run_dirs,
-                       labels, out_dir, case_info, every, times), dict(animate=animate)))
+                       labels, out_dir, case_info, every, times),
+                      dict(animate=animate, overlay=post_cfg.get("map_overlay") or [])))
     # note() entries from run_recipe's BP conversion first
-    all_figures = list(pre_notes or []) + _in_parallel(tasks)
+    all_figures = list(pre_notes or []) + map_notes + _in_parallel(tasks)
 
     notes, all_figures = _split_notes(all_figures)
     if post_cfg.get("figures_off") or post_cfg.get("figures_on"):
         all_figures, switch_notes = apply_figure_switches(
             out_dir, all_figures, post_cfg.get("figures_off"), post_cfg.get("figures_on"))
         notes += [{k: n[k] for k in ("source", "level", "text")} for n in switch_notes]
+    station_figs, station_notes = _station_comparison(run_dirs[0], labels[0], out_dir, project_dir,
+                                                      post_cfg)
+    all_figures += station_figs
+    notes += station_notes
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)
@@ -589,8 +668,8 @@ def write_index(out_dir, run_dirs, labels, case_info, figures, notes, kind="reci
     half of report.html that `wtune post brief` and `wtune post check` read (decision 0078)."""
     def rel(entry):
         e = dict(entry)
-        if e.get("path") and os.path.isabs(e["path"]):
-            e["path"] = os.path.relpath(e["path"], out_dir)
+        if e.get("path"):               # a relative path is relative to the cwd, as out_dir is
+            e["path"] = os.path.relpath(os.path.abspath(e["path"]), os.path.abspath(out_dir))
         return e
     doc = dict(schema=INDEX_SCHEMA, kind=kind, runs=[dict(label=lb, path=os.path.abspath(d))
                                           for d, lb in zip(run_dirs, labels)],
@@ -658,7 +737,8 @@ def _cf3d_data(run_dir, run_label, out_dir, case_info, every, times):
                         times=times)
 
 
-def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):
+def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False,
+                         overlay=None):
     from wtune.post import timeseries
     from wtune.post.changemap import figures_for_change_maps
 
@@ -669,7 +749,7 @@ def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, ani
 
     include_mcape = "convection" in case_info["types"]
     out = timeseries.figures_for_time_series(run_dir, run_label, domain, ts_out, every=every,
-                                             times=times, include_mcape=include_mcape)
+                                             times=times, include_mcape=include_mcape, overlay=overlay)
 
     ok_figs = [f for f in out if not f.get("missing")]
     selected_times = sorted({f["valid_time"] for f in ok_figs})

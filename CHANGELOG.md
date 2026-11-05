@@ -5,6 +5,16 @@ here does not match it. Development before 0.1.0 is in the git history, not in r
 
 ## Unreleased
 
+Fixes from validating SCC26 Sundowner Run 1 (three domains, Santa Barbara) with `wtune post`.
+
+- `post.times` now also picks the one-time maps (terrain, convection, cloud, synoptic, moisture, soundings): the first entry, snapped to the nearest frame. Without it, a rain peak under 0.1 mm/h counts as no rain and those maps use the last frame, with a note in the report. The convection maps previously looked for their own rain peak and ignored the recipe's map time.
+- `--post-times` accepts WRF and space spellings (`2022-04-05_06:00:00`, `2022-04-05 06:00`, `2022-04-05T06`). `project set` still rejects a bad flag atomically; the error now lists every bad flag with its value and example formats, and drawing flags are validated before `--register-case` writes anything.
+- `--post-overlay wind10` also draws 10 m barbs on the time-series `t2` and `wspd10` maps.
+- `wtune post recipe --out <relative path>`: `figures.json` paths are relative to the post directory (they were relative to the cwd, so `post check` could not find the figures).
+- Station comparison: gust statistics carry a sampling-bias note (ASOS reports gusts only when they occur): `note` column in `station_stats.csv`, a warning in the notes with n, "(gust reports only)" in the panel title, and the catalog caption.
+- Figures: T2 maps use a sequential scale unless the data crosses 0 degC (was a -24..+24 diverging scale for 0-25 degC data); sea is light blue on the domain maps; small domains get at least 3 labelled lat/lon ticks (°N/°W). The zoomed domain map drew the d01 extent (a duplicated block in `domain_map.draw` redrew the figure and dropped `zoom` and the nest terrain); fixed.
+- `post.stations` makes `wtune post recipe` run the station comparison (first usable `stations` dataset under `input/obs/`; a note when there is none). `wtune post stations --project P` reads `post.stations/station_vars/station_method/calm_kt` for flags not given.
+
 - `wtune post stations`: per-station model vs. observation series, bias/RMSE (circular wind direction, calm winds excluded) from a new `stations` obs kind; `wtune event obs-convert asos` turns an IEM ASOS CSV into one.
 
 Fixes from the 2026-10-26 mock competition on f1-arm (haitang2017, MeiYu-2020), and the agent

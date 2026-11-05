@@ -134,7 +134,14 @@ def _max_reflectivity_point(run_dir, domain, time_str):
         return float(lat[j, i]), float(lon[j, i])
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, focus_box=None):
+_OWN_PEAK = object()     # figures(map_time=...) default: look for the rain peak here
+
+
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, focus_box=None,
+            map_time=_OWN_PEAK):
+    """map_time: the recipe's one-time-map time (post.times / rain peak, snapped to a frame of
+    the convective domain); None = the last post-spin-up frame (no usable rain); left out =
+    this function looks for the rain peak itself."""
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -147,9 +154,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, focus_box=None
     post_spinup = _post_spinup_frames(run_dir, domain, spinup_hours)
     last_time = post_spinup[-1][0]
     # reflectivity map and sounding at the rain peak, in its core (post/focus.py)
-    from wtune.post.focus import rain_focus
-    focus = rain_focus(run_dir, domain, spinup_hours, box=focus_box)
-    peak_time = focus["peak_time"] if focus else last_time
+    from wtune.post.focus import frame_at, rain_focus
+    focus = rain_focus(run_dir, domain, spinup_hours, box=focus_box)   # the sounding's point
+    if map_time is _OWN_PEAK:
+        peak_time = focus["peak_time"] if focus else last_time
+    else:
+        peak_time = frame_at(frames, map_time)[0] if map_time else last_time
 
     out = []
     try:

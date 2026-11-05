@@ -47,19 +47,31 @@ You never change WRF output or the namelist. The figure checklist and the fix ac
    Drawing flags a `project_set` action may use (replace the whole value; `none` clears):
    `--post-focus`, `--cross-section`, `--post-types`, `--post-every`, plus
    - `--post-times 2019-01-30T09,2019-01-30T12:30` (UTC): draw the time series at exactly these
-     times, e.g. the hour of the strongest downslope wind, instead of every N hours.
-     Precedence: `wtune post recipe --times` > `post.times` > `--every`. A time outside the
-     wrfout range is an error that lists the available range.
+     times, e.g. the hour of the strongest downslope wind, instead of every N hours. The FIRST
+     entry also sets the time of the one-time maps (terrain, convection, cloud, synoptic,
+     moisture PW/IVT, soundings), snapped to the nearest wrfout frame of the finest domain;
+     without `post.times` those maps use the rain peak, and when the heaviest post-spin-up
+     interval averages less than 0.1 mm/h (focus.MIN_PEAK_RATE_MM_H) they use the last frame and
+     the report carries a note saying so. Accepted spellings: `2022-04-05T06`,
+     `2022-04-05T06:00`, `2022-04-05_06:00:00` (WRF), `2022-04-05 06:00`; stored as
+     `YYYY-MM-DDTHH[:MM]`. Precedence: `wtune post recipe --times` > `post.times` > `--every`. A
+     time outside the wrfout range is an error that lists the available range.
    - `--post-map-domains d01,d03` (or `all`): shade terrain for those nests in the domain map
      and draw one zoomed terrain map per nest (`common_domain_map_zoom`,
-     `common_domain_map_d03.png`). Default is d01 only.
-   - `--post-overlay wind10`: 10 m wind barbs on those zoomed maps, at the first `post.times`
-     entry (else the rain-peak time of the one-time maps).
+     `common_domain_map_d03.png`). Default is d01 only. Sea (LANDMASK = 0, else HGT <= 0.5 m)
+     is light blue, not the white of the 0 m end of the terrain scale.
+   - `--post-overlay wind10`: 10 m wind barbs on those zoomed maps (at the first `post.times`
+     entry, else the rain-peak time) and on the time-series `t2` and `wspd10` maps. Other
+     figures are not affected.
    - `--post-figures-off ID,ID`: drop figures by catalog id from `figures.json`, the report and
      the folder. `--post-figures-on` only validates ids (nothing is off by default yet).
    - `--post-stations ID,ID --post-station-vars t2,wspd10,wdir10,gust
-     --post-station-method nearest|bilinear --post-calm-kt 3`: stored and validated for
-     `wtune post stations`; they draw nothing by themselves.
+     --post-station-method nearest|bilinear --post-calm-kt 3`: with `post.stations` set,
+     `wtune post recipe` also runs the station comparison (first `input/obs/` dataset of kind
+     `stations` that passes obs-check; without one, a note) and registers the per-station
+     figures; `wtune post stations --project P` reads the same keys for flags it is not given.
+   A `project set` call with any bad flag changes nothing and the error names every bad flag
+   with its value and an accepted example.
 
    Example: the downslope wind peaks at 09 UTC, d03 shows no terrain, `timeseries_mcape` is noise.
    ```bash
@@ -126,6 +138,13 @@ everything the run and the observations contain:
   feedback, terrain resolution, where a front enters);
 - what could not be compared (a variable with no model counterpart, a station outside every
   domain, observations missing for a stretch) is written down with the reason.
+
+- gust is a reports-only sample: ASOS fills the gust column only when a gust occurred (`M` means
+  no gust, not a missing value), so a gust bias/RMSE (e.g. SBA n=4, bias -8.03) describes
+  gusty hours, not all hours. `station_stats.csv` marks those rows in its `note` column
+  ("obs only when gusts occur; model gust source = WSPD10MAX|estimated"), the gust panel title
+  says "(gust reports only)", and the compare notes carry n. Quote n and the caveat; do not
+  call it gust skill.
 
 `wtune post check` warns when `station_stats.csv` has a station the assessment never names. A
 section that quotes only the requested stations or hours is a partial analysis; say what was left

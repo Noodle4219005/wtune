@@ -234,7 +234,8 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
                       terrain=terrain, muted=contour_field is not None or bool(contours))
     if basemap == "cartopy" and base:
         from wtune.post.basemap import gridline_step
-        gridline_step(base.get("gridliner"), float(np.nanmax(lats) - np.nanmin(lats)))
+        gridline_step(base.get("gridliner"), float(np.nanmax(lats) - np.nanmin(lats)),
+                      float(np.nanmax(lons) - np.nanmin(lons)))
     if handles:
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)

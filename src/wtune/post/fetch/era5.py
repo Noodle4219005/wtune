@@ -61,15 +61,15 @@ def _rain_peak(args):
     from wtune.post.extract import list_frames
     from wtune.post.recipe import _map_time
     doms = [d for d in range(1, 10) if list_frames(args.run_dir, domain=d)]
-    focus = None
+    focus = times = None
     try:
         import wtune.project
-        focus = wtune.project.project_post_defaults(
-            wtune.project.load_project(args.project))["focus"]
+        defaults = wtune.project.project_post_defaults(wtune.project.load_project(args.project))
+        focus, times = defaults["focus"], defaults["times"] or None
     except Exception:                                   # noqa: BLE001 -- no project: no box
         pass
     peak = _map_time(args.run_dir, {"domains": [{"domain": d} for d in doms]},
-                     args.spinup_hours, focus) if doms else None
+                     args.spinup_hours, focus, post_times=times) if doms else None
     return datetime.strptime(peak, WRF_TIME_FMT) if peak else None
 
 

@@ -232,19 +232,21 @@ def _jet250_chart(c: _Chart, fig: Callable) -> dict:
 
 
 def _t2_wind10_chart(c: _Chart, fig: Callable) -> dict:
-    """Surface chart (decision 0064): T2 (degC) diverging about 0 degC, 0 degC bold, barbs in kt."""
+    """Surface chart (decision 0064): T2 (degC) on t2_scale (diverging about 0 degC when the field
+    crosses freezing, else sequential), 0 degC bold where it occurs, barbs in kt."""
     np, wrf_mod, ds, ti = c.np, c.wrf, c.ds, c.ti
     t2c = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=ti), dtype="f8") - 273.15
     u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
     v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
-    t2_levels = celsius_levels(t2c)
+    t2_levels, t2_cmap, t2_extend = t2_scale(t2c)
+    freezing = float(np.nanmin(t2c)) < 0.0 < float(np.nanmax(t2c))
     p5 = os.path.join(c.out_dir, "syn_t2_wind10.png")
     c.save_map(p5, c.lats, c.lons,
                "%s d01 T2 (degC, 0 degC bold) + 10 m wind (kt)  %s" % (c.run_label, c.tlabel),
-               fill_field=t2c, fill_label="T2 (degC)", fill_cmap="RdBu_r",
-               fill_levels=t2_levels, fill_extend="both",
+               fill_field=t2c, fill_label="T2 (degC)", fill_cmap=t2_cmap,
+               fill_levels=t2_levels, fill_extend=t2_extend,
                contours=[dict(field=t2c, levels=[0.0], colors="k", linewidths=1.6,
-                              label="0 degC isotherm")],
+                              label="0 degC isotherm")] if freezing else [],
                u=u10, v=v10, barb_factor=KT_PER_MS, barb_label="wind barbs in kt",
                ds=ds, crs=c.crs, gridline_labels=True)
     return fig("syn_t2_wind10", p5, c.run_label, domain="d01", valid_time=c.time_str)
@@ -524,6 +526,25 @@ def celsius_levels(t_c: Any, step: float | None = None) -> Any:
     step = step or (2.0 if vmax <= 20 else 3.0 if vmax <= 36 else 5.0)
     vmax = step * np.ceil(vmax / step)
     return np.arange(-vmax, vmax + step, step)
+
+
+def t2_scale(t_c: Any) -> tuple:
+    """(levels, cmap, extend) for a T2 map in degC. The maps draw absolute temperature, not an
+    anomaly, so a colour scale centred on 0 degC only means something where the freezing line
+    is in the picture: RdBu_r symmetric about 0 (celsius_levels, decision 0064) when the field's
+    1st-99th percentile spans 0 degC, else sequential viridis over the data range -- a
+    0-25 degC field on -24..+24 used half of the colour bar for temperatures that never occur."""
+    import numpy as np
+    from wtune.post.recipes.mapfig import nice_levels
+    vals = np.asarray(t_c, dtype="f8")
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return celsius_levels(vals), "RdBu_r", "both"
+    lo, hi = np.percentile(vals, [1, 99])
+    if lo < 0.0 < hi:
+        return celsius_levels(vals), "RdBu_r", "both"
+    lo, hi = float(vals.min()), float(vals.max())
+    return nice_levels(lo, max(hi, lo + 1.0), 14), "viridis", "neither"
 
 
 def symmetric_levels(vmax: float, nbins: int = 12) -> Any:

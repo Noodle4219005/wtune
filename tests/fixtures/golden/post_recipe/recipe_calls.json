@@ -24,7 +24,7 @@
    [
     "dispatch-convection",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, True, 6)",
-    "[('focus_box', None)]"
+    "[('focus_box', None), ('map_time', None)]"
    ],
    [
     "advice-none"
@@ -138,7 +138,7 @@
    [
     "dispatch-convection",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, False, 3)",
-    "[('focus_box', None)]"
+    "[('focus_box', None), ('map_time', None)]"
    ],
    [
     "dispatch-cloud",
@@ -188,7 +188,7 @@
    [
     "timeseries",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, '6h', ['t1'])",
-    "[('animate', True)]"
+    "[('animate', True), ('overlay', [])]"
    ],
    [
     "advice",

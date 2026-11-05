@@ -1552,26 +1552,40 @@ def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=Fals
     # failure left 20 of 21 files and ungrib died later).
     import time
     sleep_fn = sleep_fn or time.sleep
-    missing = []
-    for vt in valid_times:
-        for filename, urls in source.urls_for(vt):
-            dest = os.path.join(cache_dir, filename)
-            for attempt in range(attempts):
+    jobs = [(filename, urls) for vt in valid_times for filename, urls in source.urls_for(vt)]
+
+    def fetch_one(job):
+        filename, urls = job
+        dest = os.path.join(cache_dir, filename)
+        for attempt in range(attempts):
+            if os.path.exists(dest):
+                break
+            if attempt:
+                sleep_fn(5 * 2 ** (attempt - 1))
+            for url in urls:
+                try:
+                    download_fn(url, dest)
+                except Exception:
+                    continue
                 if os.path.exists(dest):
                     break
-                if attempt:
-                    sleep_fn(5 * 2 ** (attempt - 1))
-                for url in urls:
-                    try:
-                        download_fn(url, dest)
-                    except Exception:
-                        continue
-                    if os.path.exists(dest):
-                        break
-            if os.path.exists(dest):
-                paths.add(os.path.abspath(dest))
-            else:
-                missing.append(filename)
+        return filename, dest
+
+    # one GFS/ERA file is ~0.5 GB and a single stream gets ~13 MB/s on f1-arm while 8 streams get
+    # ~43 MB/s, so the files are fetched concurrently (WTUNE_FETCH_WORKERS, default 8; 1 = serial)
+    workers = max(1, min(int(os.environ.get("WTUNE_FETCH_WORKERS", "8") or 8), len(jobs) or 1))
+    if workers == 1:
+        done = [fetch_one(j) for j in jobs]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            done = list(pool.map(fetch_one, jobs))     # map keeps the order of valid_times
+    missing = []
+    for filename, dest in done:
+        if os.path.exists(dest):
+            paths.add(os.path.abspath(dest))
+        else:
+            missing.append(filename)
     if missing:
         raise ColdstartError("fetch: %s: %d file(s) still missing after %d attempts: %s"
                              % (source.dataset, len(missing), attempts, ", ".join(missing)))

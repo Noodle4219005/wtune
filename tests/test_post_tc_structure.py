@@ -502,3 +502,9 @@ def test_rz_legend_omits_absent_terrain_and_negative_vt(tmp_path, monkeypatch):
     labels = legends[-1]
     assert "RMW(z)" in labels
     assert not any("below ground" in l or "< 0" in l for l in labels)
+
+
+def test_figures_render_when_the_natural_earth_data_is_missing(tmp_path, monkeypatch):
+    # the landmask fallback ran on a cropped window against the whole-grid mask (f1 x86, 2026-11-05)
+    monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(tmp_path / "no-natural-earth"))
+    test_figures_render_every_tc_structure_figure(tmp_path, monkeypatch)

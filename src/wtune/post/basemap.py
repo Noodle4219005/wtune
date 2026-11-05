@@ -262,9 +262,12 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
     landmask_fallback = False
     if "coastline" not in drawn and ds is not None and "LANDMASK" in ds.variables \
             and lats is not None:
-        ax.contour(lons, lats, np.asarray(ds.variables["LANDMASK"][0]), levels=[0.5],
-                   colors=MUTED if muted else "k", linewidths=0.6, zorder=3, **transform_kw)
-        landmask_fallback = True
+        landmask = np.asarray(ds.variables["LANDMASK"][0])
+        # lats/lons may be a cropped window of the file's grid; the mask is the whole grid
+        if landmask.shape == np.shape(lats) == np.shape(lons):
+            ax.contour(lons, lats, landmask, levels=[0.5],
+                       colors=MUTED if muted else "k", linewidths=0.6, zorder=3, **transform_kw)
+            landmask_fallback = True
 
     interval = None
     if terrain and hgt is not None and lats is not None:

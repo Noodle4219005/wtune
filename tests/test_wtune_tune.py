@@ -35,6 +35,13 @@ MATTHEW_LIKE = dict(e_we=91, e_sn=100, e_vert=45)
 # ---------------------------------------------------------------------------
 # fakes
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _ascending_sweep(monkeypatch):
+    # the node sweep defaults to most-promising-first; these tests pin the ascending path
+    monkeypatch.setenv("WTUNE_SWEEP_ORDER", "ascending")
+
+
 class FakeClock:
     """Virtual time: .sleep() advances .t instantly instead of blocking, so a budget-deadline
     test can simulate 30 minutes elapsing without a real wait."""
@@ -1825,6 +1832,26 @@ def test_nodes_auto_is_unchanged_and_keeps_the_warning(monkeypatch, tmp_path, ca
     assert report["nodes"] == 1 and "node_selection" not in report
     assert "UNCALIBRATED" in capsys.readouterr().out
     assert set(job_nodes.values()) == {1}
+
+
+def test_node_sweep_promising_first_spends_the_cap_on_the_largest_n(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("WTUNE_SWEEP_ORDER", raising=False)
+    sbatch, reader, job_nodes = make_scaling_fakes(NONMONO_CURVE)
+    clock = FakeClock()
+
+    def slow_reader(case, job_ids):
+        rows = reader(case, job_ids)
+        clock.t += 15000.0                   # the first wave "takes" 15000 s of a 36000 s budget
+        return rows
+
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=slow_reader, clock=clock, budget_s=36000.0,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4, 8], budget_frac=0.4)
+    assert "most promising first" in capsys.readouterr().out
+    first = sorted(set(job_nodes.values()))
+    capped = {s["nodes"] for s in sw["skipped"] if "sweep budget cap" in s["reason"]}
+    assert 8 in first and 8 not in capped          # the large N is measured, not skipped
+    assert capped and max(capped) < 8              # the cap falls on the small N instead
 
 
 def test_node_sweep_budget_cap_skips_larger_n(tmp_path):

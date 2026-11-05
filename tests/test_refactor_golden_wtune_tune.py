@@ -40,6 +40,13 @@ REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+
+@pytest.fixture(autouse=True)
+def _ascending_sweep(monkeypatch):
+    # recorded with the ascending node sweep; the default is now promising-first
+    monkeypatch.setenv("WTUNE_SWEEP_ORDER", "ascending")
+
+
 def _norm(text, tmp_path):
     text = text.replace(str(tmp_path), "<TMP>")
     text = text.replace(os.path.realpath(REPO), "<REPO>").replace(REPO, "<REPO>")

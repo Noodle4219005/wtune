@@ -23,6 +23,13 @@ FMT = "%Y-%m-%d_%H:%M:%S"
 
 
 # ---------------------------------------------------------------- defect 1
+
+@pytest.fixture(autouse=True)
+def _ascending_sweep(monkeypatch):
+    # recorded with the ascending node sweep; the default is now promising-first
+    monkeypatch.setenv("WTUNE_SWEEP_ORDER", "ascending")
+
+
 def _fake_predict(monkeypatch, compute_s, init_s):
     def build(**kw):
         return {"total_s": compute_s + init_s,

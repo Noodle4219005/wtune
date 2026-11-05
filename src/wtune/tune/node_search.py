@@ -360,6 +360,25 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         s_est, src, _k = ctx.estimate_s_per_step(n)
         return s_est, src
 
+    reordered = False
+    if not every_n and not descending and waves and os.environ.get("WTUNE_SWEEP_ORDER") != "ascending":
+        # fastest-predicted wave first, so a spent --minutes budget skips the slow small N, not
+        # the large N that is likely best; the upward early stop assumes ascending, so it is off
+        def _wave_key(w):
+            ests = []
+            for n in w:
+                try:
+                    e = float(s_est_for(n)[0])
+                except (TypeError, ValueError):
+                    e = float("nan")
+                ests.append(e)
+            ok = all(math.isfinite(e) and e > 0 for e in ests)
+            return (min(ests) if ok else float("inf"), -max(w))
+        ordered = sorted(waves, key=_wave_key)
+        if ordered != waves:
+            waves, reordered = ordered, True
+            print("node sweep: most promising first, wave order %s" % ordered)
+
     def cap_reason():
         if ctx.elapsed() - sweep_t0 >= cap_s:
             return ("sweep budget cap: sweep used %s >= %.0f%% of the budget (%s)"
@@ -463,7 +482,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
                 state["stopped"] = state["halt"] = halt
                 continue
         srows = wtune.nodes.summarize({n: v for n, v in meas.items() if n in seeds})
-        if not every_n and not descending and wtune.nodes.stop_early(srows):
+        if not every_n and not descending and not reordered and wtune.nodes.stop_early(srows):
             a, b = srows[-2], srows[-1]
             state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
                                 "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],

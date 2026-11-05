@@ -427,6 +427,17 @@ def test_d5_report_and_predict_launch_lines_are_the_sites(monkeypatch, home, dis
     assert pred.replace(" ./wrf.exe", "") == truth.replace(" ./wrf.exe", ""), pred
 
 
+def test_f1arm_numa_per_node_1_maps_by_node_so_two_nodes_fit_their_slots():
+    script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/f1arm.sh" >/dev/null 2>&1; '
+              'site_launch 144 72 1 block; echo "${SITE_LAUNCH_CMD[*]}"'
+              % shlex.quote(os.path.join(REPO, "campaign")))
+    run = lambda numa: subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True,
+        env=dict(os.environ, SLURM_JOB_NUM_NODES="2", WTUNE_NUMA_PER_NODE=numa)).stdout.strip()
+    assert "--map-by ppr:72:node:PE=1" in run("1")      # was ppr:72:numa: 144 ranks on one node
+    assert "--map-by ppr:36:numa:PE=1" in run("2")      # the two-die mapping is unchanged
+
+
 # =========================================================================== defect 6
 def test_d6_rsl_of_ranks_above_0_gzipped_after_success(tmp_path, home):
     case = _src_case(tmp_path)

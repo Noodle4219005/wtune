@@ -42,7 +42,9 @@ site_launch () {
   local nn="${SLURM_JOB_NUM_NODES:-1}"
   [ $(( tpn * nn )) -lt "$ranks" ] && tpn=$(( (ranks + nn - 1) / nn ))
   local map="ppr:${tpn}:node:PE=${omp}"
-  if [ $(( tpn % NUMA_PER_NODE )) -eq 0 ]; then
+  # NUMA_PER_NODE=1 on a two-die node means "fill one die": ppr:<tpn>:numa would put all tpn ranks
+  # of every die on the first node (72 slots) and fail with "not enough slots" at N>=2
+  if [ "$NUMA_PER_NODE" -gt 1 ] && [ $(( tpn % NUMA_PER_NODE )) -eq 0 ]; then
     map="ppr:$(( tpn / NUMA_PER_NODE )):numa:PE=${omp}"
   fi
   SITE_LAUNCH_CMD=(mpirun -np "$ranks" --map-by "$map" --bind-to core)

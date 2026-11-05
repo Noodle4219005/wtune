@@ -30,6 +30,13 @@ SEAM = dict(resolve_case="context", _total_steps="context", cold_start_predictio
             finish_rebuilt_points="points")
 
 
+
+@pytest.fixture(autouse=True)
+def _ascending_sweep(monkeypatch):
+    # the snapshots were recorded with the ascending node sweep; the default is now promising-first
+    monkeypatch.setenv("WTUNE_SWEEP_ORDER", "ascending")
+
+
 def _patch(monkeypatch, name, value):
     target = getattr(wtune.tune, SEAM[name]) if hasattr(wtune.tune, "__path__") else wtune.tune
     monkeypatch.setattr(target, name, value)

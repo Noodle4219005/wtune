@@ -398,7 +398,8 @@ def test_d4_preflight_keeps_unallocated_and_cancels_its_timed_out_probe(monkeypa
     names = [a.split("=", 1)[1] for a in srun_n4 if a.startswith("--job-name=")]
     assert names, "the probe job has no name to cancel it by: %s" % srun_n4
     cancels = [a for a in calls if a[0] == "scancel"]
-    assert cancels == [["scancel", "--user=" + getpass.getuser(), "--name=" + names[0]]], cancels
+    # n4 timed out twice (the second probe is the retry of an idle node): each one is cancelled
+    assert cancels == [["scancel", "--user=" + getpass.getuser(), "--name=" + names[0]]] * 2, cancels
 
 
 # =========================================================================== defect 5

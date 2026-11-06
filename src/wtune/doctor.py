@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import glob
 import os
 import re
 import shlex
@@ -195,6 +196,14 @@ def path_checks() -> list[tuple[str, str, str]]:
     elif pixi_env:
         out.append(("OK", "site python env: %s" % pixi_env, ""))
     cartopy = sourced.get("WTUNE_CARTOPY_DATA") or os.environ.get("WTUNE_CARTOPY_DATA")
+    if cartopy and os.path.isdir(cartopy) and not glob.glob(os.path.join(
+            cartopy, "shapefiles", "natural_earth", "physical", "ne_*_coastline.shp")):
+        out.append(("WARN", "WTUNE_CARTOPY_DATA %s is a folder but has no coastline shapefile "
+                    "(shapefiles/natural_earth/physical/ne_*_coastline.shp): maps on compute nodes "
+                    "without internet fall back to the land mask" % cartopy,
+                    "bin/fetch-natural-earth.sh, then `export WTUNE_CARTOPY_DATA=%s` in %s"
+                    % (os.path.join(REPO_ROOT, "envs", "cartopy-data"), env_file)))
+        return out
     out.append(("OK", "Natural Earth: %s" % cartopy, "") if cartopy and os.path.isdir(cartopy)
                else ("WARN", "WTUNE_CARTOPY_DATA %s: maps on compute nodes without internet "
                      "have no coastlines" % ("not set" if not cartopy else

@@ -48,11 +48,22 @@ def test_a_complete_setup_passes_the_path_checks(tmp_path, monkeypatch):
     adios2 = tmp_path / "adios2"
     adios2.mkdir()
     (adios2 / "pixi.toml").write_text("")
-    (tmp_path / "ne").mkdir()
+    coast = tmp_path / "ne" / "shapefiles" / "natural_earth" / "physical"
+    coast.mkdir(parents=True)
+    (coast / "ne_50m_coastline.shp").write_text("")
     _env(monkeypatch, tmp_path, "export WRF_TREE=%s WPS_DIR=%s WTUNE_PIXI_ENV=%s "
          "WTUNE_CARTOPY_DATA=%s\n" % (wrf, wps, adios2, tmp_path / "ne"), wrf)
     checks = doctor.path_checks()
     assert not _by_level(checks, "FAIL") and not _by_level(checks, "WARN"), checks
+
+
+def test_an_empty_natural_earth_folder_is_warned_about(tmp_path, monkeypatch):
+    wrf, wps = _tree(tmp_path)
+    (tmp_path / "ne").mkdir()                     # a folder with no coastline shapefile in it
+    _env(monkeypatch, tmp_path, "export WRF_TREE=%s WPS_DIR=%s WTUNE_CARTOPY_DATA=%s\n"
+         % (wrf, wps, tmp_path / "ne"), wrf)
+    warns = _by_level(doctor.path_checks(), "WARN")
+    assert any("no coastline shapefile" in w for w in warns), warns
 
 
 def test_the_env_file_and_machine_wrf_tree_must_agree(tmp_path, monkeypatch):

@@ -1735,3 +1735,17 @@ def test_launch_line_is_the_site_files(monkeypatch):
         "mpirun -np 90 --map-by ppr:45:numa:PE=1 --bind-to core ./wrf.exe"
     monkeypatch.setenv("WTUNE_SITE", "nosuchsite")
     assert wtune.machine.site_launch_line(90, 90, 1, "block", 1) is None
+
+
+def test_predict_init_skips_dangling_symlinks_and_sizes_bp_directories(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0}}
+    (tmp_path / "wrfbdy_d01_2022-04-04_18:00:00.bp").symlink_to(tmp_path / "gone.bp")   # dangling
+    bp = tmp_path / "wrfinput_d01.bp"
+    bp.mkdir()
+    (bp / "data.0").write_bytes(b"x" * 600)
+    (bp / "md.idx").write_bytes(b"y" * 400)
+    init = wp.predict_init(str(tmp_path), nl, calibration)
+    assert init["read_s"] == pytest.approx(1.0)              # 1000 bytes / 1000 B/s
+    assert "wrfinput_d01.bp" in init["source"] and "gone" not in init["source"] \
+        and "wrfbdy_d01" not in init["source"]

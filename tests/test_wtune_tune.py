@@ -1808,6 +1808,18 @@ def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):
     assert job_nodes == {} and "j-patch too narrow" in sw["skipped"][0]["reason"]
 
 
+def test_chem_guard_keeps_the_widest_j_patch_when_it_would_leave_nothing(capsys):
+    ctx = _ctx(chem_e_sn=[100])             # CHEM_MIN_J_PATCH = 21 rows: 100/8 = 12 rows is below it
+    configs = [dict(id="G0001", ranks=72, omp=1, nx=9, ny=8, numtiles=1, dist="block"),
+               dict(id="G0002", ranks=72, omp=1, nx=6, ny=12, numtiles=1, dist="block"),
+               dict(id="G0003", ranks=72, omp=1, nx=4, ny=18, numtiles=1, dist="block")]
+    kept = wtune.tune._apply_search_filter(ctx, configs)
+    assert [c["id"] for c in kept] == ["G0001"]                      # ny=8: the widest j-patch
+    assert "every candidate is below the WRF-Chem j-patch guard" in capsys.readouterr().out
+    ok = dict(id="G0004", ranks=72, omp=1, nx=18, ny=4, numtiles=1, dist="block")   # 25 rows: passes
+    assert [c["id"] for c in wtune.tune._apply_search_filter(ctx, configs + [ok])] == ["G0004"]
+
+
 def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_path):
     # budget just covers the sweep jobs (elapsed jumps past it once they finish): finalists get
     # no budget, so the report is the chosen N with the sweep's ANCHOR config.
@@ -2710,11 +2722,28 @@ def test_preflight_no_home_node_and_probe_command_shape():
     assert h["max_nodes_effective"] == 1
 
 
+def test_preflight_an_idle_node_that_times_out_once_is_asked_again():
+    import subprocess
+    states = {"work2": "idle", "work5": "idle"}
+    inner, log = make_health_runner(states, bad={})
+    seen = {"n": 0}
+
+    def runner(argv, timeout):
+        if argv[0] == "srun" and "work2" in argv and seen["n"] == 0:
+            seen["n"] = 1
+            raise subprocess.TimeoutExpired(argv, timeout)    # first probe: another job took the node
+        return inner(argv, timeout)
+
+    h = _preflight(runner, requested=13, timeout_s=7)
+    assert h["nodes"]["work2"]["ok"] and h["nodes"]["work2"]["probed"]
+    assert sum(1 for a in log if a[0] == "srun" and "work2" in a) == 1     # the retry answered
+
+
 def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
     states = {"work2": "idle", "work3": "allocated", "work4": "mixed"}
     runner, _log = make_health_runner(states, bad={n: "timeout" for n in states})
     h = _preflight(runner, requested=13, timeout_s=7)
-    assert h["nodes"]["work2"]["reason"] == "probe timed out after 7s" and not h["nodes"]["work2"]["ok"]
+    assert h["nodes"]["work2"]["reason"] == "probe timed out twice (7s each)" and not h["nodes"]["work2"]["ok"]
     # busy: unprobed. A mixed node need not answer either: on f1-arm (shared nodes, busy queue)
     # every mixed node timed out and got excluded, leaving only the nodes that were taken.
     for n in ("work3", "work4"):

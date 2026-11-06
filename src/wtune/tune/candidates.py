@@ -24,6 +24,7 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
     no-op without --config). The ANCHOR is exempt from the search restrictions only; dropped
     candidates are printed."""
     out = []
+    chem_dropped = []
     omp_cap = getattr(ctx, "omp_cap", None)
     for c in configs:
         exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
@@ -32,6 +33,8 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             why = wtune.extensions.chem_j_patch_reason(chem_e_sn, int(c["ny"]), c.get("nx"))
             if why:
                 print("config: %s %s" % (c.get("id"), why))
+                if not exempt:
+                    chem_dropped.append(c)
                 continue
         if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only build
             if exempt:
@@ -43,6 +46,14 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             out.append(c)
         elif exempt:
             print("config: ANCHOR excluded by an `exclude` rule")
+    if chem_dropped and not out:
+        # the guard is PROVISIONAL (one case): when it leaves nothing to measure, keep the layout
+        # with the widest j-patch (smallest ny) instead of an empty search, and say so
+        best = min(chem_dropped, key=lambda c: int(c["ny"]))
+        print("config: every candidate is below the WRF-Chem j-patch guard; keeping %s (%sx%s, the "
+              "widest j-patch) -- it may hang at the first history write" % (
+                  best.get("id"), best.get("nx"), best.get("ny")))
+        out.extend(_apply_search_filter(dataclasses.replace(ctx, chem_e_sn=None), [best]))
     return out
 
 

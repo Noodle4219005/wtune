@@ -867,6 +867,18 @@
       "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
     }
   },
+  "timeseries_pw": {
+    "zh": {
+      "question": "可降水量（PW，整層水氣總量）隨時間如何演變？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間；PW 增加代表整層水氣在累積，常先於降水發生，可與雨量圖對照。",
+      "common_misreadings": "把 PW 的大值直接當成降水量；PW 是整層水氣的存量，不是會落下的雨。"
+    },
+    "en": {
+      "question": "Precipitable water (column-integrated water vapour) evolution over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; rising PW means the column is moistening, which often precedes rain, so read it next to the rain maps.",
+      "common_misreadings": "Taking a large PW as the rain amount; PW is the stored vapour in the column, not what will fall."
+    }
+  },
   "timeseries_mcape": {
     "zh": {
       "question": "最大 CAPE 隨時間如何演變（對流潛勢）？",

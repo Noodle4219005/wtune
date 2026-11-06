@@ -1441,6 +1441,13 @@ def predict_io(nl: dict, max_dom: int, run_min: float, calibration: dict,
 # Init (read) model
 # --------------------------------------------------------------------------
 
+def _path_bytes(p: Path) -> int:
+    """Bytes of a file, or of everything under an ADIOS2 `.bp` directory."""
+    if p.is_dir():
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+    return p.stat().st_size
+
+
 def predict_init(case_dir: str | None, nl: dict, calibration: dict, ranks: int | None = None,
                  nodes: int | None = None) -> dict:
     read_rate = calibration.get("derived", {}).get("read_rate_bytes_per_s")
@@ -1450,10 +1457,12 @@ def predict_init(case_dir: str | None, nl: dict, calibration: dict, ranks: int |
     case_path = Path(case_dir) if case_dir else None
     real_files = []
     if case_path and case_path.is_dir():
-        real_files = sorted(case_path.glob("wrfinput_d*")) + sorted(case_path.glob("wrfbdy_d*"))
+        # a dangling symlink (a moved or cleaned .bp) is not a file we can size: skip it
+        real_files = [p for p in sorted(case_path.glob("wrfinput_d*")) + sorted(case_path.glob("wrfbdy_d*"))
+                      if p.exists()]
 
     if real_files:
-        total_bytes = sum(p.stat().st_size for p in real_files)
+        total_bytes = sum(_path_bytes(p) for p in real_files)
         source = "on-disk: " + ",".join(p.name for p in real_files)
     else:
         bpcl = calibration.get("derived", {}).get("bytes_per_cell_level")

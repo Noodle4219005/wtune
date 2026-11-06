@@ -5,6 +5,14 @@ here does not match it. Development before 0.1.0 is in the git history, not in r
 
 ## Unreleased
 
+Reconciliation of the old open-defect list (2026-11-06).
+
+- `wtune predict` no longer stops on a dangling `wrfbdy_d01*.bp` symlink in the case folder, and sizes an ADIOS2 `.bp` directory by its contents.
+- `timeseries_pw` has a caption entry (a test now requires one for every time-series field).
+- `wtune doctor` warns when `WTUNE_CARTOPY_DATA` is a folder without a coastline shapefile.
+- Node preflight asks an idle node a second time before it counts a probe timeout against it.
+- When the WRF-Chem j-patch guard rejects every candidate, the layout with the widest j-patch is kept (with a warning) instead of an empty search.
+
 Fixes from validating SCC26 Sundowner Run 1 (three domains, Santa Barbara) with `wtune post`.
 
 - `post.times` now also picks the one-time maps (terrain, convection, cloud, synoptic, moisture, soundings): the first entry, snapped to the nearest frame. Without it, a rain peak under 0.1 mm/h counts as no rain and those maps use the last frame, with a note in the report. The convection maps previously looked for their own rain peak and ignored the recipe's map time.

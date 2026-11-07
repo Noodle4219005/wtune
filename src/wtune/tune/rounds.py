@@ -228,8 +228,13 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         from . import proxy_stage
         configs0 = proxy_stage.select(ctx, configs0)
 
+    wave_slots = _proxy_slots(ctx, slots)
+    if ctx.proxy_used and wave_slots >= 2 * len(configs0):
+        # nodes for two runs of each pick at once: the race's second run goes with the first
+        print("round0: %d config(s) x 2 runs, one job each" % len(configs0))
+        configs0 = configs0 + configs0
     job_ids, configs_by_cid, rows, job_configs, states = _submit_round0_wave(
-        ctx, configs0, _proxy_slots(ctx, slots), s_est, "round0")
+        ctx, configs0, wave_slots, s_est, "round0")
     if job_ids:
         wave0_results = aggregate_by_cid(rows, configs_by_cid)
         _adopt_round0_startup(ctx, job_configs, states, wave0_results)
@@ -547,6 +552,8 @@ def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
     measured = {cid: r for cid, r in all_results.items() if r.get("config")}
     cids = close_to_best({cid: r["median"] for cid, r in measured.items()},
                          wtune.machine.measured("noise_frac"))
+    if ctx.proxy_used:
+        cids = [c for c in cids if int(measured[c].get("n") or 1) < 2]   # round0 ran them twice
     if not cids:
         return
     configs = [measured[c]["config"] for c in cids]

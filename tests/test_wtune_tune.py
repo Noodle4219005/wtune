@@ -1744,6 +1744,28 @@ def test_after_the_proxy_the_race_runs_one_layout_per_job(tmp_path, capsys):
     assert rounds._proxy_slots(ctx, 1) == 1
 
 
+def test_after_the_proxy_round0_runs_each_pick_twice_at_once_and_the_race_skips_them(
+        tmp_path, capsys, monkeypatch):
+    from wtune.tune import candidates, proxy_stage, rounds
+    sbatch, reader, _jn = make_scaling_fakes({1: 0.30})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, proxy=True,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    a = candidates._sweep_anchor(ctx, 1)[0]
+    picks = [a, dict(a, id="D0001", numtiles=2)]
+
+    def select(c, configs):
+        c.proxy_used = True
+        return picks
+    monkeypatch.setattr(proxy_stage, "select", select)
+    job_ids, by_cid, rows = rounds.run_round0(ctx)
+    out = capsys.readouterr().out
+    assert "round0: 2 config(s) x 2 runs, one job each" in out and len(job_ids) == 4
+    res = candidates.aggregate_by_cid(rows, by_cid)
+    assert sorted(res) == ["ANCHOR", "D0001"] and all(r["n"] >= 2 for r in res.values())
+    rounds._race_leaders(ctx, res, 0.3)
+    assert "race: submitted" not in capsys.readouterr().out
+
+
 def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
     # 91x100 grid (r_max 90), 72 cores/node: pure MPI at N>=2 is illegal, but ranks = N*72/omp is
     # legal for omp=2 (N=2), 4 (N=4), 8 (N=8) -> all are sweep candidates with a hybrid ANCHOR.

@@ -470,3 +470,53 @@ def test_nested_band_plan_runs_one_nested_run_on_the_band_nodes(tmp_path):
         ("16x28_o1_nt1", 3, 112, 336, (560, 357))]
     # 16x18: 72 ranks per node, not whole rows of 16 -- no band, nested or split
     assert plan["skipped"] == ["16x18"]
+
+
+def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp_path, monkeypatch):
+    import subprocess
+    import wtune.machine
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(" &time_control\n run_days = 0, run_hours = 1, run_minutes = 0, run_seconds = 0,\n /\n &domains\n time_step = 15,\n"
+                                         " max_dom = 1,\n e_we = 101,\n e_sn = 81,\n /\n")
+    tree = _tree(tmp_path, "dmpar")
+    run = dict(domain=1, weight=1, dt=15.0, px=2, py=2, omp=1, numtiles=1, ranks=4, a=2, b=2, nx=100, ny=80,
+               wrf_tree=tree)
+    plan = dict(case_dir=str(case), e_we=101, e_sn=81, max_dom=1, dt=15.0, steps=10, reps=1,
+                runs=[dict(run, tag="A", layout="A"), dict(run, tag="B", layout="B")])
+    out = tmp_path / "job"
+    out.mkdir()
+    json.dump(plan, open(out / "plan.json", "w"))
+    monkeypatch.setenv("WTUNE_PROXY_SCRATCH", str(tmp_path / "scratch"))
+    monkeypatch.setattr(wtune.machine, "load_user", lambda: {})
+    monkeypatch.setattr(wtune.machine, "export", lambda m: None)
+    monkeypatch.setattr(wtune.machine, "site_launch_line", lambda *a: "mpirun ./wrf.exe")
+    seen = []
+
+    def fake(cmd, cwd=None, **k):
+        if cmd[0] == "rm":
+            return subprocess.CompletedProcess(cmd, 0)
+        seen.append((os.path.basename(cwd), os.path.islink(os.path.join(cwd, "rsl.error.0001"))))
+        bad = os.path.basename(cwd) == "A-1"                   # A's first attempt dies at step 3
+        open(os.path.join(cwd, "rsl.error.0000"), "w").write("".join(
+            "Timing for main: time 2019 on domain   1:    %.5f elapsed seconds\n" % (0.5 + 0.01 * i)
+            for i in range(3 if bad else 10)))
+        if cwd.endswith("-retry"):                               # rank 1 writes its own rsl file
+            open(os.path.join(cwd, "rsl.error.0001"), "w").write("x")
+        return subprocess.CompletedProcess(cmd, 1 if bad else 0)
+    monkeypatch.setattr(subprocess, "run", fake)
+    assert proxy.worker(str(out / "plan.json")) == 0
+    assert seen == [("A-1", True), ("A-1-retry", False), ("B-1", True)]   # B still runs after A failed
+    recs = [json.loads(line) for line in open(out / "results.jsonl")]
+    assert [(r["tag"], r["ok"], r.get("retry", False)) for r in recs] == [
+        ("A", False, False), ("A", True, True), ("B", True, False)]
+    assert recs[1]["run_dir"] == str(out / "runs" / "A-1-retry")
+    assert os.path.exists(out / "runs" / "A-1-retry" / "rsl.error.0001")     # the retry keeps every rank's rsl
+    assert [r["tag"] for r in proxy.collect(str(out))] == ["A", "B"]
+
+
+def test_collect_drops_runs_marked_failed(tmp_path):
+    rows = [dict(tag="A", rep=1, rc=0, median=0.40, ok=False), dict(tag="A", rep=1, rc=0, median=0.47, ok=True,
+                                                                     retry=True), dict(tag="B", rep=1, rc=0, median=0.45)]
+    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert [(r["tag"], r["median"]) for r in proxy.collect(str(tmp_path))] == [("B", 0.45), ("A", 0.47)]

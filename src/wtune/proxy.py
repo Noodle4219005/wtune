@@ -568,88 +568,100 @@ def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
 
 # ------------------------------------------------------------------------------- the job side
 def worker(plan_path):
-    """Runs inside the 1-node job: crop (cached per box), namelist, site_launch, parse timing."""
+    """Runs inside the proxy job: crop (cached per box), namelist, site_launch, parse timing. A
+    failed run does not stop the job: it is re-run once with every rank's rsl files, in a run
+    directory that is kept (runs/<tag>-<rep>-retry), and both records go to results.jsonl."""
     import wtune.machine
     wtune.machine.export(wtune.machine.load_user())   # not started through wtune.cli: apply the machine file
     plan = json.load(open(plan_path))
     out = os.path.dirname(os.path.abspath(plan_path))
-    case = plan["case_dir"]
-    base_nl = open(os.path.join(case, "namelist.input")).read()
     scratch = os.environ.get("WTUNE_PROXY_SCRATCH") or ("/dev/shm" if os.path.isdir("/dev/shm") else out)
     scratch = os.path.join(scratch, "wtune-proxy-%s" % os.environ.get("SLURM_JOB_ID", os.getpid()))
-    layers = {ly["domain"]: ly for ly in plan.get("layers") or [dict(domain=1, dt=plan["dt"], weight=1)]}
-    nested = plan.get("max_dom", 1) > 1
     ok_runs = 0
     results = open(os.path.join(out, "results.jsonl"), "a")
     try:
         for rep in range(1, plan["reps"] + 1):
             for r in plan["runs"]:
-                dom = r.get("domain", 1)
-                run_seconds = max(1, math.ceil(plan["steps"] * r.get("dt", plan["dt"])))
-                bw = None if whole_domain(plan, r) else plan.get("bdy_width")
-                inputs = _inputs(plan, r, scratch, layers)
-                d = os.path.join(out, "runs", "%s-%d" % (r["tag"], rep))
-                os.makedirs(d, exist_ok=True)
-                run_dir = os.path.join(r["wrf_tree"], "run")
-                for f in os.listdir(run_dir):
-                    if f in ("namelist.input",) or f.startswith(("wrfinput", "wrfbdy", "wrfout", "wrfrst")):
-                        continue
-                    _link(os.path.join(run_dir, f), os.path.join(d, f))
-                _link(os.path.join(r["wrf_tree"], "main", "wrf.exe"), os.path.join(d, "wrf.exe"))
-                for f, src in inputs.items():
-                    _link(src, os.path.join(d, f))
-                if r.get("boxes"):
-                    nl = nested_namelist(base_nl, r["boxes"], r["a"], r["b"], r["numtiles"], run_seconds)
-                elif nested:
-                    nl = single_domain_namelist(base_nl, layers[dom], r["nx"], r["ny"], r["a"], r["b"],
-                                                r["numtiles"], run_seconds)
-                else:
-                    nl = nl_set(base_nl, e_we=r["nx"] + 1, e_sn=r["ny"] + 1,
-                                run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
-                                nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
-                                **_quiet_output(base_nl))
-                if bw:
-                    nl = nl_force(nl, spec_bdy_width=bw, spec_zone=1, relax_zone=bw - 1, spec_exp=PROXY_SPEC_EXP)
-                open(os.path.join(d, "namelist.input"), "w").write(nl)
-                _null_rsl(d, r["ranks"])
-                cmd = wtune.machine.site_launch_line(r["ranks"], r.get("ranks_per_node", r["ranks"]), r["omp"],
-                                                     "block", r.get("nodes", 1))
-                if not cmd:
-                    raise RuntimeError("site_launch unavailable for site %s" % wtune.machine.site())
-                env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]))
-                env.setdefault("OMP_STACKSIZE", "1G")
-                try:
-                    rc = subprocess.run(shlex.split(cmd), cwd=d, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=open(os.path.join(d, "run.log"), "w"),
-                                        stderr=subprocess.STDOUT, timeout=60 + 20 * run_seconds).returncode
-                except subprocess.TimeoutExpired:
-                    rc = 124
-                steps = _step_times(os.path.join(d, "rsl.error.0000"))
-                rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
-                           rep=rep, rc=rc, steps=len(steps),
-                           median=statistics.median(steps[1:]) if len(steps) > 1 else None,
-                           px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
-                           proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]))
-                if r.get("boxes"):
-                    rec["nested"] = "crop"
-                results.write(json.dumps(rec) + "\n")
-                results.flush()
-                print("RESULT %s rep %d rc %d steps %d median %s" % (
-                    r["tag"], rep, rc, len(steps), "%.4f" % rec["median"] if rec["median"] else "nan"),
-                    flush=True)
-                _tidy(d, keep_logs=rc != 0)
-                if rc != 0 or len(steps) < max(10, plan["steps"] // 2):
-                    if ok_runs == 0:       # nothing has worked yet: a setup error, stop here
-                        print("ABORT %s rep %d: see %s" % (r["tag"], rep, d), flush=True)
-                        return 4
-                    print("FAILED %s rep %d (layout left incomplete): see %s" % (r["tag"], rep, d), flush=True)
-                    continue
-                ok_runs += 1
-                _tidy(d)
+                for retry in (False, True):
+                    rec = _run(plan, r, rep, out, scratch, retry)
+                    results.write(json.dumps(rec) + "\n")
+                    results.flush()
+                    if rec["ok"]:
+                        ok_runs += 1
+                        break
+                    print("FAILED %s rep %d%s: see %s" % (r["tag"], rep, " (re-run)" if retry else
+                                                          ", re-running with every rank's rsl files",
+                                                          rec["run_dir"]), flush=True)
     finally:
         results.close()
         subprocess.run(["rm", "-rf", scratch])
-    return 0
+    return 0 if ok_runs else 4
+
+
+def _run(plan, r, rep, out, scratch, retry=False):
+    """One run of r in runs/<tag>-<rep> (-retry: every rank's rsl files, kept); its record."""
+    import wtune.machine
+    case = plan["case_dir"]
+    base_nl = open(os.path.join(case, "namelist.input")).read()
+    layers = {ly["domain"]: ly for ly in plan.get("layers") or [dict(domain=1, dt=plan["dt"], weight=1)]}
+    nested = plan.get("max_dom", 1) > 1
+    dom = r.get("domain", 1)
+    run_seconds = max(1, math.ceil(plan["steps"] * r.get("dt", plan["dt"])))
+    bw = None if whole_domain(plan, r) else plan.get("bdy_width")
+    inputs = _inputs(plan, r, scratch, layers)
+    d = os.path.join(out, "runs", "%s-%d%s" % (r["tag"], rep, "-retry" if retry else ""))
+    os.makedirs(d, exist_ok=True)
+    run_dir = os.path.join(r["wrf_tree"], "run")
+    for f in os.listdir(run_dir):
+        if f in ("namelist.input",) or f.startswith(("wrfinput", "wrfbdy", "wrfout", "wrfrst")):
+            continue
+        _link(os.path.join(run_dir, f), os.path.join(d, f))
+    _link(os.path.join(r["wrf_tree"], "main", "wrf.exe"), os.path.join(d, "wrf.exe"))
+    for f, src in inputs.items():
+        _link(src, os.path.join(d, f))
+    if r.get("boxes"):
+        nl = nested_namelist(base_nl, r["boxes"], r["a"], r["b"], r["numtiles"], run_seconds)
+    elif nested:
+        nl = single_domain_namelist(base_nl, layers[dom], r["nx"], r["ny"], r["a"], r["b"],
+                                    r["numtiles"], run_seconds)
+    else:
+        nl = nl_set(base_nl, e_we=r["nx"] + 1, e_sn=r["ny"] + 1,
+                    run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
+                    nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
+                    **_quiet_output(base_nl))
+    if bw:
+        nl = nl_force(nl, spec_bdy_width=bw, spec_zone=1, relax_zone=bw - 1, spec_exp=PROXY_SPEC_EXP)
+    open(os.path.join(d, "namelist.input"), "w").write(nl)
+    if not retry:
+        _null_rsl(d, r["ranks"])
+    cmd = wtune.machine.site_launch_line(r["ranks"], r.get("ranks_per_node", r["ranks"]), r["omp"],
+                                         "block", r.get("nodes", 1))
+    if not cmd:
+        raise RuntimeError("site_launch unavailable for site %s" % wtune.machine.site())
+    env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]))
+    env.setdefault("OMP_STACKSIZE", "1G")
+    try:
+        rc = subprocess.run(shlex.split(cmd), cwd=d, env=env, stdin=subprocess.DEVNULL,
+                            stdout=open(os.path.join(d, "run.log"), "w"),
+                            stderr=subprocess.STDOUT, timeout=60 + 20 * run_seconds).returncode
+    except subprocess.TimeoutExpired:
+        rc = 124
+    steps = _step_times(os.path.join(d, "rsl.error.0000"))
+    ok = rc == 0 and len(steps) >= max(10, plan["steps"] // 2)
+    rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
+               rep=rep, rc=rc, steps=len(steps), ok=ok,
+               median=statistics.median(steps[1:]) if len(steps) > 1 else None,
+               px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
+               proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]), run_dir=d)
+    if r.get("boxes"):
+        rec["nested"] = "crop"
+    if retry:
+        rec["retry"] = True
+    print("RESULT %s rep %d%s rc %d steps %d median %s" % (
+        r["tag"], rep, " retry" if retry else "", rc, len(steps),
+        "%.4f" % rec["median"] if rec["median"] else "nan"), flush=True)
+    _tidy(d, keep_logs=retry or not ok)
+    return rec
 
 
 def whole_domain(plan, r):
@@ -789,7 +801,7 @@ def collect(out_dir):
         domains.setdefault(lay, set()).add(dom)
         if r.get("nested") == "crop":
             whole.add(lay)
-        if r["rc"] == 0 and r["median"]:
+        if r["rc"] == 0 and r["median"] and r.get("ok", True):
             per.setdefault(lay, {}).setdefault(r["rep"], {})[dom] = (r.get("weight", 1), r["median"])
     rows = []
     for lay, reps in per.items():

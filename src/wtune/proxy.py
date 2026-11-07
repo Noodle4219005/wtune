@@ -641,9 +641,18 @@ def worker(plan_path):
     try:
         for rep in range(1, plan["reps"] + 1):
             for r in plan["runs"]:
-                for retry in (False, True):
+                # a failed run is re-run with every rank's rsl files; when that fails too and the run
+                # has tiles, once more at half the tiles: high numtiles crashed nested crops at their
+                # north edge (Big Chill 8x14 nt16 on f1: array index out of bounds; nt8 ran) while the
+                # real run did not, and losing the layout family loses the fastest layout
+                tries = [(r, False), (r, True)]
+                if int(r.get("numtiles") or 1) > 1:
+                    tries.append((dict(r, numtiles=max(1, int(r["numtiles"]) // 2), nt_fallback=int(r["numtiles"])), False))
+                for r, retry in tries:
                     try:
                         rec = _run(plan, r, rep, out, scratch, retry)
+                        if r.get("nt_fallback"):
+                            rec["nt_fallback"] = r["nt_fallback"]
                     except Exception as e:      # noqa: BLE001 -- this run's setup (crop, namelist): recorded
                         rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=r.get("domain", 1),
                                    pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=-1, ok=False,
@@ -657,6 +666,7 @@ def worker(plan_path):
                         print("FAILED %s rep %d: %s" % (r["tag"], rep, rec["error"]), flush=True)
                         break
                     print("FAILED %s rep %d%s: see %s" % (r["tag"], rep, " (re-run)" if retry else
+                                                          " (half the tiles)" if r.get("nt_fallback") else
                                                           ", re-running with every rank's rsl files",
                                                           rec["run_dir"]), flush=True)
     finally:

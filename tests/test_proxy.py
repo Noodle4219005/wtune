@@ -1,4 +1,5 @@
 import json
+import re
 import os
 
 import pytest
@@ -654,3 +655,39 @@ def test_tidy_keeps_only_the_rsl_files_that_name_an_error(tmp_path):
         (tmp_path / f).write_text(text)
     proxy._tidy(str(tmp_path), keep_logs=True)
     assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0049"]
+
+
+def test_a_run_failing_twice_with_tiles_runs_once_more_at_half_the_tiles(tmp_path, monkeypatch):
+    import subprocess
+    import wtune.machine
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(" &time_control\n run_days = 0, run_hours = 1, run_minutes = 0, run_seconds = 0,\n /\n &domains\n time_step = 15,\n"
+                                         " max_dom = 1,\n e_we = 101,\n e_sn = 81,\n /\n")
+    tree = _tree(tmp_path, "dmpar")
+    run = dict(domain=1, weight=1, dt=15.0, px=2, py=2, omp=1, numtiles=16, ranks=4, a=2, b=2, nx=100, ny=80,
+               wrf_tree=tree, tag="A", layout="A")
+    plan = dict(case_dir=str(case), e_we=101, e_sn=81, max_dom=1, dt=15.0, steps=10, reps=1, runs=[run])
+    out = tmp_path / "job"
+    out.mkdir()
+    json.dump(plan, open(out / "plan.json", "w"))
+    monkeypatch.setenv("WTUNE_PROXY_SCRATCH", str(tmp_path / "scratch"))
+    monkeypatch.setattr(wtune.machine, "load_user", lambda: {})
+    monkeypatch.setattr(wtune.machine, "export", lambda m: None)
+    monkeypatch.setattr(wtune.machine, "site_launch_line", lambda *a: "mpirun ./wrf.exe")
+    tiles = []
+
+    def fake(cmd, cwd=None, **k):
+        if cmd[0] == "rm":
+            return subprocess.CompletedProcess(cmd, 0)
+        nt = int(re.search(r"numtiles\s*=\s*(\d+)", open(os.path.join(cwd, "namelist.input")).read()).group(1))
+        tiles.append(nt)
+        open(os.path.join(cwd, "rsl.error.0000"), "w").write("".join(
+            "Timing for main: time 2019 on domain   1:    0.50000 elapsed seconds\n" for _ in range(10 if nt < 16 else 0)))
+        return subprocess.CompletedProcess(cmd, 0 if nt < 16 else 255)
+    monkeypatch.setattr(subprocess, "run", fake)
+    assert proxy.worker(str(out / "plan.json")) == 0
+    assert tiles == [16, 16, 8]
+    recs = [json.loads(line) for line in open(out / "results.jsonl")]
+    assert [(r["ok"], r.get("nt_fallback")) for r in recs] == [(False, None), (False, None), (True, 16)]
+    assert [r["tag"] for r in proxy.collect(str(out))] == ["A"]

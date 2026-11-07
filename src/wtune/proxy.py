@@ -457,6 +457,7 @@ def worker(plan_path):
                                 nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
                                 **_quiet_output(base_nl))
                 open(os.path.join(d, "namelist.input"), "w").write(nl)
+                _null_rsl(d, r["ranks"])
                 cmd = wtune.machine.site_launch_line(r["ranks"], r.get("ranks_per_node", r["ranks"]), r["omp"],
                                                      "block", r.get("nodes", 1))
                 if not cmd:
@@ -493,6 +494,15 @@ def worker(plan_path):
         results.close()
         subprocess.run(["rm", "-rf", scratch])
     return 0
+
+
+def _null_rsl(d, ranks):
+    """rsl.out/rsl.error of ranks >= 1 -> /dev/null before WRF opens them, as the probes do
+    (coldstart_sample): on f1-arm's 16 MiB GPFS blocks every open rsl file holds a block, 4.5 GiB
+    per 144-rank proxy; only rank 0's rsl.error is read."""
+    for i in range(1, ranks):
+        for k in ("rsl.out", "rsl.error"):
+            _link(os.devnull, os.path.join(d, "%s.%04d" % (k, i)))
 
 
 def _tidy(d, keep_logs=False):

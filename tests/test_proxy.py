@@ -227,3 +227,9 @@ def test_nest_dx_only_moves_when_dt_sits_on_the_bound():
     dx, dy = proxy.nest_dx(dict(domain=2, dx=111.1111, dy=111.1111, dt=6 / 9))            # marshall d02
     assert 6 * dx / 1000 >= 6 / 9 and dx < 111.2
     assert proxy.nest_dx(dict(domain=1, dx=1000.0, dy=1000.0, dt=6.0)) == (1000.0, 1000.0)
+
+
+def test_null_rsl_links_every_rank_but_zero_to_dev_null(tmp_path):
+    proxy._null_rsl(str(tmp_path), 3)
+    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0001", "rsl.error.0002", "rsl.out.0001", "rsl.out.0002"]
+    assert all(os.readlink(tmp_path / f) == os.devnull for f in os.listdir(tmp_path))

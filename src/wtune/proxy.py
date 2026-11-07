@@ -303,11 +303,11 @@ def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None, pro
     target node) on that many nodes, each crop capped at its domain's size: full width; at
     proxy_nodes == nodes every domain is whole, as in the case. The deepest crop sits at its
     domain's centre (pos 1: crop_offset's shifted position), each parent's crop around its
-    child's with >= margin parent cells (default spec_bdy_width + 1) on every side. dict(ranks, a, b, boxes=[dict(domain, nx, ny, i0, j0,
-    i_parent_start, j_parent_start)]) (+ nodes, ranks_per_node for a band) with 0-based crop
-    offsets and 1-based parent starts relative to the parent's crop, or None when not
-    reproducible (a domain tree that is not a chain, a crop bigger than its domain, or a child
-    that does not fit)."""
+    child's with >= margin parent cells (default spec_bdy_width + 1) on every side.
+    dict(ranks, a, b, boxes=[dict(domain, nx, ny, i0, j0, i_parent_start, j_parent_start)])
+    (+ nodes, ranks_per_node for a band) with 0-based crop offsets and 1-based parent starts
+    relative to the parent's crop, or None when not reproducible (a domain tree that is not a
+    chain, a crop bigger than its domain, or a child that does not fit)."""
     layers = domain_layers(text)
     n = len(layers)
     if proxy_nodes > 1:
@@ -642,11 +642,19 @@ def worker(plan_path):
         for rep in range(1, plan["reps"] + 1):
             for r in plan["runs"]:
                 for retry in (False, True):
-                    rec = _run(plan, r, rep, out, scratch, retry)
+                    try:
+                        rec = _run(plan, r, rep, out, scratch, retry)
+                    except Exception as e:      # noqa: BLE001 -- this run's setup (crop, namelist): recorded
+                        rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=r.get("domain", 1),
+                                   pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=-1, ok=False,
+                                   median=None, error="%s: %s" % (type(e).__name__, e))
                     results.write(json.dumps(rec) + "\n")
                     results.flush()
                     if rec["ok"]:
                         ok_runs += 1
+                        break
+                    if "error" in rec:          # no WRF ran: nothing for a re-run to show
+                        print("FAILED %s rep %d: %s" % (r["tag"], rep, rec["error"]), flush=True)
                         break
                     print("FAILED %s rep %d%s: see %s" % (r["tag"], rep, " (re-run)" if retry else
                                                           ", re-running with every rank's rsl files",

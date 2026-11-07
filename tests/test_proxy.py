@@ -513,6 +513,15 @@ def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp
     assert recs[1]["run_dir"] == str(out / "runs" / "A-1-retry")
     assert os.path.exists(out / "runs" / "A-1-retry" / "rsl.error.0001")     # the retry keeps every rank's rsl
     assert [r["tag"] for r in proxy.collect(str(out))] == ["A", "B"]
+    # a run whose setup fails (here its crop) is recorded and the job goes on, without a re-run
+    seen.clear()
+    plan["runs"] = [dict(run, tag="C", layout="C", nx=50), dict(run, tag="D", layout="D")]
+    json.dump(plan, open(out / "plan.json", "w"))
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: (_ for _ in ()).throw(OSError("no wrfinput_d01")))
+    assert proxy.worker(str(out / "plan.json")) == 0
+    assert seen == [("D-1", True)]
+    last = [json.loads(line) for line in open(out / "results.jsonl")][-2]
+    assert (last["tag"], last["ok"], last["error"]) == ("C", False, "OSError: no wrfinput_d01")
 
 
 def test_collect_drops_runs_marked_failed(tmp_path):

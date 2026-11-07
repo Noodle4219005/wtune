@@ -176,7 +176,10 @@ def nested_namelist(text, boxes, a, b, numtiles, run_seconds):
               j_parent_start=cols("j_parent_start", lambda bx: bx["j_parent_start"]),
               run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
               nproc_x=a, nproc_y=b, numtiles=numtiles)
-    kv.update(_quiet_output(text))
+    # per-domain keys keep one value per domain: a nest without its history_interval stops WRF
+    # (HAILCAST: "No 'history_interval' defined in namelist")
+    for k, v in _quiet_output(text).items():
+        kv[k] = cols(k, lambda bx, v=v: v) if len(nl_values(text, k)) > 1 else v
     return nl_set(text, **kv)
 
 

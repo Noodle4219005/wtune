@@ -327,7 +327,7 @@ def test_nested_namelist_sets_every_domain_column():
     out = proxy.nested_namelist(BIGCHILL, nb["boxes"], 12, 12, 2, 450)
     for key, vals in (("max_dom", ["2"]), ("e_we", ["421", "506"]), ("e_sn", ["301", "531"]),
                       ("i_parent_start", ["1", "160"]), ("j_parent_start", ["1", "98"]),
-                      ("history_interval", ["100000"]), ("run_hours", ["0"]), ("run_seconds", ["450"]),
+                      ("history_interval", ["100000", "100000"]), ("run_hours", ["0"]), ("run_seconds", ["450"]),
                       ("nproc_x", ["12"]), ("nproc_y", ["12"]), ("numtiles", ["2"]),
                       ("parent_grid_ratio", ["1", "5"]), ("dx", ["3000", "600"]), ("nested", [".false.", ".true."])):
         assert proxy.nl_values(out, key) == vals, key
@@ -409,3 +409,16 @@ def test_crop_at_offsets_keeps_a_nest_a_nest(tmp_path):
     np.testing.assert_array_equal(C.variables["U"][0], u[6:9, 3:10])
     assert (C.getncattr("I_PARENT_START"), C.getncattr("J_PARENT_START"), C.getncattr("GRID_ID")) == (7, 9, 2)
     assert C.getncattr("WEST-EAST_GRID_DIMENSION") == 7 and C.getncattr("PARENT_GRID_RATIO") == 3
+
+
+def test_nested_namelist_keeps_a_history_interval_per_domain():
+    text = (" &time_control\n run_days = 0,\n run_hours = 11,\n run_minutes = 0,\n run_seconds = 0,\n"
+            " history_interval = 60, 10, 10,\n restart_interval = 720,\n /\n"
+            " &domains\n max_dom = 2,\n e_we = 561, 671, 400,\n e_sn = 450, 791, 400,\n"
+            " i_parent_start = 1, 240, 1,\n j_parent_start = 1, 115, 1,\n /\n")
+    boxes = [dict(domain=1, nx=320, ny=406, i_parent_start=1, j_parent_start=1),
+             dict(domain=2, nx=385, ny=700, i_parent_start=122, j_parent_start=124)]
+    nl = proxy.nested_namelist(text, boxes, 8, 14, 1, 150)
+    assert proxy.nl_values(nl, "history_interval") == ["100000", "100000", "10"]
+    assert proxy.nl_values(nl, "restart_interval") == ["100000"]
+    assert proxy.nl_values(nl, "e_we") == ["321", "386", "400"]

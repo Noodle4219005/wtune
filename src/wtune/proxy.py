@@ -12,7 +12,7 @@ steps per d01 step (a fine nest can then go CFL-unstable under the frozen bounda
 the whole of domain 1 uses the case's own wrfinput_d01 and wrfbdy_d01.
 
   wtune proxy plan   CASE --nodes N --layout 18x64 [--layout 9x32:omp=2:nt=24 ...]
-  wtune proxy submit CASE --nodes N --layout ... [--steps 30] [--reps 2] [--out DIR] [--dry-run]
+  wtune proxy submit CASE --nodes N --layout ... [--steps 10] [--reps 2] [--out DIR] [--dry-run]
   wtune proxy collect DIR
 """
 import argparse
@@ -63,7 +63,7 @@ _VAL = re.compile(r"'[^']*'|\"[^\"]*\"|[^,]+")
 _BDY_KEYS = ("specified", "nested", "spec_bdy_width", "spec_zone", "relax_zone", "spec_exp")
 PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation rows (WRF default 1 + 4)
 PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
-PROXY_MAX_STEPS = 30        # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
+PROXY_MAX_STEPS = 10        # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
 
 
 def nl_values(text, key):

@@ -82,9 +82,9 @@ options:
                         effort + physics advice; the prediction points come from the case type)
   -O1                   effort level 1: one t0 wave over N in {1,2,4,8,max healthy} (layout search
                         effort + physics advice; the prediction points come from the case type)
-  -O2                   effort level 2: O1 + refinement, cores/node, sampled round0 at the winner
-                        (layout search effort + physics advice; the prediction points come from
-                        the case type)
+  -O2                   effort level 2: O1 + refinement, cores/node, proxy-ranked round0 at the
+                        winner (one-node pool, band leaders, real ANCHOR + 2) (layout search
+                        effort + physics advice; the prediction points come from the case type)
   -O3                   effort level 3: full layout search: every legal N (coarse-to-fine),
                         cores/node, ranks x omp, nx x ny, numtiles at the finalists + confirm reps
                         (layout search effort + physics advice; the prediction points come from

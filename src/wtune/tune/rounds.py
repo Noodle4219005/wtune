@@ -191,11 +191,13 @@ def _round0_topup(ctx: Ctx, configs_by_cid: dict, s_est: float, refreshed_s_est:
 
 
 def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
-    """Round 0 at ctx.nodes: ANCHOR + a diverse decomp_space sample over floor(max_nodes/nodes)
-    parallel jobs (or the full space, ctx.full_space), then the measured startup and a top-up
-    wave when the measured s/step undercuts the estimate. With `fill` and a time cap, top-up
-    waves sized off the measured startup and s/step continue until the cap (less one race job)
-    or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
+    """Round 0 at ctx.nodes: ANCHOR + a diverse decomp_space sample (or the full space,
+    ctx.full_space). With ctx.proxy the sample is ranked by proxy_stage.select and only its picks
+    are real-probed, with no top-up waves after. Without the proxy (off, or it could not run) the
+    sample is real-probed over floor(max_nodes/nodes) parallel jobs, then the measured startup and
+    a top-up wave when the measured s/step undercuts the estimate; with `fill` and a time cap,
+    top-up waves sized off the measured startup and s/step continue until the cap (less one race
+    job) or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
     s_est, s_source, n_rows = ctx.estimate_s_per_step()
     if ctx.full_space:
         return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))

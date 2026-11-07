@@ -2970,6 +2970,20 @@ def test_level_estimates_sc26p1_like_numbers_and_printout():
                                       n_points=0)[3] < est[3]
 
 
+def test_o2_estimate_follows_the_proxy_rounds():
+    from wtune.tune import estimates as E
+    kw = dict(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10)
+    real, prox = wtune.tune.layout_estimates(proxy=False, **kw), wtune.tune.layout_estimates(**kw)
+    p_run, r_run = E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 4, 120.0 + 30 * 0.1261 / 4   # N* = 4
+    # pool 18 on min(10, ceil(18/4)) = 5 one-node jobs -> 4 runs each; 4 bands on one 3-node job
+    # (N=4 > 3); ANCHOR + 2 real probes in 10 // 4 = 2 slots -> 2 rounds; replaces 3 real rounds
+    assert prox[2] - real[2] == pytest.approx((4 + 4) * p_run + 2 * r_run - 3 * r_run)
+    assert prox[3] == real[3]                      # O3 enumerates the full space: no proxy
+    s_run = E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 3
+    small = E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3)
+    assert small == pytest.approx(6 * s_run + 3 * (120.0 + 30 * 0.1261 / 3))   # N=3: no band round
+
+
 def test_highest_level_within_never_below_o1():
     est = {0: 0.0, 1: 300.0, 2: 700.0, 3: 2000.0}
     assert wtune.tune.highest_level_within(est, 5000.0, 3) == 3

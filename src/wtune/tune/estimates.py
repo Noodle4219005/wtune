@@ -14,7 +14,8 @@ import wtune.nodes
 LEVELS = {
     0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
     1: dict(name="O1", method="one t0 wave over N in {1,2,4,8,max healthy}"),
-    2: dict(name="O2", method="O1 + refinement, cores/node, sampled round0 at the winner"),
+    2: dict(name="O2", method="O1 + refinement, cores/node, proxy-ranked round0 at the winner "
+                              "(one-node pool, band leaders, real ANCHOR + 2)"),
     3: dict(name="O3", method="full layout search: every legal N (coarse-to-fine), "
                               "cores/node, ranks x omp, nx x ny, numtiles at the finalists + "
                               "confirm reps"),
@@ -25,17 +26,20 @@ DEFAULT_LEVEL = 2
 EST_REBUILD_S = wtune.machine.MEASURED["rebuild_s"]    # built-in; s per ERA5 point rebuild
 EST_REFINE_ROUNDS = 2                # coarse-to-fine refinement rounds around the best N
 EST_ADAPTIVE_ROUNDS = 3              # round0 -> adaptive proposer rounds (O3 only)
-EST_ROUND0_CONFIGS = 6               # decomposition candidates measured at the winner N
+EST_ROUND0_CONFIGS = 6               # decomposition candidates round0 samples at the winner N
 EST_SPINUP_STEPS = 8                 # spin-up steps of a point job
+EST_PROXY_RUN_START_S = 30.0         # per proxy run before its first step (crop cached): ~30 s on
+                                     # Big Chill 2024873 (Grace) and ~26 s on karina band 2025378 (x86)
 EST_PHYSICS_RUNS = 5                 # baseline + 3 candidates + ANCHOREND, per point job
 EST_PHYSICS_POINTS = 2               # point jobs of the physics phase
 
 
 def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes: int,
-                     n_full: int = 0, finalists: int = 2) -> dict[int, float]:
+                     n_full: int = 0, finalists: int = 2, proxy: bool = True) -> dict[int, float]:
     """{level: RUNNING s of the layout search} from the 1-node s/step `s1` (ideal scaling s1/N).
-    O1: the {1,2,4,8,max} wave of 2-rep jobs; O2: + refinement, a cores/node wave and a sampled
-    round0 at the winner; O3: the full space (`n_full` 1-rep runs) at `finalists` N + confirm."""
+    O1: the {1,2,4,8,max} wave of 2-rep jobs; O2: + refinement, a cores/node wave and round0 at
+    the winner -- with `proxy`, the proxy rounds (proxy_round0_s) instead of real-probing the
+    sample; O3: the full space (`n_full` 1-rep runs) at `finalists` N + confirm (no proxy)."""
     S = float(startup_s)
     job = lambda n, reps=2: reps * (S + steps_probe * s1 / n)            # noqa: E731
     seeds = sorted({n for n in (1, 2, 4, 8, max_nodes) if 1 <= n <= max_nodes})
@@ -44,11 +48,30 @@ def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes
     wave_n = job(nstar)
     slots = max(1, max_nodes // nstar)
     t_round0 = math.ceil(EST_ROUND0_CONFIGS / slots) * (S + steps_probe * s1 / nstar)
-    t2 = t1 + EST_REFINE_ROUNDS * wave_n + wave_n + t_round0
+    before = t1 + EST_REFINE_ROUNDS * wave_n + wave_n
+    t2 = before + (proxy_round0_s(S, steps_probe, s1 / nstar, nstar, max_nodes) if proxy else t_round0)
     full = finalists * math.ceil(max(n_full, EST_ROUND0_CONFIGS) / float(slots)) * (
         S + steps_probe * s1 / nstar)
-    t3 = t2 - t_round0 + full + wave_n
+    t3 = before + full + wave_n
     return {0: 0.0, 1: t1, 2: t2, 3: t3}
+
+
+def proxy_round0_s(startup_s: float, steps: int, s_n: float, n: int, max_nodes: int) -> float:
+    """RUNNING s of proxy_stage.select at N=n: the one-node pool (PROXY_POOL_FACTOR x the sample,
+    PROXY_RUNS_PER_JOB per job, up to max_nodes jobs at once), the band round of PROXY_BAND_KEEP
+    leaders when n > PROXY_BAND_NODES, then PROXY_REAL_KEEP real probes in max_nodes // n slots.
+    A proxy run gives each rank the target's patch, so its s/step is taken as the N-node `s_n`
+    and it starts in EST_PROXY_RUN_START_S; a nested case runs once per domain and takes longer.
+    The real probes start in `startup_s`."""
+    from . import proxy_stage as P
+    run = EST_PROXY_RUN_START_S + steps * s_n
+    pool = min(P.PROXY_POOL_MAX, P.PROXY_POOL_FACTOR * EST_ROUND0_CONFIGS)
+    jobs = max(1, min(max_nodes, math.ceil(pool / P.PROXY_RUNS_PER_JOB)))
+    t = math.ceil(pool / jobs) * run
+    if n > P.PROXY_BAND_NODES and max_nodes >= P.PROXY_BAND_NODES:
+        bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(P.PROXY_BAND_KEEP / P.PROXY_RUNS_PER_JOB)))
+        t += math.ceil(P.PROXY_BAND_KEEP / bands) * run
+    return t + math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // n)) * (startup_s + steps * s_n)
 
 
 def points_estimate(*, s1: float, startup_s: float, max_nodes: int, n_points: int, layouts: int,
@@ -76,11 +99,11 @@ def points_estimate(*, s1: float, startup_s: float, max_nodes: int, n_points: in
 
 
 def level_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes: int,
-                    n_points: int, n_full: int = 0, **_ignored: Any) -> dict[int, float]:
+                    n_points: int, n_full: int = 0, proxy: bool = True, **_ignored: Any) -> dict[int, float]:
     """{level: total RUNNING s} = layout_estimates + points_estimate of the winner layout at the
     case type's n_points."""
     lay = layout_estimates(s1=s1, steps_probe=steps_probe, startup_s=startup_s,
-                           max_nodes=max_nodes, n_full=n_full)
+                           max_nodes=max_nodes, n_full=n_full, proxy=proxy)
     out = {0: 0.0}
     for lv in (1, 2, 3):
         out[lv] = lay[lv] + points_estimate(

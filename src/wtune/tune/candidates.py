@@ -60,8 +60,9 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
 def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
                                 seed: int) -> list[dict]:
     """Up to `k` not-yet-measured decomp_space candidates (filtered BEFORE sampling, identity =
-    scc_sweep._identity): round0's top-up and the adaptive fallback once the proposer is
-    exhausted. [] when the pool is exhausted."""
+    scc_sweep._identity): the proxy's wider round0 pool (proxy_stage.select), round0's top-up
+    when the proxy did not run, and the adaptive fallback once the proposer is exhausted. []
+    when the pool is exhausted."""
     total_cores = ctx.nodes * cores_used(ctx)
     candidates, _axis = decomp_space.enumerate_space(ctx.case_json, total_cores, ctx.nodes,
                                                        ctx.hardware_id)

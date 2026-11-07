@@ -231,7 +231,8 @@ def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         ce.n_full = n_full
         ce.est = level_estimates(s1=s_n0 * n0, steps_probe=ctx.steps,
                                  startup_s=ctx.startup_s, max_nodes=ctx.max_nodes,
-                                 n_points=len(pplan0["selected"]), n_full=n_full)
+                                 n_points=len(pplan0["selected"]), n_full=n_full,
+                                 proxy=bool(getattr(ctx, "proxy", False)))
         ce.est_info = dict(nodes=n0, s_per_step_n=s_n0, source=src, startup_s=ctx.startup_s,
                            prediction_points=len(pplan0["selected"]),
                            points_source=pplan0["source"], precision_min=precision_min)
@@ -431,7 +432,7 @@ def _pipeline_on_wave(st: PipelineRun, meas: dict) -> None:
     T = total_steps * vals + ctx.startup_s
     est2 = level_estimates(s1=vals * n_best, steps_probe=ctx.steps, startup_s=ctx.startup_s,
                            max_nodes=ctx.max_nodes, n_points=if_set(pipe.n_points_est, 0),
-                           n_full=if_set(pipe.n_full_est, 0))
+                           n_full=if_set(pipe.n_full_est, 0), proxy=bool(getattr(ctx, "proxy", False)))
     lv = highest_level_within(est2, T, plan["level"])
     if lv >= plan["level"]:
         return None

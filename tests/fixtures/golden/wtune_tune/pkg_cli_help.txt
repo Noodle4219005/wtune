@@ -46,9 +46,10 @@ options:
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
   --proxy {on,off}      round0: time a 3x wider pool of layouts on one node each (small-domain
-                        proxy, `wtune proxy`) and send only the ANCHOR plus the proxy's fastest to
-                        the real N-node probes; single-domain cases with netCDF inputs (default
-                        off, or --config's budget.proxy)
+                        proxy, `wtune proxy`; a nested case per domain), re-time the 4 fastest as
+                        3-node band proxies when N > 3, and send only the ANCHOR plus the 2
+                        fastest to the real N-node probes; needs netCDF wrfinput/wrfbdy, else
+                        round0 keeps its real probes (default on, or --config's budget.proxy)
   --hotspot-fill {on,off}
                         --nodes search: measure untried N near the best one in the nodes a sweep
                         wave leaves idle, when no longer than the wave (default on, or --config's
@@ -83,10 +84,10 @@ options:
   -O2                   effort level 2: O1 + refinement, cores/node, sampled round0 at the winner
                         (layout search effort + physics advice; the prediction points come from
                         the case type)
-  -O3                   effort level 3: DEFAULT, full layout search: every legal N (coarse-to-
-                        fine), cores/node, ranks x omp, nx x ny, numtiles at the finalists +
-                        confirm reps (layout search effort + physics advice; the prediction points
-                        come from the case type)
+  -O3                   effort level 3: full layout search: every legal N (coarse-to-fine),
+                        cores/node, ranks x omp, nx x ny, numtiles at the finalists + confirm reps
+                        (layout search effort + physics advice; the prediction points come from
+                        the case type)
   --precision PRECISION
                         whole-run wall time needed to +-N% of the run (e.g. 10%) or +-MIN minutes
                         (e.g. 15); default 10%, at least 2 min: the case type decides how many

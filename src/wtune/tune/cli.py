@@ -414,7 +414,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     node_seeds = _nopt("node_seeds", "geometric")
     hotspot_fill = _nopt("hotspot_fill", True)
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
-    proxy = _nopt("proxy", False)
+    proxy = _nopt("proxy", True)
     proxy = proxy if isinstance(proxy, bool) else proxy == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
@@ -565,9 +565,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          % DEFAULT_SWEEP_BUDGET_FRAC)
     p.add_argument("--proxy", default=None, choices=("on", "off"), dest="proxy",
                     help="round0: time a 3x wider pool of layouts on one node each (small-domain "
-                         "proxy, `wtune proxy`) and send only the ANCHOR plus the proxy's fastest to "
-                         "the real N-node probes; single-domain cases with netCDF inputs (default off, "
-                         "or --config's budget.proxy)")
+                         "proxy, `wtune proxy`; a nested case per domain), re-time the 4 fastest as "
+                         "3-node band proxies when N > 3, and send only the ANCHOR plus the 2 fastest "
+                         "to the real N-node probes; needs netCDF wrfinput/wrfbdy, else round0 keeps "
+                         "its real probes (default on, or --config's budget.proxy)")
     p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
                     help="--nodes search: measure untried N near the best one in the nodes a "
                          "sweep wave leaves idle, when no longer than the wave (default on, or "

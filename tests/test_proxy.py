@@ -20,6 +20,36 @@ def test_proxy_shape_refuses_what_one_node_cannot_reproduce():
     assert proxy.proxy_shape(901, 901, 8, 28, 4, 112, omp=4) is None  # 56 ranks x 4 threads > 112 cores
 
 
+def test_band_shape_keeps_full_width_and_three_node_rows():
+    # Big Chill d01 (561x450) at N=5, 24x30: 144 ranks per node = 6 whole rows of 24 -> 3 nodes x 6 rows
+    assert proxy.band_shape(561, 450, 24, 30, 5, 144) == dict(
+        ranks=432, a=24, b=18, nx=560, ny=270, nodes=3, ranks_per_node=144)
+    # conus25 (1501x1201) at N=8, 18x64: 8 rows per node
+    assert proxy.band_shape(1501, 1201, 18, 64, 8, 144) == dict(
+        ranks=432, a=18, b=24, nx=1500, ny=456, nodes=3, ranks_per_node=144)
+
+
+def test_band_shape_refuses_partial_rows_and_targets_no_larger_than_the_band():
+    assert proxy.band_shape(561, 450, 16, 18, 4, 144, omp=2) is None   # 72 ranks: 4.5 rows of 16
+    assert proxy.band_shape(561, 450, 18, 24, 3, 144) is None          # target has only 3 nodes
+    assert proxy.band_shape(561, 450, 24, 30, 5, 144, omp=2) is None   # 144 ranks x 2 threads > 144 cores
+
+
+def test_band_plan_runs_on_several_nodes(tmp_path, monkeypatch):
+    import wtune.machine
+    from wtune.tools import scc_sweep
+    plan = proxy.make_plan(_case(tmp_path), 8, ["18x64", "16x27"], 144, proxy_nodes=3)
+    assert [(r["tag"], r["nodes"], r["ranks_per_node"], r["ranks"]) for r in plan["runs"]] == [
+        ("18x64_o1_nt1", 3, 144, 432)]
+    assert plan["skipped"] == ["16x27"] and plan["proxy_nodes"] == 3   # 54 ranks per node: not whole rows of 16
+    monkeypatch.setattr(wtune.machine, "partition", lambda: "arm576")
+    monkeypatch.setattr(wtune.machine, "cores_per_node", lambda: 144)
+    monkeypatch.setattr(wtune.machine, "site", lambda: "f1arm")
+    monkeypatch.setattr(scc_sweep, "scheduler_args", lambda: "")
+    s = proxy.render_sbatch(str(tmp_path / "plan.json"), "/env/bin/python", "/repo/campaign", nodes=3)
+    assert "#SBATCH -p arm576 -N 3 --exclusive" in s and "export SLURM_JOB_NUM_NODES=3\n" in s
+
+
 def test_nl_set_handles_several_pairs_per_line_and_inserts_decomposition():
     text = (" &time_control\n run_days=0, run_hours=48, run_minutes=0, run_seconds=0,\n /\n"
             " &domains\n time_step=15, max_dom=1, e_we=901, e_sn=901, e_vert=45,\n /\n")
@@ -74,9 +104,44 @@ def test_plan_refuses_omp_on_a_build_without_openmp(tmp_path, monkeypatch):
     assert plan["runs"][0]["wrf_tree"] == dmsm and proxy.check_builds(plan) == []
 
 
-def test_plan_refuses_nested_cases(tmp_path):
-    with pytest.raises(ValueError, match="single-domain"):
-        proxy.make_plan(_case(tmp_path, max_dom=2), 4, ["9x64"], 144)
+MARSHALL = (" &time_control\n run_hours = 5,\n history_interval = -1, 1,\n /\n &domains\n time_step = 6,\n"
+            " time_step_fract_num = 0,\n time_step_fract_den = 1,\n max_dom = 2,\n e_we = 505, 505,\n"
+            " e_sn = 505, 505,\n e_vert = 45, 45,\n dx = 1000, 111.1111,\n dy = 1000, 111.1111,\n"
+            " grid_id = 1, 2,\n parent_id = 0, 1,\n i_parent_start = 1, 239,\n parent_grid_ratio = 1, 9,\n"
+            " parent_time_step_ratio = 1, 9,\n /\n &physics\n mp_physics = 6, 8,\n bl_pbl_physics = 1, 0,\n /\n"
+            " &bdy_control\n specified = .true., .false.,\n nested = .false., .true.,\n /\n")
+
+
+def test_nested_case_is_split_into_weighted_single_domain_runs(tmp_path):
+    c = tmp_path / "case"
+    c.mkdir()
+    (c / "namelist.input").write_text(MARSHALL)
+    plan = proxy.make_plan(str(c), 8, ["32x32"], 144)
+    assert [(r["tag"], r["domain"], r["weight"]) for r in plan["runs"]] == [("32x32_o1_nt1_d1", 1, 1), ("32x32_o1_nt1_d2", 2, 9)]
+    assert plan["runs"][1]["dt"] == pytest.approx(6 / 9) and plan["max_dom"] == 2
+
+
+def test_single_domain_namelist_takes_the_nest_column():
+    layer = proxy.domain_layers(MARSHALL)[1]
+    out = proxy.single_domain_namelist(MARSHALL, layer, 128, 256, 8, 16, 14, 27)
+    for key, val in (("max_dom", "1"), ("e_we", "129"), ("e_sn", "257"), ("time_step", "0"),
+                     ("time_step_fract_num", "2"), ("time_step_fract_den", "3"), ("mp_physics", "8"),
+                     ("bl_pbl_physics", "0"), ("specified", ".true."), ("nested", ".false."),
+                     ("parent_time_step_ratio", "1"), ("numtiles", "14"), ("run_seconds", "27")):
+        assert proxy.nl_get(out, key) == val, key
+    assert float(proxy.nl_get(out, "dx")) > 111.1111          # nudged past WRF's dt <= 6*dx[km] bound
+    assert proxy.nl_values(out, "e_we") == ["129"]
+
+
+def test_collect_adds_domains_by_weight_and_drops_incomplete_layouts(tmp_path):
+    json.dump(dict(max_dom=2), open(tmp_path / "plan.json", "w"))
+    rows = [dict(tag="A_d1", layout="A", domain=1, weight=1, rep=1, rc=0, median=0.06),
+            dict(tag="A_d2", layout="A", domain=2, weight=9, rep=1, rc=0, median=0.05),
+            dict(tag="B_d1", layout="B", domain=1, weight=1, rep=1, rc=0, median=0.05),
+            dict(tag="B_d2", layout="B", domain=2, weight=9, rep=1, rc=1, median=None)]
+    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = proxy.collect(str(tmp_path))
+    assert [r["tag"] for r in out] == ["A"] and out[0]["median"] == pytest.approx(0.06 + 9 * 0.05)
 
 
 def test_collect_ranks_by_median_and_drops_failed_runs(tmp_path):
@@ -152,3 +217,10 @@ def test_crop_couples_boundaries_with_dry_air_mass(tmp_path):
     np.testing.assert_allclose(D.variables["U_BXS"][0, 0], expect, rtol=1e-5)
     np.testing.assert_allclose(D.variables["MU_BXE"][0, 0], C.variables["MU"][0][:, -1], rtol=1e-6)
     assert not D.variables["U_BTXS"][:].any() and D.variables["T_BYE"][0, 0].mean() > 1e3   # coupled, not raw ~5
+
+
+def test_nest_dx_only_moves_when_dt_sits_on_the_bound():
+    assert proxy.nest_dx(dict(domain=2, dx=600.0, dy=600.0, dt=3.0)) == (600.0, 600.0)   # Big Chill d02
+    dx, dy = proxy.nest_dx(dict(domain=2, dx=111.1111, dy=111.1111, dt=6 / 9))            # marshall d02
+    assert 6 * dx / 1000 >= 6 / 9 and dx < 111.2
+    assert proxy.nest_dx(dict(domain=1, dx=1000.0, dy=1000.0, dt=6.0)) == (1000.0, 1000.0)

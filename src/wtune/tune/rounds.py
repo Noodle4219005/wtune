@@ -234,7 +234,9 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         refreshed_s_est = update_s_est(wave0_results, s_est)
         fill = fill and math.isfinite(ctx.budget_s)
         wave = 1
-        while (fill or (wave == 1 and refreshed_s_est < s_est)) and ctx.elapsed() < ctx.budget_s:
+        # the proxy already ranked a 3x pool: no unranked top-up waves after it
+        while (not ctx.proxy_used and (fill or (wave == 1 and refreshed_s_est < s_est))
+               and ctx.elapsed() < ctx.budget_s):
             race = _job_time_est(ctx, RACE_MAX, 1, refreshed_s_est)["total_run_s"] if fill else 0.0
             topup = _round0_topup(dataclasses.replace(ctx, budget_s=ctx.budget_s - race),
                                   configs_by_cid, s_est, refreshed_s_est, slots, wave)

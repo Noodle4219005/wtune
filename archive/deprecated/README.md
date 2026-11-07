@@ -58,3 +58,13 @@ because the runtime predictor imports them.
 cd wtune && PYTHONPATH=.:deprecated python -m pytest deprecated/ -q
 ```
 `deprecated/conftest.py` puts both directories on `sys.path` for pytest.
+
+## Moved 2026-11-07
+
+- `state_correction_model.py` (+ `test_state_correction_model.py`): the K5 ML correction of
+  cold-start wrfinput towards the model's own state. Leave-one-case-out, all 18 targets came out
+  worse than no correction (+3 % to +74 % RMSE). Still runnable through the rebuild tools'
+  `--ml-model`, which now points here and is labelled RETIRED. Wiki:
+  `knowledge/failed-ideas/wtune-pipeline-and-tooling-errors/2026-09-24-ml-state-correction-of-cold-start-inputs-does-not-generalize-across-cases.md`.
+- `gen_registry_catalog.py`: a one-off developer script (WRF Registry -> JSON) with no caller
+  anywhere in src, campaign, tests or docs.

@@ -127,7 +127,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -301,7 +302,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -460,7 +462,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -627,7 +630,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -785,7 +789,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -976,7 +981,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1164,7 +1170,8 @@
        "sweep_steps": null
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1355,7 +1362,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1536,7 +1544,8 @@
        ]
       },
       "proposer": null,
-      "proxy": false,
+      "proxy": true,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,

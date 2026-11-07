@@ -63,7 +63,9 @@ from wtune import predict as predict   # repo root -- delegates run-length resol
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
 # K5 ML apply: run with the grib-env python (needs numpy/netCDF4), never /usr/bin/python3.
-_SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "state_correction_model.py")
+# retired 2026-11-07 (archive/deprecated/README.md): LOCO on 18 targets was worse than no correction
+_SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "..", "..", "..", "archive", "deprecated",
+                         "state_correction_model.py")
 
 
 class ColdstartError(Exception):
@@ -3382,7 +3384,7 @@ def _build_arg_parser():
                     help="T2 (2026-09-24): each window stops after real.exe succeeds -- no "
                     "wrf.exe, no cost prediction. `score` refuses a --real-only plan.")
     sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
-                    help="K5 (2026-09-24): after each window's real.exe, apply "
+                    help="RETIRED (archive/deprecated; worse than no correction in LOCO). K5 (2026-09-24): after each window's real.exe, apply "
                     "state_correction_model.py's ML state correction (--targets-from-report) "
                     "to the fresh wrfinput_d01 before wrf.exe runs. Default: off.")
 

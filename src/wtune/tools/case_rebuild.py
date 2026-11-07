@@ -2464,7 +2464,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--geog-path")
     sp.add_argument("--grib-dir")
     sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
-                    help="K5 (2026-09-24): after real.exe, apply state_correction_model.py's "
+                    help="RETIRED (archive/deprecated; worse than no correction in LOCO). K5 (2026-09-24): after real.exe, apply state_correction_model.py's "
                     "ML state correction (--targets-from-report) to the fresh wrfinput_d01 "
                     "before any wrf.exe smoke run. Default: off.")
 

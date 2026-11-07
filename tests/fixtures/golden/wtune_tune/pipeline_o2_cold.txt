@@ -43,6 +43,7 @@ node sweep: cores-n4-c64-race submitted job 7017 (ANCHOR ranks=256 omp=1 16x16, 
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share none
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=3 configs_per_job=2 total=6 (ok)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
 round0 slot 0: submitted job 7018 (2 configs)
 round0 slot 1: submitted job 7019 (2 configs)
 round0 slot 2: submitted job 7020 (2 configs)

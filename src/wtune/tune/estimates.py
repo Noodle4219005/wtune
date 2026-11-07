@@ -15,7 +15,7 @@ LEVELS = {
     0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
     1: dict(name="O1", method="one t0 wave over N in {1,2,4,8,max healthy}"),
     2: dict(name="O2", method="O1 + refinement, cores/node, sampled round0 at the winner"),
-    3: dict(name="O3", method="DEFAULT, full layout search: every legal N (coarse-to-fine), "
+    3: dict(name="O3", method="full layout search: every legal N (coarse-to-fine), "
                               "cores/node, ranks x omp, nx x ny, numtiles at the finalists + "
                               "confirm reps"),
 }

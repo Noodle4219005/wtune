@@ -5,7 +5,9 @@ ranks/N ranks, on a box cropped from the case's wrfinput so that every rank owns
 in the target. Validated on conus25 (Grace, layout order of N=4/N=8 ledger, s/step within 2 %) and
 karina (x86, hybrid and numtiles effects of a 4-node ABBA truth). It ranks; it is not a wall-time
 predictor (its bias is machine dependent) and it does not see inter-node effects (cyclic
-placement, network). Nested cases are refused: frozen boundaries made marshall's nest unstable.
+placement, network). A nested case is split into its domains, each timed as a single domain and
+summed by its steps per d01 step; a fine nest can go CFL-unstable under the frozen boundary
+(marshall's d02 at the larger box), which leaves that layout incomplete rather than wrong.
 
   wtune proxy plan   CASE --nodes N --layout 18x64 [--layout 9x32:omp=2:nt=24 ...]
   wtune proxy submit CASE --nodes N --layout ... [--steps 40] [--reps 2] [--out DIR] [--dry-run]
@@ -52,6 +54,110 @@ def nl_set(text, **kv):
         text = re.sub(r"(&domains[^\n]*\n)", lambda m: m.group(1) + "".join(
             " %s = %s,\n" % (k, kv[k]) for k in add), text, count=1, flags=re.I)
     return text
+
+
+_SEG = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)")
+_VAL = re.compile(r"'[^']*'|\"[^\"]*\"|[^,]+")
+_BDY_KEYS = ("specified", "nested")
+
+
+def nl_values(text, key):
+    """All comma-separated values of `key` (one per domain for domain arrays), as strings."""
+    m = re.search(r"(?<![A-Za-z0-9_])%s\s*=\s*([^\n/]*)" % re.escape(key), text)
+    if not m:
+        return []
+    raw = m.group(1)
+    nxt = _SEG.search(raw)
+    raw = raw[:nxt.start()] if nxt else raw
+    return [v.strip().strip("'\"") for v in _VAL.findall(raw) if v.strip()]
+
+
+def pick_column(text, d):
+    """The namelist with every multi-valued key reduced to its domain-d value (the last value when
+    the list is shorter), so domain d can run as a single domain."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\n")
+        ms = list(_SEG.finditer(body))
+        if not ms or body.lstrip().startswith(("&", "/", "!")):
+            out.append(line)
+            continue
+        parts = [body[:ms[0].start()]]
+        for i, m in enumerate(ms):
+            end = ms[i + 1].start() if i + 1 < len(ms) else len(body)
+            vals = [v.strip() for v in _VAL.findall(body[m.end():end]) if v.strip()]
+            if len(vals) >= 2:
+                parts.append("%s%s%s, " % (m.group(1), m.group(2), vals[d - 1] if len(vals) >= d else vals[-1]))
+            else:
+                parts.append(body[m.start():end])
+        out.append("".join(parts).rstrip() + "\n")
+    return "".join(out)
+
+
+def nl_force(text, **kv):
+    """nl_set for the keys present; the absent ones are added to &domains (&bdy_control for
+    specified/nested)."""
+    present = {k: v for k, v in kv.items() if nl_get(text, k) is not None or k in ("nproc_x", "nproc_y", "numtiles")}
+    text = nl_set(text, **present)
+    for k, v in kv.items():
+        if k in present:
+            continue
+        group = "bdy_control" if k in _BDY_KEYS else "domains"
+        text, n = re.subn(r"(&%s[^\n]*\n)" % group, lambda m: m.group(1) + " %s = %s,\n" % (k, v), text,
+                          count=1, flags=re.I)
+        if not n:
+            text += "\n &%s\n %s = %s,\n /\n" % (group, k, v)
+    return text
+
+
+def domain_layers(text):
+    """Per domain (1-based): e_we, e_sn, dx, dy, dt and the number of its steps per d01 step."""
+    max_dom = int(nl_get(text, "max_dom") or 1)
+    col = lambda k, cast=float, default=None: [cast(x) for x in nl_values(text, k)] or default
+    e_we, e_sn = col("e_we", int), col("e_sn", int)
+    dx, dy = col("dx", float, [0.0]), col("dy", float, [0.0])
+    parent = col("parent_id", int, [0] * max_dom)
+    ratio = col("parent_time_step_ratio", int, [1] * max_dom)
+    pick = lambda xs, d: xs[d - 1] if len(xs) >= d else xs[-1]
+    dt = time_step_seconds(text)
+    cum = {1: 1}
+    layers = []
+    for d in range(1, max_dom + 1):
+        if d > 1:
+            cum[d] = cum.get(pick(parent, d), 1) * pick(ratio, d)
+        layers.append(dict(domain=d, e_we=pick(e_we, d), e_sn=pick(e_sn, d), dx=pick(dx, d), dy=pick(dy, d),
+                           weight=cum[d], dt=dt / cum[d]))
+    return layers
+
+
+def nest_dx(layer):
+    """(dx, dy) for a stand-alone run of `layer`: unchanged unless its dt exceeds WRF's
+    dt <= 6*dx[km] check (a nest's dt = parent_dt / ratio can sit just on it, marshall's 0.6667 s
+    at 111.1111 m), then nudged just past it. The cropped wrfinput gets the same DX/DY, since WRF
+    also checks the namelist against the input file."""
+    dx, dy = layer["dx"], layer["dy"]
+    if layer["domain"] > 1 and dx and layer["dt"] > 6.0 * dx / 1000.0 * (1 - 1e-12):
+        f = layer["dt"] / (6.0 * dx / 1000.0) * 1.0001
+        return dx * f, dy * f
+    return dx, dy
+
+
+def single_domain_namelist(text, layer, nx, ny, a, b, numtiles, run_seconds):
+    """Domain `layer` of a nested namelist as a stand-alone single-domain run of nx x ny points."""
+    from fractions import Fraction
+    t = pick_column(text, layer["domain"]) if layer["domain"] > 1 or int(nl_get(text, "max_dom") or 1) > 1 else text
+    f = Fraction(layer["dt"]).limit_denominator(1000)
+    whole, frac = int(f), f - int(f)
+    dx, dy = nest_dx(layer)
+    kv = dict(max_dom=1, e_we=nx + 1, e_sn=ny + 1, time_step=whole,
+              time_step_fract_num=frac.numerator, time_step_fract_den=frac.denominator or 1,
+              dx="%.9g" % dx, dy="%.9g" % dy,
+              grid_id=1, parent_id=0, i_parent_start=1, j_parent_start=1, parent_grid_ratio=1,
+              parent_time_step_ratio=1, specified=".true.", nested=".false.",
+              run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
+              nproc_x=a, nproc_y=b, numtiles=numtiles)
+    kv.update(_quiet_output(t))
+    return nl_force(t, **kv)
 
 
 def time_step_seconds(text):
@@ -103,8 +209,27 @@ def proxy_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1):
     return dict(ranks=rp, a=a, b=b, nx=nx, ny=ny)
 
 
+def band_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1, proxy_nodes=3):
+    """Band proxy on `proxy_nodes` nodes: the full domain width and px x (proxy_nodes*h) ranks, h
+    the process-grid rows one target node holds (WRF numbers ranks x-fastest, placement is block),
+    so the middle node has the target's interior node: the same patches and the same on- and
+    off-node neighbours. dict(ranks, a, b, nx, ny, nodes, ranks_per_node), or None when a node
+    holds no whole rows or the band is not smaller than the target."""
+    mx, my = e_we - 1, e_sn - 1
+    if (px * py) % nodes or proxy_nodes >= nodes:
+        return None
+    rp = px * py // nodes
+    if rp * omp > cores_per_node or rp % px:
+        return None
+    b = proxy_nodes * (rp // px)
+    ny = math.ceil(my / py) * b
+    if b > py or ny > my:
+        return None
+    return dict(ranks=px * b, a=px, b=b, nx=mx, ny=ny, nodes=proxy_nodes, ranks_per_node=rp)
+
+
 # --------------------------------------------------------------------------------------- crop
-def crop(src_in, src_bdy, out_dir, nx, ny):
+def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None):
     """Centre-crop wrfinput_d01 to nx x ny mass points and synthesize wrfbdy_d01 from the crop's
     edges (values mass-coupled as real.exe writes them, zero tendencies). Fields wrfbdy carries
     but wrfinput lacks (e.g. HT_SHAD) are zero. Returns the zero-filled field names."""
@@ -129,6 +254,13 @@ def crop(src_in, src_bdy, out_dir, nx, ny):
                        ("SOUTH-NORTH_PATCH_END_UNSTAG", ny), ("SOUTH-NORTH_PATCH_END_STAG", ny + 1)):
             if k in src.ncattrs() or k.endswith("GRID_DIMENSION"):
                 dst.setncattr(k, np.int32(val))
+        if as_top:      # a nest's wrfinput run as a stand-alone domain
+            for k, val in (("GRID_ID", 1), ("PARENT_ID", 0), ("PARENT_GRID_RATIO", 1),
+                           ("I_PARENT_START", 1), ("J_PARENT_START", 1)):
+                dst.setncattr(k, np.int32(val))
+            if dxdy:
+                dst.setncattr("DX", np.float32(dxdy[0]))
+                dst.setncattr("DY", np.float32(dxdy[1]))
         out = {}
         for name, v in src.variables.items():
             ov = dst.createVariable(name, v.dtype, v.dimensions)
@@ -208,24 +340,33 @@ def crop(src_in, src_bdy, out_dir, nx, ny):
 
 # -------------------------------------------------------------------------------------- plan
 def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tree=None,
-              wrf_tree_omp=None):
+              wrf_tree_omp=None, proxy_nodes=1):
+    """One proxy run per layout and domain. A nested case is split into its domains, each run on
+    its own as a single domain with the same px x py patch rule; collect() adds them up weighted by
+    each domain's steps per d01 step (domain 1's timing in a nested run includes its nests).
+    proxy_nodes > 1 runs band proxies (band_shape) on that many nodes instead of one."""
     text = open(os.path.join(case_dir, "namelist.input")).read()
-    max_dom = int(nl_get(text, "max_dom") or 1)
-    if max_dom > 1:
-        raise ValueError("max_dom=%d: the proxy only handles single-domain cases" % max_dom)
-    e_we, e_sn = int(nl_get(text, "e_we")), int(nl_get(text, "e_sn"))
+    layers = domain_layers(text)
     runs, skipped = [], []
     for spec in layouts:
         L = parse_layout(spec)
-        sh = proxy_shape(e_we, e_sn, L["px"], L["py"], nodes, cores_per_node, L["omp"])
-        if sh is None:
+        if proxy_nodes > 1:
+            shapes = [band_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"],
+                                 proxy_nodes) for ly in layers]
+        else:
+            shapes = [proxy_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"])
+                      for ly in layers]
+        if any(sh is None for sh in shapes):
             skipped.append(spec)
             continue
         tree = wrf_tree_omp if (L["omp"] > 1 and wrf_tree_omp) else wrf_tree
         tag = "%dx%d_o%d_nt%d" % (L["px"], L["py"], L["omp"], L["numtiles"])
-        runs.append(dict(tag=tag, **L, **sh, wrf_tree=tree))
-    return dict(case_dir=os.path.abspath(case_dir), nodes=nodes, steps=steps, reps=reps,
-                dt=time_step_seconds(text), e_we=e_we, e_sn=e_sn, runs=runs, skipped=skipped)
+        for ly, sh in zip(layers, shapes):
+            runs.append(dict(tag=tag if len(layers) == 1 else "%s_d%d" % (tag, ly["domain"]), layout=tag,
+                             domain=ly["domain"], weight=ly["weight"], dt=ly["dt"], **L, **sh, wrf_tree=tree))
+    return dict(case_dir=os.path.abspath(case_dir), nodes=nodes, proxy_nodes=proxy_nodes, steps=steps,
+                reps=reps, dt=time_step_seconds(text), max_dom=len(layers), layers=layers,
+                e_we=layers[0]["e_we"], e_sn=layers[0]["e_sn"], runs=runs, skipped=skipped)
 
 
 def check_builds(plan):
@@ -251,7 +392,16 @@ def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
     plan_path = os.path.join(out_dir, "plan.json")
     json.dump(plan, open(plan_path, "w"), indent=1)
     sb = os.path.join(out_dir, "proxy.sbatch")
-    open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit))
+    nodes = plan.get("proxy_nodes", 1)
+    open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit, nodes))
+    if nodes > 1 and tuple(sbatch) == ("sbatch",):
+        # partitions are tiered by job size (f1-arm): try them in order as tune's probes do
+        from wtune.tools import scc_sweep
+        try:
+            job = scc_sweep.submit_job("sbatch " + shlex.quote(sb))
+            return str(job), "Submitted batch job %s" % job
+        except (RuntimeError, ValueError) as e:
+            return None, str(e)
     res = subprocess.run(list(sbatch) + [sb], capture_output=True, text=True)
     m = re.search(r"Submitted batch job (\d+)", res.stdout or "")
     return (m.group(1) if m else None), (res.stdout or res.stderr).strip()
@@ -268,16 +418,21 @@ def worker(plan_path):
     base_nl = open(os.path.join(case, "namelist.input")).read()
     scratch = os.environ.get("WTUNE_PROXY_SCRATCH") or ("/dev/shm" if os.path.isdir("/dev/shm") else out)
     scratch = os.path.join(scratch, "wtune-proxy-%s" % os.environ.get("SLURM_JOB_ID", os.getpid()))
-    run_seconds = int(round(plan["steps"] * plan["dt"]))
+    layers = {ly["domain"]: ly for ly in plan.get("layers") or [dict(domain=1, dt=plan["dt"], weight=1)]}
+    nested = plan.get("max_dom", 1) > 1
+    ok_runs = 0
     results = open(os.path.join(out, "results.jsonl"), "a")
     try:
         for rep in range(1, plan["reps"] + 1):
             for r in plan["runs"]:
-                box = os.path.join(scratch, "%dx%d" % (r["nx"], r["ny"]))
+                dom = r.get("domain", 1)
+                run_seconds = max(1, math.ceil(plan["steps"] * r.get("dt", plan["dt"])))
+                box = os.path.join(scratch, "d%d_%dx%d" % (dom, r["nx"], r["ny"]))
                 if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
                     os.makedirs(box, exist_ok=True)
-                    crop(os.path.join(case, "wrfinput_d01"), os.path.join(case, "wrfbdy_d01"),
-                         box, r["nx"], r["ny"])
+                    crop(os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
+                         box, r["nx"], r["ny"], as_top=dom > 1,
+                         dxdy=nest_dx(layers[dom]) if nested and dom > 1 else None)
                 d = os.path.join(out, "runs", "%s-%d" % (r["tag"], rep))
                 os.makedirs(d, exist_ok=True)
                 run_dir = os.path.join(r["wrf_tree"], "run")
@@ -288,12 +443,17 @@ def worker(plan_path):
                 _link(os.path.join(r["wrf_tree"], "main", "wrf.exe"), os.path.join(d, "wrf.exe"))
                 for f in ("wrfinput_d01", "wrfbdy_d01"):
                     _link(os.path.join(box, f), os.path.join(d, f))
-                nl = nl_set(base_nl, e_we=r["nx"] + 1, e_sn=r["ny"] + 1,
-                            run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
-                            nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
-                            **_quiet_output(base_nl))
+                if nested:
+                    nl = single_domain_namelist(base_nl, layers[dom], r["nx"], r["ny"], r["a"], r["b"],
+                                                r["numtiles"], run_seconds)
+                else:
+                    nl = nl_set(base_nl, e_we=r["nx"] + 1, e_sn=r["ny"] + 1,
+                                run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
+                                nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
+                                **_quiet_output(base_nl))
                 open(os.path.join(d, "namelist.input"), "w").write(nl)
-                cmd = wtune.machine.site_launch_line(r["ranks"], r["ranks"], r["omp"], "block", 1)
+                cmd = wtune.machine.site_launch_line(r["ranks"], r.get("ranks_per_node", r["ranks"]), r["omp"],
+                                                     "block", r.get("nodes", 1))
                 if not cmd:
                     raise RuntimeError("site_launch unavailable for site %s" % wtune.machine.site())
                 env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]))
@@ -305,7 +465,8 @@ def worker(plan_path):
                 except subprocess.TimeoutExpired:
                     rc = 124
                 steps = _step_times(os.path.join(d, "rsl.error.0000"))
-                rec = dict(tag=r["tag"], rep=rep, rc=rc, steps=len(steps),
+                rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
+                           rep=rep, rc=rc, steps=len(steps),
                            median=statistics.median(steps[1:]) if len(steps) > 1 else None,
                            px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
                            proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]))
@@ -314,16 +475,30 @@ def worker(plan_path):
                 print("RESULT %s rep %d rc %d steps %d median %s" % (
                     r["tag"], rep, rc, len(steps), "%.4f" % rec["median"] if rec["median"] else "nan"),
                     flush=True)
+                _tidy(d, keep_logs=rc != 0)
                 if rc != 0 or len(steps) < max(10, plan["steps"] // 2):
-                    print("ABORT %s rep %d: see %s" % (r["tag"], rep, d), flush=True)
-                    return 4
-                for f in os.listdir(d):
-                    if f.startswith("wrfout"):
-                        os.remove(os.path.join(d, f))
+                    if ok_runs == 0:       # nothing has worked yet: a setup error, stop here
+                        print("ABORT %s rep %d: see %s" % (r["tag"], rep, d), flush=True)
+                        return 4
+                    print("FAILED %s rep %d (layout left incomplete): see %s" % (r["tag"], rep, d), flush=True)
+                    continue
+                ok_runs += 1
+                _tidy(d)
     finally:
         results.close()
         subprocess.run(["rm", "-rf", scratch])
     return 0
+
+
+def _tidy(d, keep_logs=False):
+    """Drop the run's history and every rank's rsl file but rank 0's: on GPFS each small file
+    holds a full block (f1-arm /work1 went over quota twice from proxy rsl files)."""
+    for f in os.listdir(d):
+        if f.startswith("wrfout") or (not keep_logs and f.startswith("rsl.") and not f.endswith(".0000")):
+            try:
+                os.remove(os.path.join(d, f))
+            except OSError:
+                pass
 
 
 def _tree_name(tree):
@@ -355,15 +530,15 @@ def _step_times(rsl):
 
 
 # ------------------------------------------------------------------------------------ sbatch
-def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00"):
+def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=1):
     import wtune.machine
     from wtune.tools import scc_sweep
     out = os.path.dirname(os.path.abspath(plan_path))
     return "\n".join([
         "#!/usr/bin/env bash",
         "#SBATCH --job-name=wtune-proxy",
-        ("#SBATCH -p %s -N 1 --exclusive --ntasks-per-node=%d --time=%s %s"
-         % (wtune.machine.partition(), wtune.machine.cores_per_node(), time_limit,
+        ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
+         % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(), time_limit,
             scc_sweep.scheduler_args())).rstrip(),
         "#SBATCH --no-requeue",
         "#SBATCH --output=%s/proxy-%%j.out" % out,
@@ -373,7 +548,7 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00"):
         "export PYTHONPATH=%s${PYTHONPATH:+:$PYTHONPATH}" % shlex.quote(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         "site_env",
-        "export SLURM_JOB_NUM_NODES=1",
+        "export SLURM_JOB_NUM_NODES=%d" % nodes,
         'echo "start $(date -Is) $(hostname)"',
         "%s -m wtune.proxy _worker %s" % (shlex.quote(python), shlex.quote(os.path.abspath(plan_path))),
         'rc=$?; echo "end $(date -Is) rc=$rc"; exit $rc']) + "\n"
@@ -381,13 +556,28 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00"):
 
 # ----------------------------------------------------------------------------------- collect
 def collect(out_dir):
-    rows = {}
+    """Layouts ranked by s per d01 step: for a nested case the sum over its domains of
+    weight x median (a layout with any domain missing is left out)."""
+    per = {}          # layout -> rep -> domain -> (weight, median)
+    domains = {}
+    try:
+        n_dom = json.load(open(os.path.join(out_dir, "plan.json"))).get("max_dom", 1)
+    except (OSError, ValueError):
+        n_dom = None
     for line in open(os.path.join(out_dir, "results.jsonl")):
         r = json.loads(line)
+        lay, dom = r.get("layout", r["tag"]), r.get("domain", 1)
+        domains.setdefault(lay, set()).add(dom)
         if r["rc"] == 0 and r["median"]:
-            rows.setdefault(r["tag"], []).append(r["median"])
-    ranked = sorted(((statistics.median(v), t, v) for t, v in rows.items()))
-    return [dict(tag=t, median=m, reps=v, spread=(max(v) - min(v)) / m) for m, t, v in ranked]
+            per.setdefault(lay, {}).setdefault(r["rep"], {})[dom] = (r.get("weight", 1), r["median"])
+    rows = []
+    for lay, reps in per.items():
+        want = set(range(1, n_dom + 1)) if n_dom else domains[lay]
+        scores = [sum(w * m for w, m in got.values()) for got in reps.values() if set(got) >= want]
+        if scores:
+            m = statistics.median(scores)
+            rows.append(dict(tag=lay, median=m, reps=scores, spread=(max(scores) - min(scores)) / m))
+    return sorted(rows, key=lambda r: r["median"])
 
 
 # --------------------------------------------------------------------------------------- CLI
@@ -409,6 +599,8 @@ def main(argv=None):
         p.add_argument("--reps", type=int, default=2)
         p.add_argument("--wrf-tree", default=None, help="WRF tree for omp=1 (default: machine's)")
         p.add_argument("--wrf-tree-omp", default=None, help="WRF tree (dmsm) for omp>1")
+        p.add_argument("--proxy-nodes", type=int, default=1,
+                       help="1: one-node proxy (default); M>1: band proxy on M nodes (full width)")
         if name == "submit":
             p.add_argument("--out", default=None)
             p.add_argument("--time", default="01:00:00")
@@ -426,12 +618,12 @@ def main(argv=None):
 
     tree = a.wrf_tree or wtune.machine.wrf_tree()
     plan = make_plan(a.case_dir, a.nodes, a.layout, wtune.machine.cores_per_node(), a.steps, a.reps,
-                     tree, a.wrf_tree_omp)
+                     tree, a.wrf_tree_omp, a.proxy_nodes)
     for r in plan["runs"]:
-        print("%-20s proxy %3d ranks (%dx%d) box %dx%d  build %s" % (
-            r["tag"], r["ranks"], r["a"], r["b"], r["nx"], r["ny"], _tree_name(r["wrf_tree"])))
+        print("%-20s proxy %3d ranks (%dx%d) on %d node(s) box %dx%d  build %s" % (
+            r["tag"], r["ranks"], r["a"], r["b"], r.get("nodes", 1), r["nx"], r["ny"], _tree_name(r["wrf_tree"])))
     for s in plan["skipped"]:
-        print("%-20s skipped: not reproducible on one node" % s)
+        print("%-20s skipped: not reproducible on %d node(s)" % (s, a.proxy_nodes))
     errors = check_builds(plan)
     for e in errors:
         print("ERROR " + e, file=sys.stderr)

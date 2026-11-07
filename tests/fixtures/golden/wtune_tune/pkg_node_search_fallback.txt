@@ -19,6 +19,7 @@ node sweep: N=8 no successful measurement (job 7005, state COMPLETED)
 node sweep: N=5 no successful measurement (job 7006, state COMPLETED)
 WARNING: node sweep produced no measurement; falling back to the proxy. scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=1 configs_per_job=74 total=1 (ok)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
 round0 slot 0: submitted job 7007 (1 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 startup_s: no COMPLETED round0 run to measure from; keeping 120.0s (documented constant (scc_sweep.STARTUP_S))

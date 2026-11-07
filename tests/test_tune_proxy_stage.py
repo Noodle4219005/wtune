@@ -1,4 +1,5 @@
 import dataclasses
+import os
 import types
 
 from wtune import proxy as P
@@ -138,7 +139,7 @@ def _joint(tmp_path, monkeypatch, pools, timings, band):
     monkeypatch.setattr(S, "_sweep_anchor", lambda c, n: (pools[n][0], None) if n in pools else (None, "x"))
     monkeypatch.setattr(S, "sample_more_diverse_configs", lambda c, ex, k, seed: pools[c.nodes][1:k + 1])
     monkeypatch.setattr(P, "collect", lambda d: [dict(tag=t, median=m) for t, m in
-                        (timings if d.endswith("jobs0") else band if d.endswith("band0") else {}).items()])
+                        (timings if d.endswith("jobs0") else band if "band" in os.path.basename(d) else {}).items()])
     return ctx, submitted
 
 
@@ -151,7 +152,8 @@ def test_rank_across_nodes_times_every_n_in_one_plan_and_bands_the_leaders(tmp_p
     timings = {"N2_16x18_o1_nt1": 0.80, "N2_12x24_o1_nt1": 0.78, "N2_24x12_o1_nt1": 0.85,
                "N4_24x24_o1_nt1": 0.45, "N4_12x24_o2_nt24": 0.40, "N4_18x32_o1_nt1": 0.47,
                "N5_24x30_o1_nt1": 0.42, "N5_20x36_o1_nt1": 0.38, "N5_30x24_o1_nt1": 0.44}
-    band = {"N4_24x24_o1_nt1": 0.46, "N4_12x24_o2_nt24": 0.47, "N5_24x30_o1_nt1": 0.44}
+    band = {"N4_24x24_o1_nt1": 0.46, "N4_12x24_o2_nt24": 0.47, "N5_24x30_o1_nt1": 0.44,
+            "N2_12x24_o1_nt1": 0.90, "N2_16x18_o1_nt1": 0.88}          # N=2's leaders on 2 whole nodes
     ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, timings, band)
     out = S.rank_across_nodes(ctx, [1, 2, 4, 5])                     # N=1: no ANCHOR, skipped
     one = [p for p in submitted if p["proxy_nodes"] == 1]
@@ -159,14 +161,16 @@ def test_rank_across_nodes_times_every_n_in_one_plan_and_bands_the_leaders(tmp_p
     assert sorted(tags) == sorted(timings) and all(r["layout"] == r["tag"] for p in one for r in p["runs"])
     assert any(len({r["tag"].split("_")[0] for r in p["runs"]}) > 1 for p in one)   # N mixed in a job
     bands = [r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"]]
-    # the 2 one-node leaders of each N > 3; N=5's 20x36 holds no whole rows per node, N=2 has no band
+    # the 2 one-node leaders of each N > 3; N=5's 20x36 holds no whole rows per node
     assert sorted(bands) == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1", "N5_24x30_o1_nt1"]
+    full = [r["layout"] for p in submitted if p["proxy_nodes"] == 2 for r in p["runs"]]
+    assert sorted(full) == ["N2_12x24_o1_nt1", "N2_16x18_o1_nt1"]     # N=2: the whole domain on 2 nodes
     assert sorted(out) == [2, 4, 5]
     assert [(S._tag(c), t, f) for c, t, f in out[4]] == [
         ("24x24_o1_nt1", 0.46, "band"), ("12x24_o2_nt24", 0.47, "band"), ("18x32_o1_nt1", 0.47, "one-node")]
     assert [(c["id"], f) for c, _t, f in out[5]] == [("ANCHOR", "band"), ("D0001", "one-node"),
                                                      ("D0002", "one-node")]
-    assert [c["id"] for c, _t, _f in out[2]] == ["D0001", "ANCHOR", "D0002"]
+    assert [(c["id"], f) for c, _t, f in out[2]] == [("ANCHOR", "full"), ("D0001", "full"), ("D0002", "one-node")]
 
 
 def test_rank_across_nodes_keeps_the_domain_suffix_of_a_nested_case(tmp_path, monkeypatch):

@@ -14,8 +14,8 @@ import wtune.nodes
 LEVELS = {
     0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
     1: dict(name="O1", method="one t0 wave over N in {1,2,4,8,max healthy}"),
-    2: dict(name="O2", method="O1 + refinement, cores/node, proxy-ranked round0 at the winner "
-                              "(one-node pool, band leaders, real ANCHOR + 2)"),
+    2: dict(name="O2", method="joint (N, layout) proxy search over every legal N, real ANCHOR + 2 "
+                              "at the 2 best N (the real node sweep when the proxy cannot run)"),
     3: dict(name="O3", method="full layout search: every legal N (coarse-to-fine), "
                               "cores/node, ranks x omp, nx x ny, numtiles at the finalists + "
                               "confirm reps"),
@@ -79,7 +79,8 @@ def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int) -> fl
     """RUNNING s of the O2 joint proxy search (node_search._run_node_search_proxy), legal N taken as
     1..max_nodes: PROXY_JOINT_PER_N one-node runs per N (PROXY_RUNS_PER_JOB per job, up to
     max_nodes jobs at once, s/step the mean of s1/N), the band round of PROXY_JOINT_LEADERS per
-    N > PROXY_BAND_NODES (s/step the mean of their s1/N), then PROXY_JOINT_FINALISTS finalists one
+    N > PROXY_BAND_NODES (s/step the mean of their s1/N), the whole-domain leaders of each
+    1 < N <= PROXY_BAND_NODES on N nodes, then PROXY_JOINT_FINALISTS finalists one
     after the other, each ANCHOR + 2 real probes at N* = min(4, max_nodes) in max_nodes // N* slots."""
     from . import proxy_stage as P
     ns = range(1, max_nodes + 1)
@@ -91,6 +92,9 @@ def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int) -> fl
         nb = P.PROXY_JOINT_LEADERS * len(big)
         bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(nb / P.PROXY_RUNS_PER_JOB)))
         t += math.ceil(nb / bands) * (EST_PROXY_RUN_START_S + steps * s1 * sum(1.0 / n for n in big) / len(big))
+    for n in range(2, min(P.PROXY_BAND_NODES, max_nodes) + 1):     # whole-domain leaders on n nodes
+        jobs_n = max(1, min(max_nodes // n, math.ceil(P.PROXY_JOINT_LEADERS / P.PROXY_RUNS_PER_JOB)))
+        t += math.ceil(P.PROXY_JOINT_LEADERS / jobs_n) * (EST_PROXY_RUN_START_S + steps * s1 / n)
     nstar = max(1, min(4, max_nodes))
     finals = min(P.PROXY_JOINT_FINALISTS, max_nodes)
     return t + finals * math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // nstar)) * (startup_s + steps * s1 / nstar)

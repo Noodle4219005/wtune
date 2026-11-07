@@ -31,7 +31,10 @@ def test_band_shape_keeps_full_width_and_three_node_rows():
 
 def test_band_shape_refuses_partial_rows_and_targets_no_larger_than_the_band():
     assert proxy.band_shape(561, 450, 16, 18, 4, 144, omp=2) is None   # 72 ranks: 4.5 rows of 16
-    assert proxy.band_shape(561, 450, 18, 24, 3, 144) is None          # target has only 3 nodes
+    assert proxy.band_shape(561, 450, 18, 24, 2, 144, proxy_nodes=3) is None   # band bigger than the target
+    # proxy_nodes == nodes: the whole domain on the target's own nodes, any rank layout
+    assert proxy.band_shape(561, 450, 16, 18, 2, 144, proxy_nodes=2) == dict(
+        ranks=288, a=16, b=18, nx=560, ny=449, nodes=2, ranks_per_node=144)
     assert proxy.band_shape(561, 450, 24, 30, 5, 144, omp=2) is None   # 144 ranks x 2 threads > 144 cores
 
 

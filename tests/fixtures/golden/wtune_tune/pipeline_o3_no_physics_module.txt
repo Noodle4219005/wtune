@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
-pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 143 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 104 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
@@ -197,7 +197,7 @@ skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
 
 === wtune tune -O3 (decision 0059) ===
 level O3; time cap: none (no time cap)  whole run implied by the t0 anchor (info): 7:00
-tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 143 min  O3 ≈ 150 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 150.0 min
+tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 104 min  O3 ≈ 150 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 150.0 min
 phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok

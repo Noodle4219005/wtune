@@ -214,12 +214,17 @@ def band_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1, proxy_nodes=3):
     the process-grid rows one target node holds (WRF numbers ranks x-fastest, placement is block),
     so the middle node has the target's interior node: the same patches and the same on- and
     off-node neighbours. dict(ranks, a, b, nx, ny, nodes, ranks_per_node), or None when a node
-    holds no whole rows or the band is not smaller than the target."""
+    holds no whole rows or the band is not smaller than the target. proxy_nodes == nodes is the
+    whole domain on the target's own nodes (frozen synthesized boundary): the reference for small N."""
     mx, my = e_we - 1, e_sn - 1
-    if (px * py) % nodes or proxy_nodes >= nodes:
+    if (px * py) % nodes or proxy_nodes > nodes:
         return None
     rp = px * py // nodes
-    if rp * omp > cores_per_node or rp % px:
+    if rp * omp > cores_per_node:
+        return None
+    if proxy_nodes == nodes:
+        return dict(ranks=px * py, a=px, b=py, nx=mx, ny=my, nodes=nodes, ranks_per_node=rp)
+    if rp % px:
         return None
     b = proxy_nodes * (rp // px)
     ny = math.ceil(my / py) * b

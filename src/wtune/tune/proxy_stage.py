@@ -168,9 +168,10 @@ def _select_ranked(ctx, configs, keep):
 def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> dict:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each, every N in one batch of jobs; then the PROXY_JOINT_LEADERS one-node
-    leaders of each N > PROXY_BAND_NODES re-timed as band proxies, again one batch. Returns
-    {N: [(config, s/step, "band" | "one-node"), ...]} best first, band timings ahead of one-node
-    ones (one node alone reads 0-18 % low); {} when nothing was timed."""
+    leaders of each N re-timed so that N compare: as band proxies when N > PROXY_BAND_NODES, as the
+    whole domain on N nodes when 1 < N <= PROXY_BAND_NODES. Returns {N: [(config, s/step,
+    "band" | "full" | "one-node"), ...]} best first, re-timed ahead of one-node ones (one node
+    alone reads 0-18 % low); {} when nothing was timed."""
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
     pools, runs, base = {}, [], None
     for n in legal_nodes:
@@ -199,20 +200,26 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> dict:
         if got:
             one[n] = got
     band = {}
-    if ctx.max_nodes >= PROXY_BAND_NODES:
-        bruns, bbase = [], None
-        for n in sorted(one):
-            if n > PROXY_BAND_NODES:
-                lead = sorted(one[n], key=one[n].get)[:PROXY_JOINT_LEADERS]
-                plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, PROXY_BAND_NODES)
-                bruns, bbase = bruns + got, bbase or plan
-        if bruns:
-            band = _run_jobs(ctx, dict(bbase, runs=bruns), bruns, out_root, "band", PROXY_BAND_NODES) or {}
+    # leaders re-timed so N compare: a band beyond PROXY_BAND_NODES, the whole domain on N nodes
+    # at 2..PROXY_BAND_NODES (one node alone reads 0-18 % low); N=1's one-node run is the whole domain
+    band, by_size = {}, {}
+    for n in sorted(one):
+        size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
+        if size > 1 and ctx.max_nodes >= size:
+            lead = sorted(one[n], key=one[n].get)[:PROXY_JOINT_LEADERS]
+            plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, size)
+            if got:
+                prev = by_size.get(size, (plan, []))
+                by_size[size] = (prev[0], prev[1] + got)
+    for size, (bbase, bruns) in sorted(by_size.items()):
+        band.update(_run_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
+                              "band%d-" % size, size) or {})
     out = {}
     for n in sorted(one):
-        rows = [(pools[n][t], band["N%d_%s" % (n, t)], "band") if "N%d_%s" % (n, t) in band
+        hf = "band" if n > PROXY_BAND_NODES else "full"
+        rows = [(pools[n][t], band["N%d_%s" % (n, t)], hf) if "N%d_%s" % (n, t) in band
                 else (pools[n][t], v, "one-node") for t, v in one[n].items()]
-        out[n] = sorted(rows, key=lambda r: (r[2] != "band", r[1]))
+        out[n] = sorted(rows, key=lambda r: (r[2] == "one-node", r[1]))
         c, v, f = out[n][0]
         print("proxy: N=%-2d best %-20s %.4f s/step %-8s (%d of %d timed)"
               % (n, _tag(c), v, f, len(one[n]), len(pools[n])))

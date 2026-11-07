@@ -2979,13 +2979,17 @@ def test_o2_estimate_follows_the_proxy_rounds():
     r_run = 120.0 + 30 * 0.1261 / 4                                                    # N* = 4
     # joint proxy: 10 N x 6 = 60 one-node runs on 10 jobs -> 6 each; 2 leaders x 7 N > 3 = 14 bands
     # on min(10 // 3, ceil(14/4)) = 3 jobs -> 5 each; 2 finalists x (ANCHOR + 2) in 10 // 4 = 2
-    # slots -> 2 rounds each; no sweep, refinement or cores/node wave
-    assert prox[2] == pytest.approx(6 * one + 5 * band + 2 * 2 * r_run)
+    # slots -> 2 rounds each; the 2 leaders of N=2 and of N=3 on their own nodes, one job each
+    # (2 runs); no sweep, refinement or cores/node wave
+    full = 2 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 2) + 2 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 3)
+    assert prox[2] == pytest.approx(6 * one + 5 * band + full + 2 * 2 * r_run)
     assert prox[2] < real[2]                       # no real t0 sweep before it
     assert prox[3] == real[3]                      # O3 enumerates the full space: no proxy
-    # max_nodes 3: 18 runs on 3 jobs, no band round, 2 finalists x 3 rounds in one slot
+    # max_nodes 3: 18 runs on 3 jobs, no band round, whole-domain leaders of N=2 and N=3,
+    # 2 finalists x 3 rounds in one slot
     assert E.proxy_joint_s(120.0, 30, 0.1261, 3) == pytest.approx(
         6 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3)
+        + 2 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 2) + 2 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 3)
         + 2 * 3 * (120.0 + 30 * 0.1261 / 3))
     s_run = E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 3
     small = E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3)

@@ -69,6 +69,7 @@ class _NodeChoice:
     total_steps: int | None
     nodes: int
     nodes_note: str
+    proxy: bool = False
 
 
 def _precision_arg(text: str) -> str:
@@ -218,7 +219,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
                restart_io_form=int(o.restart_io_form), node_seeds=ns.node_seeds,
-               hotspot_fill=ns.hotspot_fill)
+               hotspot_fill=ns.hotspot_fill, proxy=bool(getattr(ns, "proxy", False)), wrf_tree=tree or "")
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -413,6 +414,8 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     node_seeds = _nopt("node_seeds", "geometric")
     hotspot_fill = _nopt("hotspot_fill", True)
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
+    proxy = _nopt("proxy", False)
+    proxy = proxy if isinstance(proxy, bool) else proxy == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
     adaptive = _context.adaptive_steps_warning(namelist_path)
@@ -435,7 +438,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
                        deadline_minutes=deadline_minutes, min_efficiency=min_efficiency,
                        node_finalists=node_finalists, sweep_budget_frac=sweep_budget_frac,
                        node_seeds=node_seeds, hotspot_fill=hotspot_fill, core_options=core_options,
-                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note)
+                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note, proxy=proxy)
 
 
 def _run_out_dir(args: argparse.Namespace, case: str) -> str:
@@ -560,6 +563,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--proxy", default=None, choices=("on", "off"), dest="proxy",
+                    help="round0: time a 3x wider pool of layouts on one node each (small-domain "
+                         "proxy, `wtune proxy`) and send only the ANCHOR plus the proxy's fastest to "
+                         "the real N-node probes; single-domain cases with netCDF inputs (default off, "
+                         "or --config's budget.proxy)")
     p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
                     help="--nodes search: measure untried N near the best one in the nodes a "
                          "sweep wave leaves idle, when no longer than the wave (default on, or "

@@ -44,17 +44,10 @@ def test_time_step_includes_the_fraction():
         == pytest.approx(2 / 3)
 
 
-def _tree(tmp_path, name, omp_line):
+def _tree(tmp_path, name):
     t = tmp_path / name
     (t / "run").mkdir(parents=True)
-    (t / "configure.wrf").write_text("FC = nvfortran\nOMP             =       %s\n" % omp_line)
     return str(t)
-
-
-def test_build_openmp_detection_reads_configure_wrf(tmp_path):
-    assert proxy.build_has_openmp(_tree(tmp_path, "dmsm", "-mp -Minfo=mp")) is True
-    assert proxy.build_has_openmp(_tree(tmp_path, "dmpar", "# -mp -Minfo=mp -Mrecursive")) is False
-    assert proxy.build_has_openmp(str(tmp_path / "missing")) is None
 
 
 def _case(tmp_path, max_dom=1):
@@ -65,14 +58,16 @@ def _case(tmp_path, max_dom=1):
     return str(c)
 
 
-def test_plan_refuses_omp_on_a_build_without_openmp(tmp_path):
-    dmpar = _tree(tmp_path, "dmpar", "# -mp")
+def test_plan_refuses_omp_on_a_build_without_openmp(tmp_path, monkeypatch):
+    import wtune.extensions
+    monkeypatch.setattr(wtune.extensions, "omp_cap_for_build", lambda t: 1 if t.endswith("dmpar") else None)
+    dmpar = _tree(tmp_path, "dmpar")
     plan = proxy.make_plan(_case(tmp_path), 4, ["9x64", "9x32:omp=2:nt=24", "71x8"], 144, wrf_tree=dmpar)
     assert [r["tag"] for r in plan["runs"]] == ["9x64_o1_nt1", "9x32_o2_nt24"]
     assert plan["skipped"] == ["71x8"]
     errs = proxy.check_builds(plan)
-    assert len(errs) == 1 and "9x32_o2_nt24" in errs[0] and "without OpenMP" in errs[0]
-    dmsm = _tree(tmp_path, "dmsm", "-mp")
+    assert len(errs) == 1 and "9x32_o2_nt24" in errs[0] and "no OpenMP" in errs[0]
+    dmsm = _tree(tmp_path, "dmsm")
     os.makedirs(tmp_path / "b")
     plan = proxy.make_plan(_case(tmp_path / "b"), 4, ["9x32:omp=2:nt=24"], 144, wrf_tree=dmpar,
                            wrf_tree_omp=dmsm)

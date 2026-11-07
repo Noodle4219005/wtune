@@ -222,6 +222,9 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         print("round0: SKIP -- every candidate (including the anchor) was excluded by --config "
               "search restrictions/exclude rules")
         return [], {}, []
+    if ctx.proxy:
+        from . import proxy_stage
+        configs0 = proxy_stage.select(ctx, configs0)
 
     job_ids, configs_by_cid, rows, job_configs, states = _submit_round0_wave(
         ctx, configs0, slots, s_est, "round0")

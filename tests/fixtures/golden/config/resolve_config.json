@@ -17,7 +17,8 @@
     "node_finalists": null,
     "sweep_budget_frac": null,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": null,
@@ -173,7 +174,8 @@
     "node_finalists": 3,
     "sweep_budget_frac": 1,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": null,
@@ -293,7 +295,8 @@
     "node_finalists": null,
     "sweep_budget_frac": null,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": [
@@ -498,7 +501,8 @@
     "node_finalists": null,
     "sweep_budget_frac": null,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": null,
@@ -604,7 +608,8 @@
     "node_finalists": null,
     "sweep_budget_frac": null,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": null,
@@ -706,7 +711,8 @@
     "node_finalists": null,
     "sweep_budget_frac": null,
     "node_seeds": null,
-    "hotspot_fill": null
+    "hotspot_fill": null,
+    "proxy": null
    },
    "search": {
     "omp": null,

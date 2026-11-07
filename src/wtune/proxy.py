@@ -103,17 +103,6 @@ def proxy_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1):
     return dict(ranks=rp, a=a, b=b, nx=nx, ny=ny)
 
 
-def build_has_openmp(wrf_tree):
-    """True/False from configure.wrf's OMP line (a dmpar build leaves it commented out); None
-    when there is no configure.wrf to read."""
-    try:
-        text = open(os.path.join(wrf_tree, "configure.wrf")).read()
-    except OSError:
-        return None
-    m = re.search(r"^OMP\s*=\s*(.*)$", text, re.M)
-    return bool(m and m.group(1).strip() and not m.group(1).lstrip().startswith("#"))
-
-
 # --------------------------------------------------------------------------------------- crop
 def crop(src_in, src_bdy, out_dir, nx, ny):
     """Centre-crop wrfinput_d01 to nx x ny mass points and synthesize wrfbdy_d01 from the crop's
@@ -240,14 +229,32 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
 
 
 def check_builds(plan):
-    """Refuse omp>1 on a build compiled without OpenMP: it would run single-threaded with half
-    the ranks and look slow, silently."""
+    """Refuse omp>1 on a build compiled without OpenMP (wtune.extensions.omp_cap_for_build, the
+    same wrf.exe check `wtune tune` caps omp with): it would run single-threaded, silently."""
+    import wtune.extensions
     errors = []
     for r in plan["runs"]:
-        if r["omp"] > 1 and build_has_openmp(r["wrf_tree"]) is False:
-            errors.append("%s: omp=%d but %s was built without OpenMP (configure.wrf OMP is empty)"
+        if r["omp"] > 1 and wtune.extensions.omp_cap_for_build(r["wrf_tree"]) == 1:
+            errors.append("%s: omp=%d but %s/main/wrf.exe has no OpenMP (dmpar build)"
                           % (r["tag"], r["omp"], r["wrf_tree"]))
     return errors
+
+
+def campaign_dir():
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "campaign")
+
+
+def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
+    """Write <out_dir>/plan.json + proxy.sbatch and submit it; returns (job_id or None, message)."""
+    os.makedirs(out_dir, exist_ok=True)
+    plan_path = os.path.join(out_dir, "plan.json")
+    json.dump(plan, open(plan_path, "w"), indent=1)
+    sb = os.path.join(out_dir, "proxy.sbatch")
+    open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit))
+    res = subprocess.run(list(sbatch) + [sb], capture_output=True, text=True)
+    m = re.search(r"Submitted batch job (\d+)", res.stdout or "")
+    return (m.group(1) if m else None), (res.stdout or res.stderr).strip()
 
 
 # ------------------------------------------------------------------------------- the job side
@@ -431,19 +438,12 @@ def main(argv=None):
     if a.cmd == "plan" or errors or not plan["runs"]:
         return 1 if (errors or not plan["runs"]) else 0
     out = os.path.abspath(a.out or os.path.join(a.case_dir, "..", "proxy"))
-    os.makedirs(out, exist_ok=True)
-    plan_path = os.path.join(out, "plan.json")
-    json.dump(plan, open(plan_path, "w"), indent=1)
-    campaign = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "campaign")
-    script = render_sbatch(plan_path, sys.executable, campaign, a.time)
-    sb = os.path.join(out, "proxy.sbatch")
-    open(sb, "w").write(script)
-    print("wrote %s" % sb)
+    job, msg = submit_plan(plan, out, a.time, sbatch=("true",) if a.dry_run else ("sbatch",))
+    print("wrote %s" % os.path.join(out, "proxy.sbatch"))
     if a.dry_run:
         return 0
-    res = subprocess.run(["sbatch", sb], capture_output=True, text=True)
-    print((res.stdout or res.stderr).strip())
-    return res.returncode
+    print(msg)
+    return 0 if job else 1
 
 
 if __name__ == "__main__":

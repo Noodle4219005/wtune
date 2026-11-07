@@ -1,7 +1,7 @@
 usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
                   [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
-                  [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
+                  [--proxy {on,off}] [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
                   [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
                   [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check] [--no-node-preflight]
                   [-O0] [-O1] [-O2] [-O3] [--precision PRECISION] [--level {0,1,2,3}]
@@ -45,6 +45,10 @@ options:
                         --nodes search: share of --minutes the node sweep may use; once spent,
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
+  --proxy {on,off}      round0: time a 3x wider pool of layouts on one node each (small-domain
+                        proxy, `wtune proxy`) and send only the ANCHOR plus the proxy's fastest to
+                        the real N-node probes; single-domain cases with netCDF inputs (default
+                        off, or --config's budget.proxy)
   --hotspot-fill {on,off}
                         --nodes search: measure untried N near the best one in the nodes a sweep
                         wave leaves idle, when no longer than the wave (default on, or --config's

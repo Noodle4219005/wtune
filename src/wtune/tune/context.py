@@ -131,6 +131,8 @@ class Ctx:
     full_space: bool = False                      # enumerate every legal layout (O3)
     node_seeds: str = "geometric"                 # node sweep: geometric seeds, or "all" legal N
     hotspot_fill: bool = True                     # node sweep: fill a wave's idle nodes near the best N
+    proxy: bool = False                           # round0: pick the real probes with the one-node proxy
+    wrf_tree: str = ""                            # the probes' WRF tree (the proxy runs the same build)
     input_copies: dict = dataclasses.field(default_factory=dict)  # job -> its BP input copy dir
     layout_notes: dict | None = None              # shared across ctx copies: untried / enumerated
     node_health: dict | None = None               # node_preflight result

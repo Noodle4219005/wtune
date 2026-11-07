@@ -287,3 +287,24 @@ def test_the_joint_pool_skips_layouts_the_proxy_cannot_run_and_fills_the_slots(t
     ids = sorted({r["layout"] for p in submitted for r in p["runs"]})
     # the 7 cyclic twins skipped; the ANCHOR and the first 5 block layouts fill the 6 slots
     assert ids == sorted(["N5_24x30_o1_nt1"] + ["N5_%dx%d_o1_nt1" % xy for xy in shapes[:5]])
+
+
+def test_run_jobs_caps_the_job_count_and_waits_out_a_refused_submit(tmp_path, monkeypatch):
+    runs = [dict(tag="L%02d" % i, layout="L%02d" % i) for i in range(30)]
+    calls, waits = [], []
+
+    def submit(plan, d, *a, **k):
+        calls.append(os.path.basename(d))
+        if len(calls) == 3:                                      # the QOS refuses the 3rd once
+            return None, "sbatch: error: QOSMaxSubmitJobPerUserLimit"
+        return str(500 + len(calls)), "Submitted batch job"
+    monkeypatch.setattr(P, "submit_plan", submit)
+    monkeypatch.setattr(S._jobs, "wait_for_jobs", lambda ctx, ids, stage, **k: waits.append(list(ids)) or {})
+    monkeypatch.setattr(P, "collect", lambda d: [])
+    ctx = types.SimpleNamespace(max_nodes=8, owned_jobs=[], steps=8)
+    monkeypatch.setattr(S, "_proxy_time_limit", lambda ctx: "0:10:00")
+    S._run_jobs(ctx, dict(runs=[]), runs, str(tmp_path), "jobs", 1)
+    assert calls[:4] == ["jobs0", "jobs1", "jobs2", "jobs2"]     # retried after a wait
+    assert len(set(calls)) == S.PROXY_MAX_JOBS                  # 30 layouts on 24 jobs
+    assert waits[0] == ["501"]                                   # the oldest job waited for first
+    assert "501" not in waits[1] and len(waits[1]) == S.PROXY_MAX_JOBS - 1

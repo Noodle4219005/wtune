@@ -29,6 +29,7 @@ PROXY_POOL_FACTOR = 3          # pool = 3 x what round0 would measure
 PROXY_POOL_MAX = 24
 PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes at once: max_nodes caps the
                                # run being tuned, not the one-node tuning jobs (queue wait is not charged)
+PROXY_MAX_JOBS = 24            # proxy jobs one batch submits: f1 ct112 QOS allows 32 submitted, 28 running
 PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
@@ -283,9 +284,11 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     groups = list(groups.values())
     # one job per layout up to the nodes there are: a nested or band run costs as much per step
     # as the real N-node run, so packing PROXY_RUNS_PER_JOB of them into a job serialises minutes
-    n_jobs = max(1, min(PROXY_JOB_NODES_FACTOR * ctx.max_nodes // nodes_per_job, len(groups)))
-    job_ids, out_dirs = [], []
-    for j in range(n_jobs):
+    n_jobs = max(1, min(PROXY_JOB_NODES_FACTOR * ctx.max_nodes // nodes_per_job, len(groups),
+                        PROXY_MAX_JOBS))
+    job_ids, out_dirs, ended = [], [], []
+    j = 0
+    while j < n_jobs:
         d = os.path.join(out_root, "%s%d" % (prefix, j))
         job_runs = [r for g in groups[j::n_jobs] for r in g]
         job, msg = _proxy.submit_plan(dict(plan, runs=job_runs), d, _proxy_time_limit(ctx))
@@ -293,12 +296,22 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
             job_ids.append(job)
             out_dirs.append(d)
             ctx.owned_jobs.append(job)
-        else:
+            j += 1
+            continue
+        live = [x for x in job_ids if x not in ended]
+        if not live:          # nothing of ours to wait for: the rest cannot be submitted
             print("proxy: submit failed for %s: %s" % (d, msg))
+            j += 1
+            continue
+        # a per-user submit limit (f1 ct112 QOS: 32 submitted) is shared with every other job of
+        # the user: wait for our oldest job to end, then submit the rest
+        print("proxy: submit refused for %s (%s); waiting for job %s first" % (d, msg.strip()[:80], live[0]))
+        _jobs.wait_for_jobs(ctx, [live[0]], "proxy")
+        ended.append(live[0])
     if not job_ids:
         return None
     print("proxy: %d run(s) on %d %d-node job(s) %s" % (len(runs), len(job_ids), nodes_per_job, ",".join(job_ids)))
-    _jobs.wait_for_jobs(ctx, job_ids, "proxy")
+    _jobs.wait_for_jobs(ctx, [x for x in job_ids if x not in ended], "proxy")
     timed = {}
     for d in out_dirs:
         try:

@@ -75,7 +75,7 @@ _VAL = re.compile(r"'[^']*'|\"[^\"]*\"|[^,]+")
 _BDY_KEYS = ("specified", "nested", "spec_bdy_width", "spec_zone", "relax_zone", "spec_exp")
 PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation rows (WRF default 1 + 4)
 PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
-PROXY_MAX_STEPS = 10        # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
+PROXY_MAX_STEPS = 8         # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
 PROXY_POSITIONS = 2         # crop positions per layout: centred and crop_offset's shifted one
 PROXY_TIME_POINTS = 2       # states at other times a leader is also timed on, when there are any
 
@@ -706,6 +706,7 @@ def _run(plan, r, rep, out, scratch, retry=False):
                     run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
                     nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
                     **_quiet_output(base_nl))
+    nl = _no_initial_history(nl)
     if bw:
         nl = nl_force(nl, spec_bdy_width=bw, spec_zone=1, relax_zone=bw - 1, spec_exp=PROXY_SPEC_EXP)
     if r.get("src"):
@@ -870,6 +871,18 @@ def _tree_name(tree):
     tree = tree.rstrip("/")
     name = os.path.basename(tree)
     return os.path.basename(os.path.dirname(tree)) if name == "WRF" else name
+
+
+def _no_initial_history(text):
+    """history_begin_h far past the run for every domain: WRF writes each domain's t=0 history frame
+    even with a huge history_interval (isc-synth on f1: 6.6 s per domain, ~20 s of a 3-domain run)."""
+    md = int(nl_get(text, "max_dom") or 1)
+    val = ", ".join(["99999"] * md)
+    if nl_get(text, "history_begin_h") is not None:
+        return nl_set(text, history_begin_h=val)
+    new, n = re.subn(r"(&time_control[^\n]*\n)", lambda m: m.group(1) + " history_begin_h = %s,\n" % val, text,
+                     count=1, flags=re.I)
+    return new if n else text + "\n &time_control\n history_begin_h = %s,\n /\n" % val
 
 
 def _quiet_output(text):

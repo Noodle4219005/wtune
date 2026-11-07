@@ -27,6 +27,8 @@ from .context import Ctx, cores_used
 
 PROXY_POOL_FACTOR = 3          # pool = 3 x what round0 would measure
 PROXY_POOL_MAX = 24
+PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes at once: max_nodes caps the
+                               # run being tuned, not the one-node tuning jobs (queue wait is not charged)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
 PROXY_REAL_KEEP = 3            # real N-node probes after the proxy: ANCHOR + the 2 fastest
 PROXY_BAND_KEEP = 4            # one-node leaders re-timed as band proxies
@@ -100,7 +102,7 @@ def select(ctx: Ctx, configs: list[dict]) -> list[dict]:
             specs.setdefault(_tag(c), s)
     try:
         plan = _proxy.make_plan(case_dir, ctx.nodes, list(specs.values()), cores_used(ctx), steps=ctx.steps,
-                                reps=1, wrf_tree=ctx.wrf_tree, positions=_proxy.PROXY_POSITIONS)
+                                reps=1, wrf_tree=ctx.wrf_tree, positions=1)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: skipped (%s) -- round0 keeps its own sample" % e)
         return configs
@@ -255,7 +257,8 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
     try:
         plan = _proxy.make_plan(case_dir, n, [_spec(c) for c in cfgs.values()], cores_used(ctx),
                                 steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=proxy_nodes,
-                                positions=_proxy.PROXY_POSITIONS, time_points=time_points)
+                                positions=_proxy.PROXY_POSITIONS if proxy_nodes > 1 else 1,
+                                time_points=time_points)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: N=%d skipped (%s)" % (n, e))
         return None, []
@@ -275,7 +278,7 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     groups = list(groups.values())
     # one job per layout up to the nodes there are: a nested or band run costs as much per step
     # as the real N-node run, so packing PROXY_RUNS_PER_JOB of them into a job serialises minutes
-    n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, len(groups)))
+    n_jobs = max(1, min(PROXY_JOB_NODES_FACTOR * ctx.max_nodes // nodes_per_job, len(groups)))
     job_ids, out_dirs = [], []
     for j in range(n_jobs):
         d = os.path.join(out_root, "%s%d" % (prefix, j))

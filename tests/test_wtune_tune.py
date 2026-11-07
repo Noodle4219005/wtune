@@ -2955,10 +2955,11 @@ def test_level_estimates_sc26p1_like_numbers_and_printout():
     job = lambda n: 2 * (120.0 + 30 * 0.1261 / n)                       # noqa: E731
     # t0 wave N in {1,2,4,8,10} packs into 3 waves ([1,2,4], [8], [10])
     assert lay[1] == pytest.approx(job(1) + job(8) + job(10))
-    assert lay[0] == 0.0 and lay[1] < lay[2] < lay[3]
+    # with the proxy, O2 (the one-node joint search) can cost less running time than O1's real sweep
+    assert lay[0] == 0.0 and lay[1] < lay[3] and lay[2] < lay[3]
     est = wtune.tune.level_estimates(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10,
                                      n_points=2)
-    assert est[1] < est[2] < est[3] and all(est[k] >= lay[k] for k in (1, 2, 3))
+    assert est[1] < est[3] and est[2] < est[3] and all(est[k] >= lay[k] for k in (1, 2, 3))
     text = wtune.tune.format_level_estimates(est, 2)
     assert text.startswith("O1 ≈ ") and "O2 ≈ " in text and "O3 ≈ " in text and "<-" in text
     assert text.endswith("(running time; queue wait extra)")
@@ -2974,38 +2975,32 @@ def test_o2_estimate_follows_the_proxy_rounds():
     from wtune.tune import estimates as E
     kw = dict(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10)
     real, prox = wtune.tune.layout_estimates(proxy=False, **kw), wtune.tune.layout_estimates(**kw)
-    # proxy runs: PROXY_MAX_STEPS = 10 steps, every layout at PROXY_POSITIONS = 2 crop positions
-    one = E.EST_PROXY_RUN_START_S + 10 * 0.1261 * sum(1.0 / n for n in range(1, 11)) / 10
-    band = E.EST_PROXY_RUN_START_S + 10 * 0.1261 * sum(1.0 / n for n in range(4, 11)) / 7
+    # proxy runs: PROXY_MAX_STEPS = 8 steps; the one-node pool at one crop position, leaders at
+    # PROXY_POSITIONS = 2; one job per layout, up to 4 x max_nodes = 40 jobs at once
+    st = lambda n: E.EST_PROXY_RUN_START_S + 8 * 0.1261 / n                            # noqa: E731
+    one = E.EST_PROXY_RUN_START_S + 8 * 0.1261 * sum(1.0 / n for n in range(1, 11)) / 10
+    band = E.EST_PROXY_RUN_START_S + 8 * 0.1261 * sum(1.0 / n for n in range(4, 11)) / 7
     r_run = 120.0 + 30 * 0.1261 / 4                                                    # N* = 4
-    # joint proxy: 10 N x 6 x 2 positions = 120 one-node runs on 10 jobs -> 12 each; 2 leaders x
-    # 7 N > 3 x 2 positions = 28 bands on min(10 // 3, ceil(28/4)) = 3 jobs -> 10 each; 2 finalists
-    # x (ANCHOR + 2) in 10 // 4 = 2 slots -> 2 rounds each; the 2 leaders of N=2 and of N=3 on
-    # their own nodes (the whole domain: one position), one job each (2 runs); no sweep,
-    # refinement or cores/node wave
-    full = 2 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 2) + 2 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 3)
-    assert prox[2] == pytest.approx(12 * one + 10 * band + full + 2 * 2 * r_run)
+    # 60 pool layouts on 40 jobs -> 2 rounds; 14 band leaders (2 x 7 N > 3) on min(40 // 3, 14) =
+    # 13 jobs -> 2 rounds of 2 positions; the 2 leaders of N=2 and of N=3 on their own nodes, one
+    # round; 2 finalists x (ANCHOR + 2) in 10 // 4 = 2 slots -> 2 rounds each
+    assert prox[2] == pytest.approx(2 * one + 2 * 2 * band + st(2) + st(3) + 2 * 2 * r_run)
     assert prox[2] < real[2]                       # no real t0 sweep before it
     assert prox[3] == real[3]                      # O3 enumerates the full space: no proxy
-    # 2 time points: the 28 bands become 56 (19 per job), each whole-domain leader 3 runs
-    full_t = 3 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 2) + 3 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 3)
+    # 2 time points: every band leader 4 runs, every whole-domain leader 3
     assert E.proxy_joint_s(120.0, 30, 0.1261, 10, time_points=2) == pytest.approx(
-        12 * one + 19 * band + full_t + 2 * 2 * r_run)
-    # max_nodes 3: 36 runs on 3 jobs, no band round, whole-domain leaders of N=2 and N=3,
-    # 2 finalists x 3 rounds in one slot
+        2 * one + 2 * 4 * band + 3 * (st(2) + st(3)) + 2 * 2 * r_run)
+    # max_nodes 3: 18 layouts on 12 jobs -> 2 rounds, no band round, the whole-domain leaders of
+    # N=2 and N=3, 2 finalists x 3 rounds in one slot
     assert E.proxy_joint_s(120.0, 30, 0.1261, 3) == pytest.approx(
-        12 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3)
-        + 2 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 2) + 2 * (E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 3)
+        2 * (E.EST_PROXY_RUN_START_S + 8 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3) + st(2) + st(3)
         + 2 * 3 * (120.0 + 30 * 0.1261 / 3))
-    s_run = E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 3
-    small = E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3)
-    # N=3: 18 layouts x 2 positions on 3 jobs, no band round
-    assert small == pytest.approx(12 * s_run + 3 * (120.0 + 30 * 0.1261 / 3))
-    b_run = E.EST_PROXY_RUN_START_S + 10 * 0.1261 / 8
-    # N=8: 36 one-node runs on 8 jobs (5 each), 4 band leaders x (2 positions + 1 time point) = 12
-    # on min(8 // 3, 3) = 2 jobs (6 each), 3 real probes in one slot
+    # round0 at N=3: 18 layouts on 12 jobs -> 2 rounds, no band round, 3 real probes in one slot
+    assert E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3) == pytest.approx(2 * st(3) + 3 * (120.0 + 30 * 0.1261 / 3))
+    # round0 at N=8: 18 layouts on 18 jobs, 4 band leaders x (2 positions + 1 time point) in one
+    # round, 3 real probes in one slot
     assert E.proxy_round0_s(120.0, 30, 0.1261 / 8, 8, 8, time_points=1) == pytest.approx(
-        5 * b_run + 6 * b_run + 3 * (120.0 + 30 * 0.1261 / 8))
+        4 * st(8) + 3 * (120.0 + 30 * 0.1261 / 8))
 
 
 def test_highest_level_within_never_below_o1():

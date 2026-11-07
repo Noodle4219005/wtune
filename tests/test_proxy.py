@@ -342,7 +342,7 @@ def test_nested_plan_is_one_cropped_run_per_layout_and_split_still_works(tmp_pat
     assert [(r["tag"], r["layout"], r["domain"], r["weight"], len(r["boxes"])) for r in plan["runs"]] == [
         ("16x18_o1_nt1", "16x18_o1_nt1", 1, 1, 2), ("12x12_o2_nt1", "12x12_o2_nt1", 1, 1, 2)]
     assert (plan["runs"][0]["nx"], plan["runs"][0]["ny"], plan["runs"][0]["ranks"]) == (420, 300, 144)
-    assert plan["steps"] == proxy.PROXY_MAX_STEPS == 10
+    assert plan["steps"] == proxy.PROXY_MAX_STEPS == 8
     split = proxy.make_plan(str(c), 2, ["16x18"], 144, nested="split")
     assert [(r["tag"], r["weight"], "boxes" in r) for r in split["runs"]] == [
         ("16x18_o1_nt1_d1", 1, False), ("16x18_o1_nt1_d2", 5, False)]

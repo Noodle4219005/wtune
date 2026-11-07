@@ -48,9 +48,9 @@ def test_proxy_keeps_the_anchor_and_the_proxys_fastest(tmp_path, monkeypatch):
     out = S.select(ctx, configs)
     assert [c["id"] for c in out] == ["ANCHOR", "D0001", "D0002"]       # anchor + the proxy's 2 fastest
     one = [p for p in submitted if p.get("proxy_nodes", 1) == 1]
-    # 6 layouts x 2 crop positions, the shifted one tagged _p1
-    assert sum(len(p["runs"]) for p in one) == 12 and ctx.owned_jobs[:2] == ["101", "102"]
-    assert sorted(r["tag"] for p in one for r in p["runs"] if r["pos"] == 1) == sorted(t + "_p1" for t in timings)
+    # the one-node pool: 6 layouts at one crop position, one job each
+    assert sum(len(p["runs"]) for p in one) == 6 and ctx.owned_jobs[:2] == ["101", "102"]
+    assert all(r["pos"] == 0 for p in one for r in p["runs"]) and all(len(p["runs"]) == 1 for p in one)
     bands = [p for p in submitted if p.get("proxy_nodes") == 3]            # N=4 > 3: the 4 leaders as bands
     assert sorted(r["layout"] for p in bands for r in p["runs"] if r["pos"] == 0) == [
         "12x24_o2_nt24", "18x32_o1_nt1", "9x64_o1_nt13"]   # 32x18: 144 ranks per node, not whole rows
@@ -162,8 +162,8 @@ def test_rank_across_nodes_times_every_n_in_one_plan_and_bands_the_leaders(tmp_p
     one = [r for p in submitted if p["proxy_nodes"] == 1 for r in p["runs"]]
     tags = [r["tag"] for r in one if r["pos"] == 0]
     assert sorted(tags) == sorted(timings) and all(r["layout"] == r["tag"] for r in one if r["pos"] == 0)
-    assert sorted(r["tag"] for r in one if r["pos"] == 1) == sorted(t + "_p1" for t in timings)
-    assert any(len({r["tag"].split("_")[0] for r in p["runs"]}) > 1 for p in submitted if p["proxy_nodes"] == 1)
+    assert all(r["pos"] == 0 for r in one)                          # the pool: one crop position
+    assert all(len({r["layout"] for r in p["runs"]}) == 1 for p in submitted)   # one layout per job
     bands = [r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"] if r["pos"] == 0]
     # the 2 one-node leaders of each N > 3; N=5's 20x36 holds no whole rows per node
     assert sorted(bands) == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1", "N5_24x30_o1_nt1"]
@@ -185,9 +185,7 @@ def test_rank_across_nodes_keeps_the_domain_suffix_of_a_nested_case(tmp_path, mo
         " parent_id = 0, 1,\n parent_time_step_ratio = 1, 3,\n /\n")
     _plan, runs = S._joint_plan(ctx, str(tmp_path / "case"), 2, {"16x18_o1_nt1": POOLS[2][0]}, 1)
     assert [(r["tag"], r["layout"]) for r in runs] == [("N2_16x18_o1_nt1_d1", "N2_16x18_o1_nt1"),
-                                                       ("N2_16x18_o1_nt1_d2", "N2_16x18_o1_nt1"),
-                                                       ("N2_16x18_o1_nt1_d1_p1", "N2_16x18_o1_nt1"),
-                                                       ("N2_16x18_o1_nt1_d2_p1", "N2_16x18_o1_nt1")]
+                                                       ("N2_16x18_o1_nt1_d2", "N2_16x18_o1_nt1")]
 
 
 def test_rank_across_nodes_is_empty_without_timings(tmp_path, monkeypatch):

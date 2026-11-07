@@ -268,3 +268,22 @@ def test_band_leaders_are_also_timed_at_the_time_points(tmp_path, monkeypatch):
     assert not [r for r in one if r.get("time")]                                # one-node pool: own time only
     assert sorted(r["tag"] for r in band if r.get("time")) == sorted(
         "%s_t%d" % (t, k) for t in ("12x24_o2_nt24", "9x64_o1_nt13", "18x32_o1_nt1") for k in (1, 2))
+
+
+def test_the_joint_pool_skips_layouts_the_proxy_cannot_run_and_fills_the_slots(tmp_path, monkeypatch):
+    shapes = [(20, 36), (30, 24), (36, 20), (40, 18), (18, 40), (45, 16), (16, 45), (48, 15)]
+    cyc = [dict(_cfg("C%04d" % i, *shapes[i]), dist="cyclic") for i in range(7)]
+    good = [_cfg("D%04d" % i, *xy) for i, xy in enumerate(shapes)]
+    pools = {5: [_cfg("ANCHOR", 24, 30)] + cyc + good}
+    asked = []
+    ctx, submitted = _joint(tmp_path, monkeypatch, pools, {}, {})
+
+    def sample(c, ex, k, seed):
+        asked.append(k)
+        return pools[c.nodes][1:k + 1]
+    monkeypatch.setattr(S, "sample_more_diverse_configs", sample)
+    S.rank_across_nodes(ctx, [5])
+    assert asked == [S.PROXY_POOL_OVERSAMPLE * (S.PROXY_JOINT_PER_N - 1)]
+    ids = sorted({r["layout"] for p in submitted for r in p["runs"]})
+    # the 7 cyclic twins skipped; the ANCHOR and the first 5 block layouts fill the 6 slots
+    assert ids == sorted(["N5_24x30_o1_nt1"] + ["N5_%dx%d_o1_nt1" % xy for xy in shapes[:5]])

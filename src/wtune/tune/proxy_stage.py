@@ -29,6 +29,7 @@ PROXY_POOL_FACTOR = 3          # pool = 3 x what round0 would measure
 PROXY_POOL_MAX = 24
 PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes at once: max_nodes caps the
                                # run being tuned, not the one-node tuning jobs (queue wait is not charged)
+PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
@@ -188,11 +189,13 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
         anchor = _sweep_anchor(cn, n)[0]
         if anchor is None:
             continue
-        more = _apply_search_filter(cn, sample_more_diverse_configs(cn, [anchor], PROXY_JOINT_PER_N - 1,
-                                                                    ctx.seed + n))
+        # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take the
+        # slots (Big Chill N=4, N=5: the ANCHOR alone was left)
+        more = _apply_search_filter(cn, sample_more_diverse_configs(
+            cn, [anchor], PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
         pool = {}
         for c in [anchor] + more:
-            if _spec(c):
+            if _spec(c) and len(pool) < PROXY_JOINT_PER_N:
                 pool.setdefault(_tag(c), c)
         plan, got = _joint_plan(cn, case_dir, n, pool, 1)
         if got:

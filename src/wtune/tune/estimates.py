@@ -10,6 +10,7 @@ from typing import Any
 
 import wtune.machine
 import wtune.nodes
+import wtune.proxy as _proxy
 
 LEVELS = {
     0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
@@ -57,44 +58,51 @@ def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes
     return {0: 0.0, 1: t1, 2: t2, 3: t3}
 
 
-def proxy_round0_s(startup_s: float, steps: int, s_n: float, n: int, max_nodes: int) -> float:
+def proxy_round0_s(startup_s: float, steps: int, s_n: float, n: int, max_nodes: int,
+                   time_points: int = 0) -> float:
     """RUNNING s of proxy_stage.select at N=n: the one-node pool (PROXY_POOL_FACTOR x the sample,
-    PROXY_RUNS_PER_JOB per job, up to max_nodes jobs at once), the band round of PROXY_BAND_KEEP
-    leaders when n > PROXY_BAND_NODES, then PROXY_REAL_KEEP real probes in max_nodes // n slots.
-    A proxy run gives each rank the target's patch, so its s/step is taken as the N-node `s_n`
-    and it starts in EST_PROXY_RUN_START_S; a nested case runs once per domain and takes longer.
-    The real probes start in `startup_s`."""
+    each at PROXY_POSITIONS crop positions, PROXY_RUNS_PER_JOB per job, up to max_nodes jobs at
+    once), the band round of PROXY_BAND_KEEP leaders (positions + `time_points`) when
+    n > PROXY_BAND_NODES, then PROXY_REAL_KEEP real probes in max_nodes // n slots. A proxy run of
+    min(steps, PROXY_MAX_STEPS) steps gives each rank the target's patch, so its s/step is taken
+    as the N-node `s_n` and it starts in EST_PROXY_RUN_START_S; a nested case runs once per domain
+    and takes longer. The real probes run `steps` steps and start in `startup_s`."""
     from . import proxy_stage as P
-    run = EST_PROXY_RUN_START_S + steps * s_n
-    pool = min(P.PROXY_POOL_MAX, P.PROXY_POOL_FACTOR * EST_ROUND0_CONFIGS)
+    run = EST_PROXY_RUN_START_S + min(steps, _proxy.PROXY_MAX_STEPS) * s_n
+    pool = min(P.PROXY_POOL_MAX, P.PROXY_POOL_FACTOR * EST_ROUND0_CONFIGS) * _proxy.PROXY_POSITIONS
     jobs = max(1, min(max_nodes, math.ceil(pool / P.PROXY_RUNS_PER_JOB)))
     t = math.ceil(pool / jobs) * run
     if n > P.PROXY_BAND_NODES and max_nodes >= P.PROXY_BAND_NODES:
-        bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(P.PROXY_BAND_KEEP / P.PROXY_RUNS_PER_JOB)))
-        t += math.ceil(P.PROXY_BAND_KEEP / bands) * run
+        nb = P.PROXY_BAND_KEEP * (_proxy.PROXY_POSITIONS + time_points)
+        bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(nb / P.PROXY_RUNS_PER_JOB)))
+        t += math.ceil(nb / bands) * run
     return t + math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // n)) * (startup_s + steps * s_n)
 
 
-def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int) -> float:
+def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int, time_points: int = 0) -> float:
     """RUNNING s of the O2 joint proxy search (node_search._run_node_search_proxy), legal N taken as
-    1..max_nodes: PROXY_JOINT_PER_N one-node runs per N (PROXY_RUNS_PER_JOB per job, up to
-    max_nodes jobs at once, s/step the mean of s1/N), the band round of PROXY_JOINT_LEADERS per
-    N > PROXY_BAND_NODES (s/step the mean of their s1/N), the whole-domain leaders of each
-    1 < N <= PROXY_BAND_NODES on N nodes, then PROXY_JOINT_FINALISTS finalists one
-    after the other, each ANCHOR + 2 real probes at N* = min(4, max_nodes) in max_nodes // N* slots."""
+    1..max_nodes: PROXY_JOINT_PER_N one-node layouts per N at PROXY_POSITIONS crop positions each
+    (PROXY_RUNS_PER_JOB per job, up to max_nodes jobs at once, s/step the mean of s1/N), the band
+    round of PROXY_JOINT_LEADERS per N > PROXY_BAND_NODES at the positions plus `time_points`
+    (s/step the mean of their s1/N), the whole-domain leaders of each 1 < N <= PROXY_BAND_NODES on
+    N nodes (one position, plus the time points), every proxy run min(steps, PROXY_MAX_STEPS)
+    steps; then PROXY_JOINT_FINALISTS finalists one after the other, each ANCHOR + 2 real probes
+    of `steps` steps at N* = min(4, max_nodes) in max_nodes // N* slots."""
     from . import proxy_stage as P
+    ps, npos = min(steps, _proxy.PROXY_MAX_STEPS), _proxy.PROXY_POSITIONS
     ns = range(1, max_nodes + 1)
-    runs = max_nodes * P.PROXY_JOINT_PER_N
+    runs = max_nodes * P.PROXY_JOINT_PER_N * npos
     jobs = max(1, min(max_nodes, math.ceil(runs / P.PROXY_RUNS_PER_JOB)))
-    t = math.ceil(runs / jobs) * (EST_PROXY_RUN_START_S + steps * s1 * sum(1.0 / n for n in ns) / max_nodes)
+    t = math.ceil(runs / jobs) * (EST_PROXY_RUN_START_S + ps * s1 * sum(1.0 / n for n in ns) / max_nodes)
     big = [n for n in ns if n > P.PROXY_BAND_NODES] if max_nodes >= P.PROXY_BAND_NODES else []
     if big:
-        nb = P.PROXY_JOINT_LEADERS * len(big)
+        nb = P.PROXY_JOINT_LEADERS * len(big) * (npos + time_points)
         bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(nb / P.PROXY_RUNS_PER_JOB)))
-        t += math.ceil(nb / bands) * (EST_PROXY_RUN_START_S + steps * s1 * sum(1.0 / n for n in big) / len(big))
+        t += math.ceil(nb / bands) * (EST_PROXY_RUN_START_S + ps * s1 * sum(1.0 / n for n in big) / len(big))
     for n in range(2, min(P.PROXY_BAND_NODES, max_nodes) + 1):     # whole-domain leaders on n nodes
-        jobs_n = max(1, min(max_nodes // n, math.ceil(P.PROXY_JOINT_LEADERS / P.PROXY_RUNS_PER_JOB)))
-        t += math.ceil(P.PROXY_JOINT_LEADERS / jobs_n) * (EST_PROXY_RUN_START_S + steps * s1 / n)
+        nf = P.PROXY_JOINT_LEADERS * (1 + time_points)
+        jobs_n = max(1, min(max_nodes // n, math.ceil(nf / P.PROXY_RUNS_PER_JOB)))
+        t += math.ceil(nf / jobs_n) * (EST_PROXY_RUN_START_S + ps * s1 / n)
     nstar = max(1, min(4, max_nodes))
     finals = min(P.PROXY_JOINT_FINALISTS, max_nodes)
     return t + finals * math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // nstar)) * (startup_s + steps * s1 / nstar)

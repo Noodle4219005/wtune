@@ -229,7 +229,8 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         configs0 = proxy_stage.select(ctx, configs0)
 
     wave_slots = _proxy_slots(ctx, slots)
-    if ctx.proxy_used and wave_slots >= 2 * len(configs0):
+    if ctx.proxy_used and 2 * len(configs0) * ctx.nodes <= ROUND0_TWICE_NODES_FACTOR * ctx.max_nodes:
+        wave_slots = max(wave_slots, 2 * len(configs0))
         # nodes for two runs of each pick at once: the race's second run goes with the first
         print("round0: %d config(s) x 2 runs, one job each" % len(configs0))
         configs0 = configs0 + configs0
@@ -534,6 +535,9 @@ def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
     print("recheck: %s clean re-measure %.4f s/step (was %.4f)" % (cid, again["median"],
                                                                  best["median"]))
     all_results[cid] = again
+
+
+ROUND0_TWICE_NODES_FACTOR = 6   # round0 after the proxy: ANCHOR + 2 picks x 2 runs at N = max_nodes
 
 
 def _proxy_slots(ctx: Ctx, slots: int) -> int:

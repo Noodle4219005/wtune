@@ -890,6 +890,12 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
     pipe.frames_deleted = 0 if keep_frames else _delete_window_frames(ctx, st.frame_runs)
     _attach_phase_timing(ctx, pipe.phases, st.slices)
 
+    best = report.get("best") or {}
+    if not pred and not pipe.T_updated_s and st.total_steps and best.get("median_s_per_step"):
+        # the joint proxy search has no node-sweep callback: the winner's measured s/step instead
+        # (phase 2 needs rebuilt points; with no WPS the report said "predicted real run 0:00")
+        pipe.T_updated_compute_s = st.total_steps * best["median_s_per_step"]
+        pipe.T_updated_s = pipe.T_updated_compute_s + ctx.startup_s
     running = ctx.elapsed() - t_start
     predicted_real = (pred.predicted_total_s if pred else
                       (if_set(pipe.T_updated_compute_s, pipe.T_updated_s - ctx.startup_s)

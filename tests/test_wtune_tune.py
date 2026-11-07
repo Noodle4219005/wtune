@@ -3941,3 +3941,23 @@ def test_the_project_bdeck_reaches_the_case(tmp_path, monkeypatch):
     monkeypatch.chdir(p)
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     assert wtune.advise._project_bdeck_default() == str(bdeck)
+
+
+def test_without_phase2_the_whole_run_comes_from_the_winners_s_per_step(monkeypatch, capsys):
+    from wtune.tune import pipeline as PL
+    ctx = _ctx(clock=FakeClock(), budget_s=float("inf"))
+    st = PL._pipeline_start(ctx, None, 2, False, False, None, 1000, False)
+    monkeypatch.setattr(PL, "_delete_window_frames", lambda ctx, runs: 0)
+    monkeypatch.setattr(PL, "_attach_phase_timing", lambda ctx, phases, slices: None)
+    report = dict(best=dict(median_s_per_step=3.4))          # joint proxy: no node-sweep callback
+    out = PL._pipeline_finish(st, report, None, None, 0.1, None, [], True)
+    assert out["pipeline"]["predicted_real_s"] == pytest.approx(1000 * 3.4 + ctx.startup_s)
+    assert out["pipeline"]["predicted_real_source"] == "phase-1 anchor s/step x steps"
+
+
+def test_a_disk_guard_abort_stops_the_tune_instead_of_dropping_the_n():
+    from wtune.tune import candidates
+    rows = [dict(run_id="conus25-e60237_ANCHOR_r1_2026498", job_id="2026498", s_per_step_median="",
+                 notes="status=ABORTED reason=low_disk free_gib=2.722 min_free_gib=5 context=ANCHOR_r1")]
+    with pytest.raises(SystemExit, match="disk guard"):
+        candidates.aggregate_by_cid(rows, {})

@@ -101,6 +101,12 @@ def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
     by_cid: dict = {}
     dirty: dict = {}
     for r in rows:
+        notes = r.get("notes") or ""
+        if "reason=low_disk" in notes:
+            # the runner's disk guard stopped the job before it ran: not a layout's failure, and
+            # every probe after it would stop the same way (f1-arm conus25: 5 N dropped silently)
+            raise SystemExit("ERROR: job %s stopped by the disk guard (%s) -- free space on the "
+                               "run filesystem, then tune again" % (r.get("job_id") or "?", notes.strip()))
         parsed = parse_run_id(r.get("run_id"))
         if not parsed:
             continue

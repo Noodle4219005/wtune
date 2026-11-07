@@ -12,6 +12,17 @@ single domain and summed by its steps per d01 step (a fine nest can then go CFL-
 the frozen boundary). A box that is the whole of domain 1 uses the case's own wrfinput_d01 and
 wrfbdy_d01 (a whole nest its own wrfinput_d0N).
 
+Each layout is timed at PROXY_POSITIONS crop positions (crop_offset: centred, and shifted a
+quarter of the free range along the longer free axis) and scored by the median over them.
+Time points: a layout can also be timed on the case's state at other times, cropped the same way
+(make_plan time_points; `--time-points DIR...`). A directory qualifies (time_point_ok) with
+wrfinput_d01 and wrfbdy_d01 on the case's grid (e_we/e_sn of its namelist.input, when it has
+one); its wrfinput_d0N are used for the nests (a missing one is interpolated by WRF) and the run
+starts at its wrfinput_d01's time. tune's prediction-point rebuild leaves exactly that, real.exe's
+output, in <tune out>/rebuilt/pt_<i>/win_0/real (pt_<i>/namelist.template.input once the job has
+completed), where `wtune tune`'s leader rounds look (PROXY_TIME_POINTS of them). Nothing is
+fetched: without such directories only the case's own state is timed.
+
   wtune proxy plan   CASE --nodes N --layout 18x64 [--layout 9x32:omp=2:nt=24 ...]
   wtune proxy submit CASE --nodes N --layout ... [--steps 10] [--reps 2] [--out DIR] [--dry-run]
   wtune proxy collect DIR
@@ -66,6 +77,7 @@ PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation
 PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
 PROXY_MAX_STEPS = 10        # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
 PROXY_POSITIONS = 2         # crop positions per layout: centred and crop_offset's shifted one
+PROXY_TIME_POINTS = 2       # states at other times a leader is also timed on, when there are any
 
 
 def nl_values(text, key):
@@ -503,7 +515,8 @@ def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None, place="centr
 
 # -------------------------------------------------------------------------------------- plan
 def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tree=None,
-              wrf_tree_omp=None, proxy_nodes=1, place="centre", bdy_width=None, nested="crop", positions=1):
+              wrf_tree_omp=None, proxy_nodes=1, place="centre", bdy_width=None, nested="crop", positions=1,
+              time_points=()):
     """One proxy run per layout (and domain, when split) and crop position, at most PROXY_MAX_STEPS
     steps. A nested case runs as ONE nested run with every domain cropped (nested "crop",
     nest_crop_boxes; its domain-1 timing includes the nests), or, with "split" or where the crop
@@ -511,7 +524,8 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
     px x py patch rule; collect() adds those up weighted by each domain's steps per d01 step.
     proxy_nodes > 1 runs band proxies (band_shape; nested: nest_crop_boxes' band) on that many
     nodes instead of one. positions > 1 adds crop_offset's shifted position (tag suffix _p1, pos 1)
-    where it can be placed; position 0 keeps the plain tag."""
+    where it can be placed; position 0 keeps the plain tag. Each of `time_points` (directories of
+    states at other times, time_point_ok) adds position 0 cropped from that state (_t<k>, time k)."""
     text = open(os.path.join(case_dir, "namelist.input")).read()
     layers = domain_layers(text)
     margin = (bdy_width or int(nl_get(text, "spec_bdy_width") or 5)) + 1
@@ -529,8 +543,11 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
         if got is None:
             skipped.append(spec)
             continue
+        at0 = list(got)
         for p in range(1, positions):
             got += [dict(r, tag="%s_p%d" % (r["tag"], p)) for r in _layout_runs(*args, nest, p) or []]
+        for k, src in enumerate(time_points, 1):
+            got += [dict(r, tag="%s_t%d" % (r["tag"], k), time=k, src=os.path.abspath(src)) for r in at0]
         runs += [dict(r, wrf_tree=tree) for r in got]
     return dict(case_dir=os.path.abspath(case_dir), nodes=nodes, proxy_nodes=proxy_nodes,
                 steps=min(steps, PROXY_MAX_STEPS),
@@ -673,6 +690,8 @@ def _run(plan, r, rep, out, scratch, retry=False):
                     **_quiet_output(base_nl))
     if bw:
         nl = nl_force(nl, spec_bdy_width=bw, spec_zone=1, relax_zone=bw - 1, spec_exp=PROXY_SPEC_EXP)
+    if r.get("src"):
+        nl = nl_set(nl, **_start_kv(nl, os.path.join(r["src"], "wrfinput_d01")))
     open(os.path.join(d, "namelist.input"), "w").write(nl)
     if not retry:
         _null_rsl(d, r["ranks"])
@@ -691,7 +710,7 @@ def _run(plan, r, rep, out, scratch, retry=False):
     steps = _step_times(os.path.join(d, "rsl.error.0000"))
     ok = rc == 0 and len(steps) >= max(10, plan["steps"] // 2)
     rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
-               pos=r.get("pos", 0), rep=rep, rc=rc, steps=len(steps), ok=ok,
+               pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=rc, steps=len(steps), ok=ok,
                median=statistics.median(steps[1:]) if len(steps) > 1 else None,
                px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
                proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]), run_dir=d)
@@ -716,14 +735,16 @@ def _inputs(plan, r, scratch, layers):
     """{file name in the run directory: path} for run r: the case's own d01 files for a whole
     domain 1, otherwise crops cached per box in `scratch`. A nested crop run (r["boxes"]) gets
     every domain's wrfinput (a nest without one in the case is interpolated by WRF; a whole nest
-    is the case's own file) plus wrfbdy_d01."""
-    case, place, bw = plan["case_dir"], plan.get("place", "centre"), plan.get("bdy_width")
+    is the case's own file) plus wrfbdy_d01. A time-point run (r["src"]) takes them from its
+    state directory instead of the case's."""
+    case, place, bw = r.get("src") or plan["case_dir"], plan.get("place", "centre"), plan.get("bdy_width")
     dom, files = r.get("domain", 1), {}
+    tk = "_t%d" % r["time"] if r.get("time") else ""
     if whole_domain(plan, r):
         files = {f: os.path.join(case, f) for f in ("wrfinput_d01", "wrfbdy_d01")}
     elif not r.get("boxes"):
         at = "%d_%d" % (r["i0"], r["j0"]) if r.get("i0") is not None else place
-        box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s" % (dom, r["nx"], r["ny"], at, bw or "src"))
+        box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s%s" % (dom, r["nx"], r["ny"], at, bw or "src", tk))
         if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
             os.makedirs(box, exist_ok=True)
             crop(os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
@@ -740,8 +761,8 @@ def _inputs(plan, r, scratch, layers):
         if d > 1 and ly and (bx["nx"], bx["ny"]) == (ly["e_we"] - 1, ly["e_sn"] - 1):
             files[name] = src
             continue
-        box = os.path.join(scratch, "n%d_%dx%d_%d_%d_p%d_%d_bw%s" % (
-            d, bx["nx"], bx["ny"], bx["i0"], bx["j0"], bx["i_parent_start"], bx["j_parent_start"], bw or "src"))
+        box = os.path.join(scratch, "n%d_%dx%d_%d_%d_p%d_%d_bw%s%s" % (
+            d, bx["nx"], bx["ny"], bx["i0"], bx["j0"], bx["i_parent_start"], bx["j_parent_start"], bw or "src", tk))
         last = os.path.join(box, "wrfbdy_d01" if d == 1 else name)
         if not os.path.exists(last):
             os.makedirs(box, exist_ok=True)
@@ -752,6 +773,32 @@ def _inputs(plan, r, scratch, layers):
         if d == 1:
             files["wrfbdy_d01"] = os.path.join(box, "wrfbdy_d01")
     return files
+
+
+def _start_kv(text, wrfinput):
+    """The namelist's start_year..start_second set to the first time of `wrfinput` (a time
+    point's state), so the run starts at that state's time."""
+    import datetime as dt
+    import netCDF4 as nc
+    with nc.Dataset(wrfinput) as S:
+        t = dt.datetime.strptime(str(nc.chartostring(S.variables["Times"][:])[0]), "%Y-%m-%d_%H:%M:%S")
+    kv = dict(start_year=t.year, start_month=t.month, start_day=t.day, start_hour=t.hour,
+              start_minute=t.minute, start_second=t.second)
+    return {k: v for k, v in kv.items() if nl_get(text, k) is not None}
+
+
+def time_point_ok(case_dir, d):
+    """None when directory d holds a state usable as a time point of the case (wrfinput_d01 and
+    wrfbdy_d01; when it has a namelist.input, the case's e_we/e_sn), else the reason."""
+    missing = [f for f in ("wrfinput_d01", "wrfbdy_d01") if not os.path.exists(os.path.join(d, f))]
+    if missing:
+        return "no %s" % "/".join(missing)
+    nl = os.path.join(d, "namelist.input")
+    if os.path.exists(nl):
+        mine, case = open(nl).read(), open(os.path.join(case_dir, "namelist.input")).read()
+        if any(nl_values(mine, k) != nl_values(case, k) for k in ("e_we", "e_sn")):
+            return "e_we/e_sn differ from the case's"
+    return None
 
 
 def _null_rsl(d, ranks):
@@ -842,10 +889,10 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=
 def collect(out_dir):
     """Layouts ranked by s per d01 step: for a nested case split into its domains the sum over
     them of weight x median (a layout with any domain missing is left out); a nested crop run's
-    domain-1 timing already includes its nests. Each crop position is scored on its own (the
-    median over its reps) and a layout's score is the median over its positions; "positions"
-    holds {pos: score}."""
-    per = {}          # layout -> pos -> rep -> domain -> (weight, median)
+    domain-1 timing already includes its nests. Each (crop position, time point) is scored on its
+    own (the median over its reps) and a layout's score is the median over them; "positions"
+    holds {pos: score} at the case's own time, "times" {time: score} at position 0."""
+    per = {}          # layout -> (pos, time) -> rep -> domain -> (weight, median)
     domains, whole = {}, set()
     try:
         n_dom = json.load(open(os.path.join(out_dir, "plan.json"))).get("max_dom", 1)
@@ -858,21 +905,22 @@ def collect(out_dir):
         if r.get("nested") == "crop":
             whole.add(lay)
         if r["rc"] == 0 and r["median"] and r.get("ok", True):
-            per.setdefault(lay, {}).setdefault(r.get("pos", 0), {}).setdefault(r["rep"], {})[dom] = (
-                r.get("weight", 1), r["median"])
+            pt = (r.get("pos", 0), r.get("time", 0))
+            per.setdefault(lay, {}).setdefault(pt, {}).setdefault(r["rep"], {})[dom] = (r.get("weight", 1), r["median"])
     rows = []
-    for lay, by_pos in per.items():
+    for lay, by_pt in per.items():
         want = {1} if lay in whole else set(range(1, n_dom + 1)) if n_dom else domains[lay]
-        pos, scores = {}, []
-        for p, reps in sorted(by_pos.items()):
+        pts, scores = {}, []
+        for pt, reps in sorted(by_pt.items()):
             got = [sum(w * m for w, m in g.values()) for g in reps.values() if set(g) >= want]
             if got:
-                pos[p] = statistics.median(got)
+                pts[pt] = statistics.median(got)
                 scores += got
-        if pos:
-            m = statistics.median(pos.values())
+        if pts:
+            m = statistics.median(pts.values())
             rows.append(dict(tag=lay, median=m, reps=scores, spread=(max(scores) - min(scores)) / m,
-                             positions=pos))
+                             positions={p: v for (p, t), v in pts.items() if t == 0},
+                             times={t: v for (p, t), v in pts.items() if p == 0}))
     return sorted(rows, key=lambda r: r["median"])
 
 
@@ -906,6 +954,9 @@ def main(argv=None):
                        help="1: one-node proxy (default); M>1: band proxy on M nodes (full width)")
         p.add_argument("--positions", type=int, default=PROXY_POSITIONS,
                        help="crop positions per layout: 1 centred, 2 + a shifted one (default %d)" % PROXY_POSITIONS)
+        p.add_argument("--time-points", nargs="+", default=[], metavar="DIR",
+                       help="directories of the case's states at other times (wrfinput_d0N + wrfbdy_d01, "
+                            "e.g. a tune's rebuilt/pt_<i>/win_0/real); each layout is also timed on each")
         if name == "submit":
             p.add_argument("--out", default=None)
             p.add_argument("--time", default="01:00:00")
@@ -924,8 +975,15 @@ def main(argv=None):
         return 0 if rows else 1
 
     tree = a.wrf_tree or wtune.machine.wrf_tree()
+    points = []
+    for d in a.time_points:
+        why = time_point_ok(a.case_dir, d)
+        if why:
+            print("%s: not a time point (%s), skipped" % (d, why))
+        else:
+            points.append(d)
     plan = make_plan(a.case_dir, a.nodes, a.layout, wtune.machine.cores_per_node(), a.steps, a.reps,
-                     tree, a.wrf_tree_omp, a.proxy_nodes, a.place, a.bdy_width, a.nested, a.positions)
+                     tree, a.wrf_tree_omp, a.proxy_nodes, a.place, a.bdy_width, a.nested, a.positions, points)
     for r in plan["runs"]:
         print("%-20s proxy %3d ranks (%dx%d) on %d node(s) box %dx%d%s  build %s" % (
             r["tag"], r["ranks"], r["a"], r["b"], r.get("nodes", 1), r["nx"], r["ny"],

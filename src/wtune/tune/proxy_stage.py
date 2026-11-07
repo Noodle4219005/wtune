@@ -16,6 +16,7 @@ Every proxied layout is timed at wtune.proxy.PROXY_POSITIONS crop positions and 
 median over them; the joint search also reports whether an N's positions agree on its fastest.
 """
 import dataclasses
+import glob
 import math
 import os
 
@@ -207,11 +208,13 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
     # leaders re-timed so N compare: a band beyond PROXY_BAND_NODES, the whole domain on N nodes
     # at 2..PROXY_BAND_NODES (one node alone reads 0-18 % low); N=1's one-node run is the whole domain
     band, by_size = {}, {}
+    sizes = [PROXY_BAND_NODES if n > PROXY_BAND_NODES else n for n in one]
+    points = _time_points(ctx, case_dir) if any(1 < z <= ctx.max_nodes for z in sizes) else []
     for n in sorted(one):
         size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
         if size > 1 and ctx.max_nodes >= size:
             lead = sorted(one[n], key=one[n].get)[:PROXY_JOINT_LEADERS]
-            plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, size)
+            plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, size, points)
             if got:
                 prev = by_size.get(size, (plan, []))
                 by_size[size] = (prev[0], prev[1] + got)
@@ -245,14 +248,14 @@ def _same_fastest(*sources):
     return True
 
 
-def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes):
+def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
     """make_plan at N for {tag: config}, builds checked, every run's tag and layout prefixed
     N<n>_ so that all N share one plan (the worker reads no plan-level N). (plan, runs), or
     (None, []) when N cannot be planned."""
     try:
         plan = _proxy.make_plan(case_dir, n, [_spec(c) for c in cfgs.values()], cores_used(ctx),
                                 steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=proxy_nodes,
-                                positions=_proxy.PROXY_POSITIONS)
+                                positions=_proxy.PROXY_POSITIONS, time_points=time_points)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: N=%d skipped (%s)" % (n, e))
         return None, []
@@ -308,7 +311,7 @@ def _band_round(ctx, case_dir, pool, timed, out_root):
     try:
         plan = _proxy.make_plan(case_dir, ctx.nodes, [_spec(c) for c in leaders[:PROXY_BAND_KEEP]], cores_used(ctx),
                                 steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=PROXY_BAND_NODES,
-                                positions=_proxy.PROXY_POSITIONS)
+                                positions=_proxy.PROXY_POSITIONS, time_points=_time_points(ctx, case_dir))
     except (ValueError, OSError, KeyError) as e:
         print("proxy: band round skipped (%s)" % e)
         return {}
@@ -318,3 +321,23 @@ def _band_round(ctx, case_dir, pool, timed, out_root):
         print("proxy: band round skipped (no leader holds whole process-grid rows per node)")
         return {}
     return _run_jobs(ctx, plan, runs, out_root, "band", PROXY_BAND_NODES) or {}
+
+
+def _time_points(ctx, case_dir):
+    """The leaders' time points (wtune.proxy module docstring): the first PROXY_TIME_POINTS
+    completed prediction-point rebuilds of this tune, <out_dir>/rebuilt/pt_<i>/win_0/real; [] with
+    a note when there are none (nothing is fetched)."""
+    root = os.path.join(ctx.out_dir, "rebuilt")
+    done = sorted(glob.glob(os.path.join(root, "pt_*", "namelist.template.input")),
+                  key=lambda f: (len(f), f))          # pt_2 before pt_10
+    points = []
+    for f in done:
+        d = os.path.join(os.path.dirname(f), "win_0", "real")
+        why = _proxy.time_point_ok(case_dir, d)
+        if why:
+            print("proxy: %s is not a time point (%s)" % (d, why))
+        else:
+            points.append(d)
+    if not points:
+        print("proxy: no completed rebuilt state in %s -- leaders timed at the case's own time only" % root)
+    return points[:_proxy.PROXY_TIME_POINTS]

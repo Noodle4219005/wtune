@@ -229,3 +229,33 @@ def test_rank_across_nodes_flags_an_n_whose_crop_positions_disagree(tmp_path, mo
     assert same == {4: False, 5: True}             # N=5: one band leader only, its one-node pool agrees
     assert [(S._tag(c), t) for c, t, _f in out[4][:2]] == [("24x24_o1_nt1", 0.465), ("12x24_o2_nt24", 0.47)]
     assert S._same_fastest({"a": {0: 1.0}, "b": {0: 2.0, 1: 1.0}}, {"a": {0: 1, 1: 2}, "b": {0: 2, 1: 1}}) is False
+
+
+def test_time_points_are_the_completed_rebuilds_of_this_tune(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    case = os.path.dirname(ctx.namelist_path)
+    assert S._time_points(ctx, case) == [] and "no completed rebuilt state" in capsys.readouterr().out
+    for i in (0, 1, 2, 10):
+        real = os.path.join(ctx.out_dir, "rebuilt", "pt_%d" % i, "win_0", "real")
+        os.makedirs(real)
+        for f in ("wrfinput_d01", "wrfbdy_d01"):
+            open(os.path.join(real, f), "w").write("x")
+        if i != 1:                                       # pt_1's real_only job has not completed
+            open(os.path.join(ctx.out_dir, "rebuilt", "pt_%d" % i, "namelist.template.input"), "w").write("x")
+    got = S._time_points(ctx, case)
+    assert [p.split(os.sep)[-3] for p in got] == ["pt_0", "pt_2"]
+
+
+def test_band_leaders_are_also_timed_at_the_time_points(tmp_path, monkeypatch):
+    configs = [_cfg("ANCHOR", 24, 24), _cfg("G0001", 32, 18), _cfg("G0002", 16, 36)]
+    extra = [_cfg("D0001", 12, 24, omp=2, nt=24), _cfg("D0002", 9, 64, nt=13), _cfg("D0003", 18, 32)]
+    timings = {"24x24_o1_nt1": 0.51, "32x18_o1_nt1": 0.56, "16x36_o1_nt1": 0.65,
+               "12x24_o2_nt24": 0.40, "9x64_o1_nt13": 0.42, "18x32_o1_nt1": 0.50}
+    submitted = _patch(monkeypatch, extra, timings)
+    monkeypatch.setattr(S, "_time_points", lambda ctx, case: ["/pts/a", "/pts/b"])
+    S.select(_ctx(tmp_path), configs)
+    one = [r for p in submitted if p.get("proxy_nodes", 1) == 1 for r in p["runs"]]
+    band = [r for p in submitted if p.get("proxy_nodes") == 3 for r in p["runs"]]
+    assert not [r for r in one if r.get("time")]                                # one-node pool: own time only
+    assert sorted(r["tag"] for r in band if r.get("time")) == sorted(
+        "%s_t%d" % (t, k) for t in ("12x24_o2_nt24", "9x64_o1_nt13", "18x32_o1_nt1") for k in (1, 2))

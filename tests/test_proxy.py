@@ -582,3 +582,58 @@ def test_collect_scores_a_layout_by_the_median_over_its_crop_positions(tmp_path)
     out = {r["tag"]: r for r in proxy.collect(str(tmp_path))}
     assert out["A"]["positions"] == {0: pytest.approx(0.41), 1: 0.50}
     assert out["A"]["median"] == pytest.approx((0.41 + 0.50) / 2) and out["B"]["positions"] == {0: 0.45}
+
+
+def test_time_points_add_position_zero_runs_cropped_from_each_state(tmp_path, monkeypatch):
+    plan = proxy.make_plan(_case(tmp_path), 8, ["18x64"], 144, positions=2, time_points=["/pts/a", "/pts/b"])
+    assert [(r["tag"], r["pos"], r.get("time", 0), r.get("src")) for r in plan["runs"]] == [
+        ("18x64_o1_nt1", 0, 0, None), ("18x64_o1_nt1_p1", 1, 0, None),
+        ("18x64_o1_nt1_t1", 0, 1, "/pts/a"), ("18x64_o1_nt1_t2", 0, 2, "/pts/b")]
+    calls = []
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((a[0], a[1], a[2])))
+    files = proxy._inputs(plan, plan["runs"][2], str(tmp_path / "s"), {})
+    assert calls[0][:2] == ("/pts/a/wrfinput_d01", "/pts/a/wrfbdy_d01") and calls[0][2].endswith("_t1")
+    whole = dict(case_dir="/case", e_we=561, e_sn=450, max_dom=1)
+    assert proxy._inputs(whole, dict(domain=1, nx=560, ny=449, time=1, src="/pts/a"), str(tmp_path), {}) == {
+        "wrfinput_d01": "/pts/a/wrfinput_d01", "wrfbdy_d01": "/pts/a/wrfbdy_d01"}
+    assert files["wrfinput_d01"].startswith(str(tmp_path / "s"))
+
+
+def test_time_point_needs_both_files_on_the_cases_grid(tmp_path):
+    case = _case(tmp_path)
+    d = tmp_path / "pt"
+    d.mkdir()
+    (d / "wrfinput_d01").write_text("x")
+    assert proxy.time_point_ok(case, str(d)) == "no wrfbdy_d01"
+    (d / "wrfbdy_d01").write_text("x")
+    assert proxy.time_point_ok(case, str(d)) is None                       # no namelist: taken as is
+    (d / "namelist.input").write_text(" &domains\n e_we = 1501,\n e_sn = 1201,\n /\n")
+    assert proxy.time_point_ok(case, str(d)) is None
+    (d / "namelist.input").write_text(" &domains\n e_we = 1501,\n e_sn = 1001,\n /\n")
+    assert "differ" in proxy.time_point_ok(case, str(d))
+
+
+def test_a_time_point_run_starts_at_its_states_time(tmp_path):
+    nc = pytest.importorskip("netCDF4")
+    np = pytest.importorskip("numpy")
+    I = nc.Dataset(tmp_path / "wrfinput_d01", "w", format="NETCDF3_64BIT_OFFSET")
+    I.createDimension("Time", None)
+    I.createDimension("DateStrLen", 19)
+    I.createVariable("Times", "S1", ("Time", "DateStrLen"))[0, :] = np.array(list("2024-07-02_06:30:00"), dtype="S1")
+    I.close()
+    text = (" &time_control\n start_year = 2024, 2024,\n start_month = 07, 07,\n start_day = 01, 01,\n"
+            " start_hour = 00, 00,\n start_minute = 00, 00,\n /\n")
+    nl = proxy.nl_set(text, **proxy._start_kv(text, str(tmp_path / "wrfinput_d01")))
+    for k, v in (("start_day", "2"), ("start_hour", "6"), ("start_minute", "30"), ("start_month", "7")):
+        assert proxy.nl_values(nl, k) == [v], k
+    assert "start_second" not in nl                                        # absent keys are not added
+
+
+def test_collect_scores_time_points_with_the_positions(tmp_path):
+    rows = [dict(tag="A", rep=1, rc=0, median=0.40), dict(tag="A_p1", layout="A", pos=1, rep=1, rc=0, median=0.44),
+            dict(tag="A_t1", layout="A", time=1, rep=1, rc=0, median=0.50),
+            dict(tag="A_t2", layout="A", time=2, rep=1, rc=0, median=0.52)]
+    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (row,) = proxy.collect(str(tmp_path))
+    assert row["median"] == pytest.approx((0.44 + 0.50) / 2)                # median of the 4 (position, time) runs
+    assert row["positions"] == {0: 0.40, 1: 0.44} and row["times"] == {0: 0.40, 1: 0.50, 2: 0.52}

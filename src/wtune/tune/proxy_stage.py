@@ -273,7 +273,9 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     for r in runs:
         groups.setdefault(r.get("layout", r["tag"]), []).append(r)
     groups = list(groups.values())
-    n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, math.ceil(len(runs) / PROXY_RUNS_PER_JOB), len(groups)))
+    # one job per layout up to the nodes there are: a nested or band run costs as much per step
+    # as the real N-node run, so packing PROXY_RUNS_PER_JOB of them into a job serialises minutes
+    n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, len(groups)))
     job_ids, out_dirs = [], []
     for j in range(n_jobs):
         d = os.path.join(out_root, "%s%d" % (prefix, j))

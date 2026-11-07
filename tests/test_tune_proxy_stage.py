@@ -213,14 +213,14 @@ def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, mon
     runs = [dict(tag=t) for t in "ABCDEF"]
     ctx = _ctx(tmp_path)
     assert S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o"), "job", 1) == {"A": 0.5}
-    assert dropped == ["job0", "job1"]
+    assert dropped == ["job%d" % j for j in range(6)]               # one job per layout, max_nodes 8
 
 
 def test_run_jobs_keeps_a_layouts_runs_in_one_job(tmp_path, monkeypatch):
     submitted = _patch(monkeypatch, [], {})
     runs = [dict(tag=t + s, layout=t) for t in "ABCDE" for s in ("", "_p1", "_t1")]
     S._run_jobs(_ctx(tmp_path), dict(runs=runs), runs, str(tmp_path / "o"), "job", 1)
-    assert len(submitted) == 4                                     # ceil(15 / 4) jobs, max_nodes 8
+    assert len(submitted) == 5                                     # one job per layout (5), max_nodes 8
     for p in submitted:
         lays = {r["layout"] for r in p["runs"]}
         assert all(sum(r["layout"] == x for r in p["runs"]) == 3 for x in lays)

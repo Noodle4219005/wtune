@@ -502,7 +502,7 @@ def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp
             "Timing for main: time 2019 on domain   1:    %.5f elapsed seconds\n" % (0.5 + 0.01 * i)
             for i in range(3 if bad else 10)))
         if cwd.endswith("-retry"):                               # rank 1 writes its own rsl file
-            open(os.path.join(cwd, "rsl.error.0001"), "w").write("x")
+            open(os.path.join(cwd, "rsl.error.0001"), "w").write("forrtl: severe (154)")
         return subprocess.CompletedProcess(cmd, 1 if bad else 0)
     monkeypatch.setattr(subprocess, "run", fake)
     assert proxy.worker(str(out / "plan.json")) == 0
@@ -511,7 +511,7 @@ def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp
     assert [(r["tag"], r["ok"], r.get("retry", False)) for r in recs] == [
         ("A", False, False), ("A", True, True), ("B", True, False)]
     assert recs[1]["run_dir"] == str(out / "runs" / "A-1-retry")
-    assert os.path.exists(out / "runs" / "A-1-retry" / "rsl.error.0001")     # the retry keeps every rank's rsl
+    assert os.path.exists(out / "runs" / "A-1-retry" / "rsl.error.0001")     # the retry keeps a rank's rsl naming an error
     assert [r["tag"] for r in proxy.collect(str(out))] == ["A", "B"]
     # a run whose setup fails (here its crop) is recorded and the job goes on, without a re-run
     seen.clear()
@@ -646,3 +646,11 @@ def test_collect_scores_time_points_with_the_positions(tmp_path):
     (row,) = proxy.collect(str(tmp_path))
     assert row["median"] == pytest.approx((0.44 + 0.50) / 2)                # median of the 4 (position, time) runs
     assert row["positions"] == {0: 0.40, 1: 0.44} and row["times"] == {0: 0.40, 1: 0.50, 2: 0.52}
+
+
+def test_tidy_keeps_only_the_rsl_files_that_name_an_error(tmp_path):
+    for f, text in (("rsl.error.0000", "ok"), ("rsl.error.0001", "fine"), ("rsl.error.0049", "forrtl: severe (154)"),
+                    ("rsl.out.0002", "x"), ("wrfout_d01_2022", "")):
+        (tmp_path / f).write_text(text)
+    proxy._tidy(str(tmp_path), keep_logs=True)
+    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0049"]

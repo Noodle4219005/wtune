@@ -818,15 +818,31 @@ def _null_rsl(d, ranks):
             _link(os.devnull, os.path.join(d, "%s.%04d" % (k, i)))
 
 
+_ERR_RE = re.compile(r"FATAL|forrtl|ERROR|Segmentation|exceeded", re.I)
+
+
 def _tidy(d, keep_logs=False):
     """Drop the run's history and every rank's rsl file but rank 0's: on GPFS each small file
-    holds a full block (f1-arm /work1 went over quota twice from proxy rsl files)."""
+    holds a full block (f1-arm /work1 went over quota twice from proxy rsl files). keep_logs
+    keeps, besides rank 0's, only the rsl files that name an error (a band re-run has 300-400)."""
     for f in os.listdir(d):
-        if f.startswith("wrfout") or (not keep_logs and f.startswith("rsl.") and not f.endswith(".0000")):
+        p = os.path.join(d, f)
+        drop = f.startswith("wrfout")
+        if f.startswith("rsl.") and not f.endswith(".0000") and not os.path.islink(p):
+            drop = not keep_logs or not _names_error(p)
+        if drop:
             try:
-                os.remove(os.path.join(d, f))
+                os.remove(p)
             except OSError:
                 pass
+
+
+def _names_error(path):
+    try:
+        with open(path, errors="replace") as fh:
+            return any(_ERR_RE.search(line) for line in fh)
+    except OSError:
+        return False
 
 
 def drop_runs(out_dir):

@@ -12,6 +12,8 @@ selection, with a note.
 
 At O2 the node search ranks (N, layout) jointly instead (rank_across_nodes): every legal N's pool in
 one batch, and the finalists' round0 takes that ranking (ctx.proxy_ranked) without new proxy jobs.
+Every proxied layout is timed at wtune.proxy.PROXY_POSITIONS crop positions and scored by the
+median over them; the joint search also reports whether an N's positions agree on its fastest.
 """
 import dataclasses
 import math
@@ -97,7 +99,7 @@ def select(ctx: Ctx, configs: list[dict]) -> list[dict]:
             specs.setdefault(_tag(c), s)
     try:
         plan = _proxy.make_plan(case_dir, ctx.nodes, list(specs.values()), cores_used(ctx), steps=ctx.steps,
-                                reps=1, wrf_tree=ctx.wrf_tree)
+                                reps=1, wrf_tree=ctx.wrf_tree, positions=_proxy.PROXY_POSITIONS)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: skipped (%s) -- round0 keeps its own sample" % e)
         return configs
@@ -165,13 +167,15 @@ def _select_ranked(ctx, configs, keep):
     return chosen
 
 
-def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> dict:
+def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each, every N in one batch of jobs; then the PROXY_JOINT_LEADERS one-node
     leaders of each N re-timed so that N compare: as band proxies when N > PROXY_BAND_NODES, as the
-    whole domain on N nodes when 1 < N <= PROXY_BAND_NODES. Returns {N: [(config, s/step,
-    "band" | "full" | "one-node"), ...]} best first, re-timed ahead of one-node ones (one node
-    alone reads 0-18 % low); {} when nothing was timed."""
+    whole domain on N nodes when 1 < N <= PROXY_BAND_NODES. Every layout is timed at
+    PROXY_POSITIONS crop positions where they can be placed (the whole domain has one). Returns
+    ({N: [(config, s/step, "band" | "full" | "one-node"), ...]} best first, re-timed ahead of
+    one-node ones (one node alone reads 0-18 % low), {N: True when its crop positions agree on the
+    fastest layout}); ({}, {}) when nothing was timed."""
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
     pools, runs, base = {}, [], None
     for n in legal_nodes:
@@ -190,16 +194,16 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> dict:
             pools[n], runs, base = pool, runs + got, base or plan
     if not runs:
         print("proxy: joint search skipped (no layout reproducible on one node)")
-        return {}
+        return {}, {}
     out_root = os.path.join(ctx.out_dir, "proxy-joint")
     print("proxy: joint search over N=%s: %d run(s) on one node each" % (sorted(pools), len(runs)))
-    timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1) or {}
+    one_pos, band_pos = {}, {}
+    timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1, one_pos) or {}
     one = {}
     for n, pool in pools.items():
         got = {t: timed["N%d_%s" % (n, t)] for t in pool if "N%d_%s" % (n, t) in timed}
         if got:
             one[n] = got
-    band = {}
     # leaders re-timed so N compare: a band beyond PROXY_BAND_NODES, the whole domain on N nodes
     # at 2..PROXY_BAND_NODES (one node alone reads 0-18 % low); N=1's one-node run is the whole domain
     band, by_size = {}, {}
@@ -213,19 +217,32 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> dict:
                 by_size[size] = (prev[0], prev[1] + got)
     for size, (bbase, bruns) in sorted(by_size.items()):
         band.update(_run_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
-                              "band%d-" % size, size) or {})
-    out = {}
+                              "band%d-" % size, size, band_pos) or {})
+    out, same = {}, {}
     for n in sorted(one):
         hf = "band" if n > PROXY_BAND_NODES else "full"
         rows = [(pools[n][t], band["N%d_%s" % (n, t)], hf) if "N%d_%s" % (n, t) in band
                 else (pools[n][t], v, "one-node") for t, v in one[n].items()]
         out[n] = sorted(rows, key=lambda r: (r[2] == "one-node", r[1]))
+        same[n] = _same_fastest({t: band_pos.get("N%d_%s" % (n, t), {}) for t in pools[n]},
+                                {t: one_pos.get("N%d_%s" % (n, t), {}) for t in pools[n]})
         c, v, f = out[n][0]
-        print("proxy: N=%-2d best %-20s %.4f s/step %-8s (%d of %d timed)"
-              % (n, _tag(c), v, f, len(one[n]), len(pools[n])))
+        print("proxy: N=%-2d best %-20s %.4f s/step %-8s (%d of %d timed)%s"
+              % (n, _tag(c), v, f, len(one[n]), len(pools[n]),
+                 "" if same[n] else "  crop positions disagree on the fastest"))
     if not out:
         print("proxy: joint search produced no usable timing")
-    return out
+    return out, same
+
+
+def _same_fastest(*sources):
+    """False when the first of `sources` ({layout: {crop position: score}}) with >= 2 layouts timed
+    at positions 0 and 1 has a different fastest layout at each; True otherwise."""
+    for src in sources:
+        both = {t: p for t, p in src.items() if 0 in p and 1 in p}
+        if len(both) >= 2:
+            return min(both, key=lambda t: both[t][0]) == min(both, key=lambda t: both[t][1])
+    return True
 
 
 def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes):
@@ -234,7 +251,8 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes):
     (None, []) when N cannot be planned."""
     try:
         plan = _proxy.make_plan(case_dir, n, [_spec(c) for c in cfgs.values()], cores_used(ctx),
-                                steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=proxy_nodes)
+                                steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=proxy_nodes,
+                                positions=_proxy.PROXY_POSITIONS)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: N=%d skipped (%s)" % (n, e))
         return None, []
@@ -243,9 +261,10 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes):
                   for r in plan["runs"] if not any(e.startswith(r["tag"] + ":") for e in errors)]
 
 
-def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
+def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     """Spread `runs` over proxy jobs of nodes_per_job nodes each (as many as max_nodes holds), wait,
-    and return {layout tag: score}; None when no job could be submitted."""
+    and return {layout tag: score} (and fill by_pos with {layout tag: {crop position: score}});
+    None when no job could be submitted."""
     n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, math.ceil(len(runs) / PROXY_RUNS_PER_JOB)))
     job_ids, out_dirs = [], []
     for j in range(n_jobs):
@@ -266,6 +285,8 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
         try:
             for r in _proxy.collect(d):
                 timed[r["tag"]] = r["median"]
+                if by_pos is not None:
+                    by_pos[r["tag"]] = r.get("positions") or {}
         except OSError:
             pass
         _proxy.drop_runs(d)
@@ -286,7 +307,8 @@ def _band_round(ctx, case_dir, pool, timed, out_root):
             leaders.append(c)
     try:
         plan = _proxy.make_plan(case_dir, ctx.nodes, [_spec(c) for c in leaders[:PROXY_BAND_KEEP]], cores_used(ctx),
-                                steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=PROXY_BAND_NODES)
+                                steps=ctx.steps, reps=1, wrf_tree=ctx.wrf_tree, proxy_nodes=PROXY_BAND_NODES,
+                                positions=_proxy.PROXY_POSITIONS)
     except (ValueError, OSError, KeyError) as e:
         print("proxy: band round skipped (%s)" % e)
         return {}

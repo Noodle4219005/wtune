@@ -36,17 +36,17 @@ ANCHORS = {n: _cfg("ANCHOR", 12 * n, 12) for n in (2, 4, 8)}
 RANKING = {2: [(ANCHORS[2], 0.60, "one-node")],
            4: [(_cfg("D0001", 24, 24), 0.30, "band"), (ANCHORS[4], 0.32, "band")],
            8: [(ANCHORS[8], 0.25, "band"), (_cfg("D0001", 32, 36), 0.27, "one-node")]}
-REAL = {4: 0.29, 8: 0.31}           # real medians: the proxy's best N (8) loses to N=4
+REAL = {2: 0.33, 4: 0.29, 8: 0.31}   # real medians: the proxy's best N (8) loses to N=4
 
 
-def _patch(monkeypatch, ranking, calls):
+def _patch(monkeypatch, ranking, calls, consistent=None):
     monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS[n], None) if n in ANCHORS
                         else (None, "no legal decomposition"))
 
     def rank(ctx, legal):
         calls.append(("rank", legal))
         ctx.owned_jobs += ["901", "902"]
-        return ranking
+        return ranking, (consistent if consistent is not None else {n: True for n in ranking})
     monkeypatch.setattr(PS, "rank_across_nodes", rank)
 
     def tune(fctx, adaptive=True, confirm=True):
@@ -91,6 +91,7 @@ def test_joint_proxy_tunes_the_two_best_n_and_chooses_by_real_medians(tmp_path, 
     assert collect["cores_info"] == {} and collect["sweep"]["results"] == {}
     ns = report["node_selection"]
     assert ns["note"] == "joint proxy search" and ns["finalists"] == [8, 4] and ns["sweep_jobs"] == ["901", "902"]
+    assert ns["position_consistent"] == {"2": True, "4": True, "8": True}
     assert [(r["nodes"], r["median"], r["fidelity"]) for r in ns["table"]] == [
         (2, 0.60, "one-node"), (4, 0.30, "band"), (8, 0.25, "band")]
     assert ns["table"][1]["layout"] == "24x24_o1_nt1"
@@ -98,6 +99,21 @@ def test_joint_proxy_tunes_the_two_best_n_and_chooses_by_real_medians(tmp_path, 
     assert report["cores_used_per_node"] == 144 and report["full_run_prediction"] == dict(stub=True)
     assert ns["winner"]["nodes"] == 4
     assert wtune.tune.render_node_selection_text(ns)
+
+
+def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, monkeypatch):
+    calls = []
+    _patch(monkeypatch, RANKING, calls, consistent={2: True, 4: True, 8: False})
+    report, collect = _search(_ctx(tmp_path), 2)
+    assert [c[1] for c in calls if c[0] == "tune"] == [8, 4, 2]
+    ns = report["node_selection"]
+    assert ns["finalists"] == [8, 4, 2] and ns["position_consistent"]["8"] is False
+    assert report["nodes"] == 4                                        # still the best real median
+    calls.clear()
+    _patch(monkeypatch, RANKING, calls, consistent={2: True, 4: False, 8: True})
+    (tmp_path / "b").mkdir()
+    _search(_ctx(tmp_path / "b"), 2)
+    assert [c[1] for c in calls if c[0] == "tune"] == [8, 4]           # only the best N's flag counts
 
 
 def test_joint_proxy_falls_back_to_the_real_sweep_without_a_ranking(tmp_path, monkeypatch):

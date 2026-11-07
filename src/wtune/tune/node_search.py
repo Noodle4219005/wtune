@@ -75,6 +75,7 @@ class NodeSelection(Record):
     winner_vs_runner_up: Any = UNSET
     untried: Any = UNSET
     enumerated: Any = UNSET
+    position_consistent: Any = UNSET      # joint proxy: {"N": crop positions agree on the fastest}
     note: Any = UNSET
 
 
@@ -921,8 +922,9 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
                            total_steps: int | None, plan: dict, lvl: Callable[[], int],
                            collect: dict | None) -> dict | None:
     """-O2 with the proxy: proxy_stage.rank_across_nodes over every legal N replaces the real
-    ANCHOR sweep; the PROXY_JOINT_FINALISTS N with the best proxy scores are tuned for real (round0
-    takes the ranking: ANCHOR + 2 real probes) and the final N is chosen over their real medians.
+    ANCHOR sweep; the PROXY_JOINT_FINALISTS N with the best proxy scores (one more when the best
+    N's crop positions disagree on its fastest layout) are tuned for real (round0 takes the
+    ranking: ANCHOR + 2 real probes) and the final N is chosen over their real medians.
     No cores/node sweep. None (the real sweep runs instead) when nothing was ranked or no
     finalist measured anything."""
     from . import proxy_stage
@@ -934,7 +936,7 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         else:
             legal.append(n)
     first_job = len(ctx.owned_jobs)
-    ranking = proxy_stage.rank_across_nodes(ctx, legal)
+    ranking, consistent = proxy_stage.rank_across_nodes(ctx, legal)
     proxy_jobs = list(ctx.owned_jobs[first_job:])
     if not ranking:
         print("node search: the joint proxy search ranked nothing; running the real node sweep")
@@ -942,7 +944,10 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     skipped = sorted(skipped + [dict(nodes=n, reason="joint proxy search: no timing")
                                 for n in legal if n not in ranking], key=lambda s: s["nodes"])
     best = {n: rows[0] for n, rows in ranking.items()}
-    finals = sorted(ranking, key=lambda n: (best[n][1], n))[:proxy_stage.PROXY_JOINT_FINALISTS]
+    order = sorted(ranking, key=lambda n: (best[n][1], n))
+    finals = order[:proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)]
+    if not consistent.get(order[0], True):
+        print("node search: N=%d's crop positions disagree on its fastest layout -- one more finalist" % order[0])
     anchors = {n: next((c for c, _t, _f in ranking[n] if c.get("id") == "ANCHOR"), None)
                or _sweep_anchor(ctx, n)[0] for n in finals}
     sw = dict(measurements={}, anchors=anchors, cores={}, results={}, skipped=skipped, jobs={},
@@ -978,6 +983,7 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         layouts=layouts_tab["rows"], winner=layouts_tab["winner"],
         runner_up=layouts_tab["runner_up"], winner_vs_runner_up=layouts_tab["comparison"],
         untried=skipped + layout_notes["untried"], enumerated=layout_notes["enumerated"],
+        position_consistent={str(n): v for n, v in sorted(consistent.items())},
         note="joint proxy search").to_dict()
     return report
 

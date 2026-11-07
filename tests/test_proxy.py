@@ -533,3 +533,52 @@ def test_drop_runs_keeps_the_records_and_the_failed_reruns(tmp_path):
     assert sorted(os.listdir(tmp_path / "runs")) == ["B-1-retry"]
     assert sorted(os.listdir(tmp_path)) == ["plan.json", "proxy-7.out", "results.jsonl", "runs"]
     proxy.drop_runs(str(tmp_path / "nothing-here"))
+
+
+def test_crop_offset_shifts_a_quarter_of_the_free_range_along_the_longer_free_axis():
+    assert proxy.crop_offset(1500, 1200, 504, 456) == (498, 372)                 # centred
+    assert proxy.crop_offset(1500, 1200, 504, 456, pos=1) == (498 + 249, 372)    # x free 996 > y free 744
+    assert proxy.crop_offset(560, 449, 560, 357, pos=1) == (0, 46 + 23)           # a band: y only
+    assert proxy.crop_offset(670, 790, 670, 610, step=5, pos=1) == (0, 90 + 45)    # multiples of the ratio
+    assert proxy.crop_offset(560, 449, 560, 449, pos=1) is None                   # the whole domain
+    assert proxy.crop_offset(1500, 1200, 504, 456, pos=2) is None
+
+
+def test_shifted_nested_crop_moves_the_deepest_domain_and_replaces_its_parents():
+    nb = proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=3, pos=1)
+    d1, d2 = nb["boxes"]
+    assert (d2["i0"], d2["j0"]) == (0, 135) and (d2["nx"], d2["ny"]) == (670, 610)
+    assert d1["j0"] + d2["j_parent_start"] == 115 + 135 // 5                    # the same d01 cell
+    assert d2["j_parent_start"] - 1 >= 6 and d1["ny"] - (d2["j_parent_start"] - 1 + d2["ny"] // 5) >= 6
+    one = proxy.nest_crop_boxes(BIGCHILL, 16, 18, 2, 144, pos=1)
+    _check_nest_crop(BIGCHILL, one, 16, 18, 6)
+    assert one["boxes"][1]["j0"] != 130 or one["boxes"][1]["i0"] != 80        # moved off the centre
+    assert proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=4, pos=1) is None   # the whole case
+
+
+def test_plan_adds_the_shifted_position_where_it_can_be_placed(tmp_path):
+    plan = proxy.make_plan(_case(tmp_path), 8, ["18x64"], 144, positions=2)
+    assert [(r["tag"], r["layout"], r["pos"], r.get("i0"), r.get("j0")) for r in plan["runs"]] == [
+        ("18x64_o1_nt1", "18x64_o1_nt1", 0, None, None), ("18x64_o1_nt1_p1", "18x64_o1_nt1", 1, 498 + 249, 372)]
+    os.makedirs(tmp_path / "b")
+    full = proxy.make_plan(_case(tmp_path / "b"), 2, ["16x18"], 144, proxy_nodes=2, positions=2)
+    assert [r["tag"] for r in full["runs"]] == ["16x18_o1_nt1"]                  # the whole domain: one position
+
+
+def test_shifted_flat_crop_is_cached_at_its_offsets(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((a[3:5], k["i0"], k["j0"])))
+    plan = dict(case_dir="/case", e_we=1501, e_sn=1201, max_dom=1, place="centre", bdy_width=10)
+    a = proxy._inputs(plan, dict(domain=1, nx=504, ny=456), str(tmp_path), {})
+    b = proxy._inputs(plan, dict(domain=1, nx=504, ny=456, pos=1, i0=747, j0=372), str(tmp_path), {})
+    assert calls == [((504, 456), None, None), ((504, 456), 747, 372)] and a != b
+
+
+def test_collect_scores_a_layout_by_the_median_over_its_crop_positions(tmp_path):
+    rows = [dict(tag="A", rep=1, rc=0, median=0.40), dict(tag="A", rep=2, rc=0, median=0.42),
+            dict(tag="A_p1", layout="A", pos=1, rep=1, rc=0, median=0.50),
+            dict(tag="B", rep=1, rc=0, median=0.45), dict(tag="B_p1", layout="B", pos=1, rep=1, rc=1, median=None)]
+    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = {r["tag"]: r for r in proxy.collect(str(tmp_path))}
+    assert out["A"]["positions"] == {0: pytest.approx(0.41), 1: 0.50}
+    assert out["A"]["median"] == pytest.approx((0.41 + 0.50) / 2) and out["B"]["positions"] == {0: 0.45}

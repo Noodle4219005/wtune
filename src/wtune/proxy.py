@@ -65,6 +65,7 @@ _BDY_KEYS = ("specified", "nested", "spec_bdy_width", "spec_zone", "relax_zone",
 PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation rows (WRF default 1 + 4)
 PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
 PROXY_MAX_STEPS = 10        # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
+PROXY_POSITIONS = 2         # crop positions per layout: centred and crop_offset's shifted one
 
 
 def nl_values(text, key):
@@ -268,15 +269,29 @@ def _fit(lo, w, n, m, step, margin):
     return min(max((2 * c + step) // (2 * step), k_lo), k_hi) * step
 
 
-def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None, proxy_nodes=1):
+def crop_offset(mx, my, nx, ny, step=1, pos=0):
+    """0-based (i0, j0), multiples of `step`, of an nx x ny crop of mx x my cells at crop position
+    `pos`: 0 centred, 1 centred plus a quarter of the free range along the longer free axis;
+    None when position 1 moves nothing (a crop as wide and tall as its domain) or for pos > 1."""
+    fx, fy = mx - nx, my - ny
+    i0, j0 = fx // 2 // step * step, fy // 2 // step * step
+    if pos == 0:
+        return i0, j0
+    s = max(fx, fy) // 4 // step * step
+    if pos > 1 or s <= 0:
+        return None
+    return (i0 + s, j0) if fx >= fy else (i0, j0 + s)
+
+
+def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None, proxy_nodes=1, pos=0):
     """A nested case as ONE run on the one-node proxy's a x b ranks (domain 1's proxy_shape):
     every domain cropped to a x ceil(m/px) by b x ceil(m/py) of its own mass points (a nest's
     rounded up to its parent_grid_ratio), so each rank owns the target's patch in every domain.
     proxy_nodes > 1 is the band (domain 1's band_shape: a = px, b = proxy_nodes x the rows of a
     target node) on that many nodes, each crop capped at its domain's size: full width; at
     proxy_nodes == nodes every domain is whole, as in the case. The deepest crop sits at its
-    domain's centre, each parent's crop around its child's with >= margin parent cells (default
-    spec_bdy_width + 1) on every side. dict(ranks, a, b, boxes=[dict(domain, nx, ny, i0, j0,
+    domain's centre (pos 1: crop_offset's shifted position), each parent's crop around its
+    child's with >= margin parent cells (default spec_bdy_width + 1) on every side. dict(ranks, a, b, boxes=[dict(domain, nx, ny, i0, j0,
     i_parent_start, j_parent_start)]) (+ nodes, ranks_per_node for a band) with 0-based crop
     offsets and 1-based parent starts relative to the parent's crop, or None when not
     reproducible (a domain tree that is not a chain, a crop bigger than its domain, or a child
@@ -313,14 +328,18 @@ def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None, pro
         boxes.append(dict(domain=d, nx=nx, ny=ny, ratio=r, mx=mx, my=my))
     keys = ("domain", "nx", "ny", "i0", "j0", "i_parent_start", "j_parent_start")
     if proxy_nodes > 1 and proxy_nodes == nodes:      # the whole case: its own nest placement
+        if pos:
+            return None
         for bx in boxes:
             d = bx["domain"]
             bx.update(i0=0, j0=0, i_parent_start=cols["i_parent_start"][d - 1] if d > 1 else 1,
                       j_parent_start=cols["j_parent_start"][d - 1] if d > 1 else 1)
         return dict(ranks=sh["ranks"], a=a, b=b, boxes=[{k: bx[k] for k in keys} for bx in boxes], **band)
     deep = boxes[-1]
-    r = deep["ratio"]
-    deep["i0"], deep["j0"] = (deep["mx"] - deep["nx"]) // 2 // r * r, (deep["my"] - deep["ny"]) // 2 // r * r
+    off = crop_offset(deep["mx"], deep["my"], deep["nx"], deep["ny"], deep["ratio"], pos)
+    if off is None:
+        return None
+    deep["i0"], deep["j0"] = off
     for d in range(n, 1, -1):
         c, p = boxes[d - 1], boxes[d - 2]
         r = c["ratio"]
@@ -484,13 +503,15 @@ def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None, place="centr
 
 # -------------------------------------------------------------------------------------- plan
 def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tree=None,
-              wrf_tree_omp=None, proxy_nodes=1, place="centre", bdy_width=None, nested="crop"):
-    """One proxy run per layout (and domain, when split), at most PROXY_MAX_STEPS steps. A nested
-    case runs as ONE nested run with every domain cropped (nested "crop", nest_crop_boxes; its
-    domain-1 timing includes the nests), or, with "split" or where the crop does not fit, is split
-    into its domains, each run on its own as a single domain with the same px x py patch rule;
-    collect() adds those up weighted by each domain's steps per d01 step. proxy_nodes > 1 runs
-    band proxies (band_shape; nested: nest_crop_boxes' band) on that many nodes instead of one."""
+              wrf_tree_omp=None, proxy_nodes=1, place="centre", bdy_width=None, nested="crop", positions=1):
+    """One proxy run per layout (and domain, when split) and crop position, at most PROXY_MAX_STEPS
+    steps. A nested case runs as ONE nested run with every domain cropped (nested "crop",
+    nest_crop_boxes; its domain-1 timing includes the nests), or, with "split" or where the crop
+    does not fit, is split into its domains, each run on its own as a single domain with the same
+    px x py patch rule; collect() adds those up weighted by each domain's steps per d01 step.
+    proxy_nodes > 1 runs band proxies (band_shape; nested: nest_crop_boxes' band) on that many
+    nodes instead of one. positions > 1 adds crop_offset's shifted position (tag suffix _p1, pos 1)
+    where it can be placed; position 0 keeps the plain tag."""
     text = open(os.path.join(case_dir, "namelist.input")).read()
     layers = domain_layers(text)
     margin = (bdy_width or int(nl_get(text, "spec_bdy_width") or 5)) + 1
@@ -499,33 +520,54 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
         L = parse_layout(spec)
         tree = wrf_tree_omp if (L["omp"] > 1 and wrf_tree_omp) else wrf_tree
         tag = "%dx%d_o%d_nt%d" % (L["px"], L["py"], L["omp"], L["numtiles"])
-        nb = None
-        if len(layers) > 1 and nested == "crop":
-            nb = nest_crop_boxes(text, L["px"], L["py"], nodes, cores_per_node, L["omp"], margin, proxy_nodes)
-        if nb:
-            d1 = nb["boxes"][0]
-            band = {k: nb[k] for k in ("nodes", "ranks_per_node") if k in nb}
-            runs.append(dict(tag=tag, layout=tag, domain=1, weight=1, dt=layers[0]["dt"], **L, ranks=nb["ranks"],
-                             a=nb["a"], b=nb["b"], nx=d1["nx"], ny=d1["ny"], boxes=nb["boxes"], wrf_tree=tree,
-                             **band))
-            continue
-        if proxy_nodes > 1:
-            shapes = [band_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"],
-                                 proxy_nodes) for ly in layers]
-        else:
-            shapes = [proxy_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"])
-                      for ly in layers]
-        if any(sh is None for sh in shapes):
+        args = (text, layers, L, tag, nodes, cores_per_node, proxy_nodes, margin)
+        nest = len(layers) > 1 and nested == "crop"
+        got = _layout_runs(*args, nest, 0)
+        if got is None and nest:
+            nest = False
+            got = _layout_runs(*args, nest, 0)
+        if got is None:
             skipped.append(spec)
             continue
-        for ly, sh in zip(layers, shapes):
-            runs.append(dict(tag=tag if len(layers) == 1 else "%s_d%d" % (tag, ly["domain"]), layout=tag,
-                             domain=ly["domain"], weight=ly["weight"], dt=ly["dt"], **L, **sh, wrf_tree=tree))
+        for p in range(1, positions):
+            got += [dict(r, tag="%s_p%d" % (r["tag"], p)) for r in _layout_runs(*args, nest, p) or []]
+        runs += [dict(r, wrf_tree=tree) for r in got]
     return dict(case_dir=os.path.abspath(case_dir), nodes=nodes, proxy_nodes=proxy_nodes,
                 steps=min(steps, PROXY_MAX_STEPS),
                 reps=reps, dt=time_step_seconds(text), max_dom=len(layers), layers=layers,
                 place=place, bdy_width=bdy_width,
                 e_we=layers[0]["e_we"], e_sn=layers[0]["e_sn"], runs=runs, skipped=skipped)
+
+
+def _layout_runs(text, layers, L, tag, nodes, cores_per_node, proxy_nodes, margin, nest, pos):
+    """The runs of one layout at crop position pos: one nested crop run (nest) or one run per
+    domain, each with its pos (and, past position 0, its explicit crop offsets i0, j0); None when
+    the layout cannot be reproduced at that position."""
+    if nest:
+        nb = nest_crop_boxes(text, L["px"], L["py"], nodes, cores_per_node, L["omp"], margin, proxy_nodes, pos)
+        if nb is None:
+            return None
+        d1 = nb["boxes"][0]
+        band = {k: nb[k] for k in ("nodes", "ranks_per_node") if k in nb}
+        return [dict(tag=tag, layout=tag, domain=1, weight=1, dt=layers[0]["dt"], **L, ranks=nb["ranks"],
+                     a=nb["a"], b=nb["b"], nx=d1["nx"], ny=d1["ny"], boxes=nb["boxes"], pos=pos, **band)]
+    runs = []
+    for ly in layers:
+        if proxy_nodes > 1:
+            sh = band_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"], proxy_nodes)
+        else:
+            sh = proxy_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"])
+        if sh is None:
+            return None
+        r = dict(tag=tag if len(layers) == 1 else "%s_d%d" % (tag, ly["domain"]), layout=tag,
+                 domain=ly["domain"], weight=ly["weight"], dt=ly["dt"], **L, **sh, pos=pos)
+        if pos:
+            off = crop_offset(ly["e_we"] - 1, ly["e_sn"] - 1, sh["nx"], sh["ny"], pos=pos)
+            if off is None:
+                return None
+            r["i0"], r["j0"] = off
+        runs.append(r)
+    return runs
 
 
 def check_builds(plan):
@@ -649,7 +691,7 @@ def _run(plan, r, rep, out, scratch, retry=False):
     steps = _step_times(os.path.join(d, "rsl.error.0000"))
     ok = rc == 0 and len(steps) >= max(10, plan["steps"] // 2)
     rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
-               rep=rep, rc=rc, steps=len(steps), ok=ok,
+               pos=r.get("pos", 0), rep=rep, rc=rc, steps=len(steps), ok=ok,
                median=statistics.median(steps[1:]) if len(steps) > 1 else None,
                px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
                proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]), run_dir=d)
@@ -680,13 +722,14 @@ def _inputs(plan, r, scratch, layers):
     if whole_domain(plan, r):
         files = {f: os.path.join(case, f) for f in ("wrfinput_d01", "wrfbdy_d01")}
     elif not r.get("boxes"):
-        box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s" % (dom, r["nx"], r["ny"], place, bw or "src"))
+        at = "%d_%d" % (r["i0"], r["j0"]) if r.get("i0") is not None else place
+        box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s" % (dom, r["nx"], r["ny"], at, bw or "src"))
         if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
             os.makedirs(box, exist_ok=True)
             crop(os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
                  box, r["nx"], r["ny"], as_top=dom > 1,
                  dxdy=nest_dx(layers[dom]) if plan.get("max_dom", 1) > 1 and dom > 1 else None,
-                 place=place, bdy_width=bw)
+                 place=place, bdy_width=bw, i0=r.get("i0"), j0=r.get("j0"))
         return {f: os.path.join(box, f) for f in ("wrfinput_d01", "wrfbdy_d01")}
     for bx in r.get("boxes") or []:
         d, name = bx["domain"], "wrfinput_d%02d" % bx["domain"]
@@ -799,8 +842,10 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=
 def collect(out_dir):
     """Layouts ranked by s per d01 step: for a nested case split into its domains the sum over
     them of weight x median (a layout with any domain missing is left out); a nested crop run's
-    domain-1 timing already includes its nests."""
-    per = {}          # layout -> rep -> domain -> (weight, median)
+    domain-1 timing already includes its nests. Each crop position is scored on its own (the
+    median over its reps) and a layout's score is the median over its positions; "positions"
+    holds {pos: score}."""
+    per = {}          # layout -> pos -> rep -> domain -> (weight, median)
     domains, whole = {}, set()
     try:
         n_dom = json.load(open(os.path.join(out_dir, "plan.json"))).get("max_dom", 1)
@@ -813,14 +858,21 @@ def collect(out_dir):
         if r.get("nested") == "crop":
             whole.add(lay)
         if r["rc"] == 0 and r["median"] and r.get("ok", True):
-            per.setdefault(lay, {}).setdefault(r["rep"], {})[dom] = (r.get("weight", 1), r["median"])
+            per.setdefault(lay, {}).setdefault(r.get("pos", 0), {}).setdefault(r["rep"], {})[dom] = (
+                r.get("weight", 1), r["median"])
     rows = []
-    for lay, reps in per.items():
+    for lay, by_pos in per.items():
         want = {1} if lay in whole else set(range(1, n_dom + 1)) if n_dom else domains[lay]
-        scores = [sum(w * m for w, m in got.values()) for got in reps.values() if set(got) >= want]
-        if scores:
-            m = statistics.median(scores)
-            rows.append(dict(tag=lay, median=m, reps=scores, spread=(max(scores) - min(scores)) / m))
+        pos, scores = {}, []
+        for p, reps in sorted(by_pos.items()):
+            got = [sum(w * m for w, m in g.values()) for g in reps.values() if set(g) >= want]
+            if got:
+                pos[p] = statistics.median(got)
+                scores += got
+        if pos:
+            m = statistics.median(pos.values())
+            rows.append(dict(tag=lay, median=m, reps=scores, spread=(max(scores) - min(scores)) / m,
+                             positions=pos))
     return sorted(rows, key=lambda r: r["median"])
 
 
@@ -852,6 +904,8 @@ def main(argv=None):
                        help="nested case: one cropped nested run (default) or one run per domain")
         p.add_argument("--proxy-nodes", type=int, default=1,
                        help="1: one-node proxy (default); M>1: band proxy on M nodes (full width)")
+        p.add_argument("--positions", type=int, default=PROXY_POSITIONS,
+                       help="crop positions per layout: 1 centred, 2 + a shifted one (default %d)" % PROXY_POSITIONS)
         if name == "submit":
             p.add_argument("--out", default=None)
             p.add_argument("--time", default="01:00:00")
@@ -863,16 +917,19 @@ def main(argv=None):
     if a.cmd == "collect":
         rows = collect(a.out_dir)
         for i, r in enumerate(rows):
-            print("%2d  %-20s %.4f s/step  reps %s  spread %.1f%%" % (
-                i + 1, r["tag"], r["median"], ",".join("%.4f" % x for x in r["reps"]), 100 * r["spread"]))
+            print("%2d  %-20s %.4f s/step  reps %s  spread %.1f%%%s" % (
+                i + 1, r["tag"], r["median"], ",".join("%.4f" % x for x in r["reps"]), 100 * r["spread"],
+                "  positions " + " ".join("p%d %.4f" % kv for kv in sorted(r["positions"].items()))
+                if len(r["positions"]) > 1 else ""))
         return 0 if rows else 1
 
     tree = a.wrf_tree or wtune.machine.wrf_tree()
     plan = make_plan(a.case_dir, a.nodes, a.layout, wtune.machine.cores_per_node(), a.steps, a.reps,
-                     tree, a.wrf_tree_omp, a.proxy_nodes, a.place, a.bdy_width, a.nested)
+                     tree, a.wrf_tree_omp, a.proxy_nodes, a.place, a.bdy_width, a.nested, a.positions)
     for r in plan["runs"]:
-        print("%-20s proxy %3d ranks (%dx%d) on %d node(s) box %dx%d  build %s" % (
-            r["tag"], r["ranks"], r["a"], r["b"], r.get("nodes", 1), r["nx"], r["ny"], _tree_name(r["wrf_tree"]))
+        print("%-20s proxy %3d ranks (%dx%d) on %d node(s) box %dx%d%s  build %s" % (
+            r["tag"], r["ranks"], r["a"], r["b"], r.get("nodes", 1), r["nx"], r["ny"],
+            " at (%d,%d)" % (r["i0"], r["j0"]) if r.get("i0") is not None else "", _tree_name(r["wrf_tree"]))
             + "".join("  d%d %dx%d at (%d,%d)" % (bx["domain"], bx["nx"], bx["ny"], bx["i_parent_start"],
                                                  bx["j_parent_start"]) for bx in (r.get("boxes") or [])[1:]))
     for s in plan["skipped"]:

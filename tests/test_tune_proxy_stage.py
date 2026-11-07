@@ -48,10 +48,13 @@ def test_proxy_keeps_the_anchor_and_the_proxys_fastest(tmp_path, monkeypatch):
     out = S.select(ctx, configs)
     assert [c["id"] for c in out] == ["ANCHOR", "D0001", "D0002"]       # anchor + the proxy's 2 fastest
     one = [p for p in submitted if p.get("proxy_nodes", 1) == 1]
-    assert sum(len(p["runs"]) for p in one) == 6 and ctx.owned_jobs[:2] == ["101", "102"]
+    # 6 layouts x 2 crop positions, the shifted one tagged _p1
+    assert sum(len(p["runs"]) for p in one) == 12 and ctx.owned_jobs[:2] == ["101", "102"]
+    assert sorted(r["tag"] for p in one for r in p["runs"] if r["pos"] == 1) == sorted(t + "_p1" for t in timings)
     bands = [p for p in submitted if p.get("proxy_nodes") == 3]            # N=4 > 3: the 4 leaders as bands
-    assert [r["layout"] for p in bands for r in p["runs"]] == ["12x24_o2_nt24", "9x64_o1_nt13",
-                                                               "18x32_o1_nt1"]   # 32x18: 144 ranks per node, not whole rows
+    assert [r["layout"] for p in bands for r in p["runs"] if r["pos"] == 0] == [
+        "12x24_o2_nt24", "9x64_o1_nt13", "18x32_o1_nt1"]   # 32x18: 144 ranks per node, not whole rows
+    assert sum(r["pos"] == 1 for p in bands for r in p["runs"]) == 3       # a band shifts along y
 
 
 def test_band_round_reorders_the_one_node_leaders(tmp_path, monkeypatch):
@@ -155,17 +158,19 @@ def test_rank_across_nodes_times_every_n_in_one_plan_and_bands_the_leaders(tmp_p
     band = {"N4_24x24_o1_nt1": 0.46, "N4_12x24_o2_nt24": 0.47, "N5_24x30_o1_nt1": 0.44,
             "N2_12x24_o1_nt1": 0.90, "N2_16x18_o1_nt1": 0.88}          # N=2's leaders on 2 whole nodes
     ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, timings, band)
-    out = S.rank_across_nodes(ctx, [1, 2, 4, 5])                     # N=1: no ANCHOR, skipped
-    one = [p for p in submitted if p["proxy_nodes"] == 1]
-    tags = [r["tag"] for p in one for r in p["runs"]]
-    assert sorted(tags) == sorted(timings) and all(r["layout"] == r["tag"] for p in one for r in p["runs"])
-    assert any(len({r["tag"].split("_")[0] for r in p["runs"]}) > 1 for p in one)   # N mixed in a job
-    bands = [r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"]]
+    out, same = S.rank_across_nodes(ctx, [1, 2, 4, 5])               # N=1: no ANCHOR, skipped
+    one = [r for p in submitted if p["proxy_nodes"] == 1 for r in p["runs"]]
+    tags = [r["tag"] for r in one if r["pos"] == 0]
+    assert sorted(tags) == sorted(timings) and all(r["layout"] == r["tag"] for r in one if r["pos"] == 0)
+    assert sorted(r["tag"] for r in one if r["pos"] == 1) == sorted(t + "_p1" for t in timings)
+    assert any(len({r["tag"].split("_")[0] for r in p["runs"]}) > 1 for p in submitted if p["proxy_nodes"] == 1)
+    bands = [r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"] if r["pos"] == 0]
     # the 2 one-node leaders of each N > 3; N=5's 20x36 holds no whole rows per node
     assert sorted(bands) == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1", "N5_24x30_o1_nt1"]
-    full = [r["layout"] for p in submitted if p["proxy_nodes"] == 2 for r in p["runs"]]
-    assert sorted(full) == ["N2_12x24_o1_nt1", "N2_16x18_o1_nt1"]     # N=2: the whole domain on 2 nodes
-    assert sorted(out) == [2, 4, 5]
+    full = [(r["layout"], r["pos"]) for p in submitted if p["proxy_nodes"] == 2 for r in p["runs"]]
+    # N=2: the whole domain on 2 nodes, one position only
+    assert sorted(full) == [("N2_12x24_o1_nt1", 0), ("N2_16x18_o1_nt1", 0)]
+    assert sorted(out) == [2, 4, 5] and same == {2: True, 4: True, 5: True}
     assert [(S._tag(c), t, f) for c, t, f in out[4]] == [
         ("24x24_o1_nt1", 0.46, "band"), ("12x24_o2_nt24", 0.47, "band"), ("18x32_o1_nt1", 0.47, "one-node")]
     assert [(c["id"], f) for c, _t, f in out[5]] == [("ANCHOR", "band"), ("D0001", "one-node"),
@@ -180,12 +185,14 @@ def test_rank_across_nodes_keeps_the_domain_suffix_of_a_nested_case(tmp_path, mo
         " parent_id = 0, 1,\n parent_time_step_ratio = 1, 3,\n /\n")
     _plan, runs = S._joint_plan(ctx, str(tmp_path / "case"), 2, {"16x18_o1_nt1": POOLS[2][0]}, 1)
     assert [(r["tag"], r["layout"]) for r in runs] == [("N2_16x18_o1_nt1_d1", "N2_16x18_o1_nt1"),
-                                                       ("N2_16x18_o1_nt1_d2", "N2_16x18_o1_nt1")]
+                                                       ("N2_16x18_o1_nt1_d2", "N2_16x18_o1_nt1"),
+                                                       ("N2_16x18_o1_nt1_d1_p1", "N2_16x18_o1_nt1"),
+                                                       ("N2_16x18_o1_nt1_d2_p1", "N2_16x18_o1_nt1")]
 
 
 def test_rank_across_nodes_is_empty_without_timings(tmp_path, monkeypatch):
     ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
-    assert S.rank_across_nodes(ctx, [2, 4]) == {}
+    assert S.rank_across_nodes(ctx, [2, 4]) == ({}, {})
 
 
 def test_select_with_a_joint_ranking_submits_nothing(tmp_path, monkeypatch):
@@ -207,3 +214,18 @@ def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, mon
     ctx = _ctx(tmp_path)
     assert S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o"), "job", 1) == {"A": 0.5}
     assert dropped == ["job0", "job1"]
+
+
+def test_rank_across_nodes_flags_an_n_whose_crop_positions_disagree(tmp_path, monkeypatch):
+    timings = {"N4_24x24_o1_nt1": (0.45, {0: 0.45, 1: 0.45}), "N4_12x24_o2_nt24": (0.40, {0: 0.40, 1: 0.40}),
+               "N4_18x32_o1_nt1": (0.47, {0: 0.47, 1: 0.47}),
+               "N5_24x30_o1_nt1": (0.42, {0: 0.41, 1: 0.43}), "N5_20x36_o1_nt1": (0.38, {0: 0.38, 1: 0.39})}
+    # N=4's band leaders: 24x24 fastest at the centre, 12x24 at the shifted crop
+    band = {"N4_24x24_o1_nt1": (0.465, {0: 0.44, 1: 0.49}), "N4_12x24_o2_nt24": (0.47, {0: 0.46, 1: 0.48})}
+    ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    monkeypatch.setattr(P, "collect", lambda d: [dict(tag=t, median=m, positions=p) for t, (m, p) in (
+        timings if d.endswith("jobs0") else band if "band" in os.path.basename(d) else {}).items()])
+    out, same = S.rank_across_nodes(ctx, [4, 5])
+    assert same == {4: False, 5: True}             # N=5: one band leader only, its one-node pool agrees
+    assert [(S._tag(c), t) for c, t, _f in out[4][:2]] == [("24x24_o1_nt1", 0.465), ("12x24_o2_nt24", 0.47)]
+    assert S._same_fastest({"a": {0: 1.0}, "b": {0: 2.0, 1: 1.0}}, {"a": {0: 1, 1: 2}, "b": {0: 2, 1: 1}}) is False

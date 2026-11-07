@@ -506,6 +506,7 @@ def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp
             open(os.path.join(cwd, "rsl.error.0001"), "w").write("forrtl: severe (154)")
         return subprocess.CompletedProcess(cmd, 1 if bad else 0)
     monkeypatch.setattr(subprocess, "run", fake)
+    _route_launch(monkeypatch)
     assert proxy.worker(str(out / "plan.json")) == 0
     assert seen == [("A-1", True), ("A-1-retry", False), ("B-1", True)]   # B still runs after A failed
     recs = [json.loads(line) for line in open(out / "results.jsonl")]
@@ -686,6 +687,7 @@ def test_a_run_failing_twice_with_tiles_runs_once_more_at_half_the_tiles(tmp_pat
             "Timing for main: time 2019 on domain   1:    0.50000 elapsed seconds\n" for _ in range(10 if nt < 16 else 0)))
         return subprocess.CompletedProcess(cmd, 0 if nt < 16 else 255)
     monkeypatch.setattr(subprocess, "run", fake)
+    _route_launch(monkeypatch)
     assert proxy.worker(str(out / "plan.json")) == 0
     assert tiles == [16, 16, 8]
     recs = [json.loads(line) for line in open(out / "results.jsonl")]
@@ -725,7 +727,30 @@ def test_eight_step_runs_count_and_a_capped_run_keeps_its_completed_steps(tmp_pa
             raise subprocess.TimeoutExpired(cmd, timeout)
         return subprocess.CompletedProcess(cmd, 0)
     monkeypatch.setattr(subprocess, "run", fake)
+    _route_launch(monkeypatch)
     assert proxy.worker(str(out / "plan.json")) == 0
     recs = [json.loads(line) for line in open(out / "results.jsonl")]
     assert [(r["tag"], r["rc"], r["steps"], r["ok"]) for r in recs] == [("A", 0, 8, True), ("B", 124, 5, True)]
     assert all(c <= proxy.PROXY_RUN_CAP_S for c in caps)
+
+
+def _route_launch(monkeypatch):
+    """Send the launcher through the patched subprocess.run, a timeout read as the cap (124)."""
+    import subprocess
+
+    def launch(argv, d, env, cap):
+        try:
+            return subprocess.run(argv, cwd=d, env=env, timeout=cap).returncode
+        except subprocess.TimeoutExpired:
+            return 124
+    monkeypatch.setattr(proxy, "_launch", launch)
+
+
+def test_launch_returns_the_exit_code_and_stops_a_run_at_the_cap(tmp_path):
+    import time
+    assert proxy._launch(["sh", "-c", "echo $SLURM_KILL_BAD_EXIT; exit 3"], str(tmp_path),
+                         dict(os.environ, SLURM_KILL_BAD_EXIT="1"), 10) == 3
+    assert open(tmp_path / "run.log").read().strip() == "1"
+    t = time.time()
+    assert proxy._launch(["sleep", "30"], str(tmp_path), dict(os.environ), 1) == 124
+    assert time.time() - t < 10                                   # SIGTERM ends it, no 30 s wait

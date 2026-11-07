@@ -677,6 +677,24 @@ def worker(plan_path):
     return 0 if ok_runs else 4
 
 
+def _launch(argv, d, env, cap):
+    """Run the launcher in d; at the wall cap send SIGTERM, which srun and mpirun pass to every rank
+    (a SIGKILL of the launcher alone can leave ranks running beside the next run). 124 on the cap."""
+    with open(os.path.join(d, "run.log"), "w") as log:
+        p = subprocess.Popen(argv, cwd=d, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                             stderr=subprocess.STDOUT)
+        try:
+            return p.wait(timeout=cap)
+        except subprocess.TimeoutExpired:
+            p.terminate()
+            try:
+                p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+            return 124
+
+
 def _run(plan, r, rep, out, scratch, retry=False):
     """One run of r in runs/<tag>-<rep> (-retry: every rank's rsl files, kept); its record."""
     import wtune.machine
@@ -720,14 +738,11 @@ def _run(plan, r, rep, out, scratch, retry=False):
                                          "block", r.get("nodes", 1))
     if not cmd:
         raise RuntimeError("site_launch unavailable for site %s" % wtune.machine.site())
-    env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]))
+    # SLURM_KILL_BAD_EXIT: one rank that aborts (forrtl at a crop edge) ends the step at once instead of
+    # leaving the others blocked in MPI until the wall cap
+    env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]), SLURM_KILL_BAD_EXIT="1")
     env.setdefault("OMP_STACKSIZE", "1G")
-    try:
-        rc = subprocess.run(shlex.split(cmd), cwd=d, env=env, stdin=subprocess.DEVNULL,
-                            stdout=open(os.path.join(d, "run.log"), "w"),
-                            stderr=subprocess.STDOUT, timeout=min(60 + 20 * run_seconds, PROXY_RUN_CAP_S)).returncode
-    except subprocess.TimeoutExpired:
-        rc = 124
+    rc = _launch(shlex.split(cmd), d, env, min(60 + 20 * run_seconds, PROXY_RUN_CAP_S))
     steps = _step_times(os.path.join(d, "rsl.error.0000"))
     # enough steps for a median; a run the wall cap stopped counts when it has them: a slow layout
     # (a few steps of 12-16 s on isc-synth) is not the one to pick, so fewer steps still rank it

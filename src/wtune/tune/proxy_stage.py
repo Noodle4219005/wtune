@@ -226,9 +226,15 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
             if got:
                 prev = by_size.get(size, (plan, []))
                 by_size[size] = (prev[0], prev[1] + got)
-    for size, (bbase, bruns) in sorted(by_size.items()):
-        band.update(_run_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
-                              "band%d-" % size, size, band_pos) or {})
+    # every size at once: the whole-domain runs (N <= PROXY_BAND_NODES) and the bands do not wait
+    # on each other (isc-synth: 2-node then 3-node rounds ran one after the other, ~2 min each)
+    handles = [_submit_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
+                            "band%d-" % size, size) for size, (bbase, bruns) in sorted(by_size.items())]
+    handles = [h for h in handles if h]
+    if handles:
+        _jobs.wait_for_jobs(ctx, [j for h in handles for j in h["live"]], "proxy")
+    for h in handles:
+        band.update(_collect_jobs(h, band_pos))
     out, same = {}, {}
     for n in sorted(one):
         hf = "band" if n > PROXY_BAND_NODES else "full"
@@ -278,6 +284,15 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     and return {layout tag: score} (and fill by_pos with {layout tag: {crop position: score}});
     None when no job could be submitted. A layout's runs (domains, crop positions, time points)
     share one job: collect() scores a layout from one job's results."""
+    h = _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job)
+    if h is None:
+        return None
+    _jobs.wait_for_jobs(ctx, h["live"], "proxy")
+    return _collect_jobs(h, by_pos)
+
+
+def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
+    """The submit half of _run_jobs: {"live": job ids still to wait for, "out_dirs"}, or None."""
     groups = {}
     for r in runs:
         groups.setdefault(r.get("layout", r["tag"]), []).append(r)
@@ -311,9 +326,12 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     if not job_ids:
         return None
     print("proxy: %d run(s) on %d %d-node job(s) %s" % (len(runs), len(job_ids), nodes_per_job, ",".join(job_ids)))
-    _jobs.wait_for_jobs(ctx, [x for x in job_ids if x not in ended], "proxy")
+    return dict(live=[x for x in job_ids if x not in ended], out_dirs=out_dirs)
+
+
+def _collect_jobs(h, by_pos=None):
     timed = {}
-    for d in out_dirs:
+    for d in h["out_dirs"]:
         try:
             for r in _proxy.collect(d):
                 timed[r["tag"]] = r["median"]

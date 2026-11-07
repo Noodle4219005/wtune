@@ -308,3 +308,21 @@ def test_run_jobs_caps_the_job_count_and_waits_out_a_refused_submit(tmp_path, mo
     assert len(set(calls)) == S.PROXY_MAX_JOBS                  # 30 layouts on 24 jobs
     assert waits[0] == ["501"]                                   # the oldest job waited for first
     assert "501" not in waits[1] and len(waits[1]) == S.PROXY_MAX_JOBS - 1
+
+
+def test_the_whole_domain_and_band_rounds_are_submitted_together(tmp_path, monkeypatch):
+    timings = {"N2_16x18_o1_nt1": 0.80, "N2_12x24_o1_nt1": 0.78, "N4_24x24_o1_nt1": 0.45,
+               "N4_12x24_o2_nt24": 0.40}
+    ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, timings, {})
+    events = []
+    real = P.submit_plan
+
+    def submit(plan, d, *a, **k):
+        events.append(("submit", plan.get("proxy_nodes", 1)))
+        return real(plan, d, *a, **k)
+    monkeypatch.setattr(P, "submit_plan", submit)
+    monkeypatch.setattr(S._jobs, "wait_for_jobs", lambda c, ids, stage, **k: events.append(("wait", len(ids))) or {})
+    S.rank_across_nodes(ctx, [2, 4])
+    after_one = events[[i for i, e in enumerate(events) if e[0] == "wait"][0] + 1:]
+    assert [e for e in after_one if e[0] == "submit"] == [("submit", 2), ("submit", 2), ("submit", 3), ("submit", 3)]
+    assert after_one[-1] == ("wait", 4)                                # one wait for both sizes

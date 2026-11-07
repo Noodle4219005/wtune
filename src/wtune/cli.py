@@ -1005,6 +1005,8 @@ _FORWARDED_COMMANDS = (
      'wtune/calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
      'scenario/cli.py', 'wtune.scenario.cli'),
+    ('proxy', 'proxy_args', 'small-domain proxy: rank N-node layouts (px x py, omp, numtiles) by timing them '
+     'on one node (wtune/proxy.py): plan | submit | collect', 'wtune/proxy.py', 'wtune.proxy'),
 )
 _FORWARDED_DEST = {name: dest for name, dest, _help, _target, _module in _FORWARDED_COMMANDS}
 _FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FORWARDED_COMMANDS}

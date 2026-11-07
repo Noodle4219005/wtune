@@ -654,9 +654,10 @@ def _proxy_fallback_report(ctx: Ctx, profile: dict, objective: str, nodes_policy
 
 
 def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, plan: dict | None,
-                    lvl: Callable[[], int], layout_notes: dict) -> dict:
+                    lvl: Callable[[], int], layout_notes: dict, ranked: dict | None = None) -> dict:
     """round0/adaptive/confirm at each finalist (N, chosen c), the remaining budget split evenly
-    over the finalists still to run. Returns {N: FinalistOutcome} of those with a best config."""
+    over the finalists still to run; `ranked` (rank_across_nodes) is each N's round0 ranking.
+    Returns {N: FinalistOutcome} of those with a best config."""
     outcomes = {}
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
@@ -672,7 +673,8 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
         fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
                                     out_dir=os.path.join(ctx.out_dir, "n%d" % n),
                                     anchor_override=anchor, core_budget=c,
-                                    full_space=(plan is not None and lvl() >= 3), layout_notes=layout_notes)
+                                    full_space=(plan is not None and lvl() >= 3), layout_notes=layout_notes,
+                                    proxy_ranked=(ranked or {}).get(n))
         os.makedirs(fctx.out_dir, exist_ok=True)
         print("node search: finalist N=%d cores/node=%d, budget share %s"
               % (n, c, _fmt_hms(share)))
@@ -747,8 +749,14 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     """Node sweep -> N by `objective` -> cores-per-node sweep at the finalists -> decomposition
     search at each finalist (N, c) -> final (N, c, config) over the finalists' best tuned
     medians. `plan` ({"level"}) is read live; `collect` receives outcomes / final_n / sweep /
-    cores_info for the pipeline. Falls back to the proxy (`profile`) when nothing was measured."""
+    cores_info for the pipeline. Falls back to the proxy (`profile`) when nothing was measured.
+    At O2 with ctx.proxy the joint proxy search (_run_node_search_proxy) replaces the sweep."""
     lvl = (lambda: plan["level"]) if plan else (lambda: 3)    # effort level, read live
+    if ctx.proxy and plan is not None and lvl() == 2 and ctx.wrf_tree and _proxy_inputs(ctx):
+        report = _run_node_search_proxy(ctx, objective, deadline_s, min_efficiency, total_steps,
+                                        plan, lvl, collect)
+        if report is not None:
+            return report
     overhead_s = ctx.startup_s
     kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
               min_efficiency=min_efficiency)
@@ -841,15 +849,43 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
             "; %s -- ANCHOR config" % _halt_reason(ctx) if _halt_reason(ctx) else
             "; budget exhausted after the sweep -- ANCHOR config")
     else:
-        by_sweep = {r["nodes"]: r for r in rows}
-        frows = wtune.nodes.summarize({n: [o.best_median] for n, o in outcomes.items()})
-        for r in frows:                     # scaling figures stay the sweep's (anchor-based)
-            r["speedup"], r["efficiency"] = (by_sweep[r["nodes"]]["speedup"],
-                                              by_sweep[r["nodes"]]["efficiency"])
-        final_n, final_note = wtune.nodes.choose(frows, objective, **kw)
-        final_note = "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
+        final_n, final_note = _final_over_finalists(outcomes, rows, objective, kw)
     if collect is not None:
         collect.update(outcomes=outcomes, final_n=final_n, sweep=sw, cores_info=cores_info)
+    report, final_c, layouts_tab = _final_report(ctx, outcomes, final_n, final_note, sw, cores_info)
+    report["node_selection"] = NodeSelection(
+        objective=objective, chosen=chosen, chosen_note=note, final=final_n,
+        final_note=final_note, final_cores_per_node=final_c, table=tab, choices=choices,
+        skipped=sw["skipped"], finalists=finals,
+        finalist_best={str(n): o.best_median for n, o in outcomes.items()},
+        core_tables={str(n): ci["rows"] for n, ci in cores_info.items()},
+        core_choice={str(n): dict(cores=ci["chosen"], note=ci["note"])
+                     for n, ci in cores_info.items()},
+        skipped_cores=skipped_cores, core_options=list(core_options),
+        total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
+        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()) + sw.get("race_jobs", []), maxrss_note=MAXRSS_NOTE,
+        layouts=layouts_tab["rows"], winner=layouts_tab["winner"],
+        runner_up=layouts_tab["runner_up"], winner_vs_runner_up=layouts_tab["comparison"],
+        untried=(sw["skipped"] + skipped_cores + layout_notes["untried"]),
+        enumerated=layout_notes["enumerated"]).to_dict()
+    return report
+
+
+def _final_over_finalists(outcomes: dict, rows: list[dict], objective: str, kw: dict) -> tuple[int, str]:
+    """(final N, note) over the finalists' best tuned medians; speedup and efficiency stay those
+    of `rows` (the sweep's anchor-based, or the joint proxy's scores)."""
+    by_n = {r["nodes"]: r for r in rows}
+    frows = wtune.nodes.summarize({n: [o.best_median] for n, o in outcomes.items()})
+    for r in frows:
+        r["speedup"], r["efficiency"] = by_n[r["nodes"]]["speedup"], by_n[r["nodes"]]["efficiency"]
+    final_n, final_note = wtune.nodes.choose(frows, objective, **kw)
+    return final_n, "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
+
+
+def _final_report(ctx: Ctx, outcomes: dict, final_n: int, final_note: str, sw: dict,
+                  cores_info: dict) -> tuple[dict, int, dict]:
+    """The final N's report with the whole-run prediction, node, budget and job fields and the
+    layout table: (report, cores per node, layout table)."""
     report = outcomes[final_n].report
     final_c = outcomes[final_n].cores
     if report.get("full_run_prediction") is None:       # winner of a finalist search
@@ -873,21 +909,76 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         best=((final_n, final_c, sweep._identity(best["config"]))
               if best and best.get("config") else None))
     report["layout_table"] = layouts_tab
+    return report, final_c, layouts_tab
+
+
+def _proxy_inputs(ctx: Ctx) -> bool:
+    case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
+    return all(os.path.exists(os.path.join(case_dir, f)) for f in ("wrfinput_d01", "wrfbdy_d01"))
+
+
+def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, min_efficiency: float,
+                           total_steps: int | None, plan: dict, lvl: Callable[[], int],
+                           collect: dict | None) -> dict | None:
+    """-O2 with the proxy: proxy_stage.rank_across_nodes over every legal N replaces the real
+    ANCHOR sweep; the PROXY_JOINT_FINALISTS N with the best proxy scores are tuned for real (round0
+    takes the ranking: ANCHOR + 2 real probes) and the final N is chosen over their real medians.
+    No cores/node sweep. None (the real sweep runs instead) when nothing was ranked or no
+    finalist measured anything."""
+    from . import proxy_stage
+    legal, skipped = [], []
+    for n in range(1, ctx.max_nodes + 1):
+        anchor, why = _sweep_anchor(ctx, n)
+        if anchor is None:
+            skipped.append(dict(nodes=n, reason=why))
+        else:
+            legal.append(n)
+    first_job = len(ctx.owned_jobs)
+    ranking = proxy_stage.rank_across_nodes(ctx, legal)
+    proxy_jobs = list(ctx.owned_jobs[first_job:])
+    if not ranking:
+        print("node search: the joint proxy search ranked nothing; running the real node sweep")
+        return None
+    skipped = sorted(skipped + [dict(nodes=n, reason="joint proxy search: no timing")
+                                for n in legal if n not in ranking], key=lambda s: s["nodes"])
+    best = {n: rows[0] for n, rows in ranking.items()}
+    finals = sorted(ranking, key=lambda n: (best[n][1], n))[:proxy_stage.PROXY_JOINT_FINALISTS]
+    anchors = {n: next((c for c, _t, _f in ranking[n] if c.get("id") == "ANCHOR"), None)
+               or _sweep_anchor(ctx, n)[0] for n in finals}
+    sw = dict(measurements={}, anchors=anchors, cores={}, results={}, skipped=skipped, jobs={},
+              legal=legal, maxrss_mb={}, memory=None, race_jobs=[], untried=[], wave_s=0.0)
+    print("node search: joint proxy finalists %s (best proxy s/step %s); no cores/node sweep: "
+          "all %d cores per node" % (finals, ", ".join("N=%d %.4f %s" % (n, best[n][1], best[n][2])
+                                                     for n in finals), ctx.cores_per_node))
+    layout_notes: dict = dict(untried=[], enumerated={})
+    outcomes = _tune_finalists(ctx, finals, {}, sw, plan, lvl, layout_notes, ranked=ranking)
+    if not outcomes:
+        print("node search: no joint-proxy finalist measured anything; running the real node sweep")
+        return None
+    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=ctx.startup_s,
+              min_efficiency=min_efficiency)
+    prows = wtune.nodes.summarize({n: [b[1]] for n, b in best.items()})
+    final_n, final_note = _final_over_finalists(outcomes, prows, objective, kw)
+    if collect is not None:
+        collect.update(outcomes=outcomes, final_n=final_n, sweep=sw, cores_info={})
+    report, final_c, layouts_tab = _final_report(ctx, outcomes, final_n, final_note, sw, {})
+    tab = wtune.nodes.table(prows, total_steps=total_steps, overhead_s=ctx.startup_s)
+    for r in tab:
+        r.update(maxrss_mb=None, fidelity=best[r["nodes"]][2], layout=proxy_stage._tag(best[r["nodes"]][0]))
+    note = "joint proxy search: N=%d best proxy %.4f s/step (%s)" % (finals[0], best[finals[0]][1],
+                                                                     best[finals[0]][2])
     report["node_selection"] = NodeSelection(
-        objective=objective, chosen=chosen, chosen_note=note, final=final_n,
-        final_note=final_note, final_cores_per_node=final_c, table=tab, choices=choices,
-        skipped=sw["skipped"], finalists=finals,
+        objective=objective, chosen=finals[0], chosen_note=note, final=final_n,
+        final_note=final_note, final_cores_per_node=final_c, table=tab,
+        choices=node_choices(prows, **kw), skipped=skipped, finalists=finals,
         finalist_best={str(n): o.best_median for n, o in outcomes.items()},
-        core_tables={str(n): ci["rows"] for n, ci in cores_info.items()},
-        core_choice={str(n): dict(cores=ci["chosen"], note=ci["note"])
-                     for n, ci in cores_info.items()},
-        skipped_cores=skipped_cores, core_options=list(core_options),
+        core_tables={}, core_choice={}, skipped_cores=[], core_options=[ctx.cores_per_node],
         total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
-        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()) + sw.get("race_jobs", []), maxrss_note=MAXRSS_NOTE,
+        overhead_s=ctx.startup_s, sweep_jobs=proxy_jobs, maxrss_note=MAXRSS_NOTE,
         layouts=layouts_tab["rows"], winner=layouts_tab["winner"],
         runner_up=layouts_tab["runner_up"], winner_vs_runner_up=layouts_tab["comparison"],
-        untried=(sw["skipped"] + skipped_cores + layout_notes["untried"]),
-        enumerated=layout_notes["enumerated"]).to_dict()
+        untried=skipped + layout_notes["untried"], enumerated=layout_notes["enumerated"],
+        note="joint proxy search").to_dict()
     return report
 
 

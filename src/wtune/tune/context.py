@@ -133,6 +133,7 @@ class Ctx:
     hotspot_fill: bool = True                     # node sweep: fill a wave's idle nodes near the best N
     proxy: bool = False                           # round0: pick the real probes with the one-node proxy
     proxy_used: bool = False                      # set by proxy_stage.select when the proxy chose round0
+    proxy_ranked: list | None = None              # node search: rank_across_nodes' ranking at nodes
     wrf_tree: str = ""                            # the probes' WRF tree (the proxy runs the same build)
     input_copies: dict = dataclasses.field(default_factory=dict)  # job -> its BP input copy dir
     layout_notes: dict | None = None              # shared across ctx copies: untried / enumerated

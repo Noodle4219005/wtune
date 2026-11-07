@@ -2974,11 +2974,19 @@ def test_o2_estimate_follows_the_proxy_rounds():
     from wtune.tune import estimates as E
     kw = dict(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10)
     real, prox = wtune.tune.layout_estimates(proxy=False, **kw), wtune.tune.layout_estimates(**kw)
-    p_run, r_run = E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 4, 120.0 + 30 * 0.1261 / 4   # N* = 4
-    # pool 18 on min(10, ceil(18/4)) = 5 one-node jobs -> 4 runs each; 4 bands on one 3-node job
-    # (N=4 > 3); ANCHOR + 2 real probes in 10 // 4 = 2 slots -> 2 rounds; replaces 3 real rounds
-    assert prox[2] - real[2] == pytest.approx((4 + 4) * p_run + 2 * r_run - 3 * r_run)
+    one = E.EST_PROXY_RUN_START_S + 30 * 0.1261 * sum(1.0 / n for n in range(1, 11)) / 10
+    band = E.EST_PROXY_RUN_START_S + 30 * 0.1261 * sum(1.0 / n for n in range(4, 11)) / 7
+    r_run = 120.0 + 30 * 0.1261 / 4                                                    # N* = 4
+    # joint proxy: 10 N x 6 = 60 one-node runs on 10 jobs -> 6 each; 2 leaders x 7 N > 3 = 14 bands
+    # on min(10 // 3, ceil(14/4)) = 3 jobs -> 5 each; 2 finalists x (ANCHOR + 2) in 10 // 4 = 2
+    # slots -> 2 rounds each; no sweep, refinement or cores/node wave
+    assert prox[2] == pytest.approx(6 * one + 5 * band + 2 * 2 * r_run)
+    assert prox[2] < real[2]                       # no real t0 sweep before it
     assert prox[3] == real[3]                      # O3 enumerates the full space: no proxy
+    # max_nodes 3: 18 runs on 3 jobs, no band round, 2 finalists x 3 rounds in one slot
+    assert E.proxy_joint_s(120.0, 30, 0.1261, 3) == pytest.approx(
+        6 * (E.EST_PROXY_RUN_START_S + 30 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3)
+        + 2 * 3 * (120.0 + 30 * 0.1261 / 3))
     s_run = E.EST_PROXY_RUN_START_S + 30 * 0.1261 / 3
     small = E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3)
     assert small == pytest.approx(6 * s_run + 3 * (120.0 + 30 * 0.1261 / 3))   # N=3: no band round

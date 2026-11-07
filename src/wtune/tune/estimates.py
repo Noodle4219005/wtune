@@ -38,8 +38,9 @@ def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes
                      n_full: int = 0, finalists: int = 2, proxy: bool = True) -> dict[int, float]:
     """{level: RUNNING s of the layout search} from the 1-node s/step `s1` (ideal scaling s1/N).
     O1: the {1,2,4,8,max} wave of 2-rep jobs; O2: + refinement, a cores/node wave and round0 at
-    the winner -- with `proxy`, the proxy rounds (proxy_round0_s) instead of real-probing the
-    sample; O3: the full space (`n_full` 1-rep runs) at `finalists` N + confirm (no proxy)."""
+    the winner -- with `proxy`, the joint proxy search alone (proxy_joint_s: no sweep, no
+    refinement, no cores/node wave); O3: the full space (`n_full` 1-rep runs) at `finalists` N +
+    confirm (no proxy)."""
     S = float(startup_s)
     job = lambda n, reps=2: reps * (S + steps_probe * s1 / n)            # noqa: E731
     seeds = sorted({n for n in (1, 2, 4, 8, max_nodes) if 1 <= n <= max_nodes})
@@ -49,7 +50,7 @@ def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes
     slots = max(1, max_nodes // nstar)
     t_round0 = math.ceil(EST_ROUND0_CONFIGS / slots) * (S + steps_probe * s1 / nstar)
     before = t1 + EST_REFINE_ROUNDS * wave_n + wave_n
-    t2 = before + (proxy_round0_s(S, steps_probe, s1 / nstar, nstar, max_nodes) if proxy else t_round0)
+    t2 = proxy_joint_s(S, steps_probe, s1, max_nodes) if proxy else before + t_round0
     full = finalists * math.ceil(max(n_full, EST_ROUND0_CONFIGS) / float(slots)) * (
         S + steps_probe * s1 / nstar)
     t3 = before + full + wave_n
@@ -72,6 +73,27 @@ def proxy_round0_s(startup_s: float, steps: int, s_n: float, n: int, max_nodes: 
         bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(P.PROXY_BAND_KEEP / P.PROXY_RUNS_PER_JOB)))
         t += math.ceil(P.PROXY_BAND_KEEP / bands) * run
     return t + math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // n)) * (startup_s + steps * s_n)
+
+
+def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int) -> float:
+    """RUNNING s of the O2 joint proxy search (node_search._run_node_search_proxy), legal N taken as
+    1..max_nodes: PROXY_JOINT_PER_N one-node runs per N (PROXY_RUNS_PER_JOB per job, up to
+    max_nodes jobs at once, s/step the mean of s1/N), the band round of PROXY_JOINT_LEADERS per
+    N > PROXY_BAND_NODES (s/step the mean of their s1/N), then PROXY_JOINT_FINALISTS finalists one
+    after the other, each ANCHOR + 2 real probes at N* = min(4, max_nodes) in max_nodes // N* slots."""
+    from . import proxy_stage as P
+    ns = range(1, max_nodes + 1)
+    runs = max_nodes * P.PROXY_JOINT_PER_N
+    jobs = max(1, min(max_nodes, math.ceil(runs / P.PROXY_RUNS_PER_JOB)))
+    t = math.ceil(runs / jobs) * (EST_PROXY_RUN_START_S + steps * s1 * sum(1.0 / n for n in ns) / max_nodes)
+    big = [n for n in ns if n > P.PROXY_BAND_NODES] if max_nodes >= P.PROXY_BAND_NODES else []
+    if big:
+        nb = P.PROXY_JOINT_LEADERS * len(big)
+        bands = max(1, min(max_nodes // P.PROXY_BAND_NODES, math.ceil(nb / P.PROXY_RUNS_PER_JOB)))
+        t += math.ceil(nb / bands) * (EST_PROXY_RUN_START_S + steps * s1 * sum(1.0 / n for n in big) / len(big))
+    nstar = max(1, min(4, max_nodes))
+    finals = min(P.PROXY_JOINT_FINALISTS, max_nodes)
+    return t + finals * math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // nstar)) * (startup_s + steps * s1 / nstar)
 
 
 def points_estimate(*, s1: float, startup_s: float, max_nodes: int, n_points: int, layouts: int,

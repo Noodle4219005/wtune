@@ -345,8 +345,10 @@ def test_nested_plan_is_one_cropped_run_per_layout_and_split_still_works(tmp_pat
     split = proxy.make_plan(str(c), 2, ["16x18"], 144, nested="split")
     assert [(r["tag"], r["weight"], "boxes" in r) for r in split["runs"]] == [
         ("16x18_o1_nt1_d1", 1, False), ("16x18_o1_nt1_d2", 5, False)]
-    band = proxy.make_plan(str(c), 2, ["16x18"], 144, proxy_nodes=2)       # band proxies stay split
-    assert [r["tag"] for r in band["runs"]] == ["16x18_o1_nt1_d1", "16x18_o1_nt1_d2"]
+    full = proxy.make_plan(str(c), 2, ["16x18"], 144, proxy_nodes=2)       # the whole nested case on 2 nodes
+    assert [(r["tag"], r["nodes"], r["ranks"], len(r["boxes"])) for r in full["runs"]] == [("16x18_o1_nt1", 2, 288, 2)]
+    split = proxy.make_plan(str(c), 2, ["16x18"], 144, proxy_nodes=2, nested="split")
+    assert [r["tag"] for r in split["runs"]] == ["16x18_o1_nt1_d1", "16x18_o1_nt1_d2"]
 
 
 def test_collect_takes_a_nested_crop_run_as_the_whole_layout(tmp_path):
@@ -422,3 +424,49 @@ def test_nested_namelist_keeps_a_history_interval_per_domain():
     assert proxy.nl_values(nl, "history_interval") == ["100000", "100000", "10"]
     assert proxy.nl_values(nl, "restart_interval") == ["100000"]
     assert proxy.nl_values(nl, "e_we") == ["321", "386", "400"]
+
+
+BIGCHILL_ISC = BIGCHILL.replace("i_parent_start = 1, 150", "i_parent_start = 1, 240").replace(
+    "j_parent_start = 1, 80", "j_parent_start = 1, 115")
+
+
+def test_nested_band_is_full_width_with_three_nodes_of_rows_in_every_domain():
+    # Big Chill on x86 (112 cores) at N=4, 16x28: 7 rows of 16 per node -> 16 x 21 ranks on 3 nodes
+    nb = proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=3)
+    assert (nb["ranks"], nb["a"], nb["b"], nb["nodes"], nb["ranks_per_node"]) == (336, 16, 21, 3, 112)
+    assert nb["boxes"] == [dict(domain=1, nx=560, ny=357, i0=0, j0=15, i_parent_start=1, j_parent_start=1),
+                           dict(domain=2, nx=670, ny=610, i0=0, j0=90, i_parent_start=240, j_parent_start=118)]
+    d1, d2 = nb["boxes"]
+    assert d2["ny"] == -(-21 * -(-790 // 28) // 5) * 5          # b x ceil(m/py), rounded up to the ratio
+    # the same d01 cell under the nest's corner, and the margin to the crop's edge
+    assert d1["j0"] + d2["j_parent_start"] == 115 + d2["j0"] // 5
+    assert d2["j_parent_start"] - 1 >= 6 and d1["ny"] - (d2["j_parent_start"] - 1 + d2["ny"] // 5) >= 6
+    assert proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 18, 4, 144, omp=2, proxy_nodes=3) is None   # 4.5 rows per node
+
+
+def test_nested_band_on_the_targets_own_nodes_is_the_whole_case(tmp_path, monkeypatch):
+    nb = proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=4)
+    assert nb["boxes"] == [dict(domain=1, nx=560, ny=449, i0=0, j0=0, i_parent_start=1, j_parent_start=1),
+                           dict(domain=2, nx=670, ny=790, i0=0, j0=0, i_parent_start=240, j_parent_start=115)]
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "wrfinput_d02").write_text("x")
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: pytest.fail("a whole case is not cropped"))
+    plan = dict(case_dir=str(case), e_we=561, e_sn=450, max_dom=2)
+    layers = {ly["domain"]: ly for ly in proxy.domain_layers(BIGCHILL_ISC)}
+    r = dict(domain=1, nx=560, ny=449, boxes=nb["boxes"])
+    assert proxy._inputs(plan, r, str(tmp_path / "s"), layers) == {
+        f: str(case / f) for f in ("wrfinput_d01", "wrfbdy_d01", "wrfinput_d02")}
+    nl = proxy.nested_namelist(BIGCHILL_ISC, nb["boxes"], 16, 28, 1, 150)
+    assert proxy.nl_values(nl, "e_we") == ["561", "671"] and proxy.nl_values(nl, "j_parent_start") == ["1", "115"]
+
+
+def test_nested_band_plan_runs_one_nested_run_on_the_band_nodes(tmp_path):
+    c = tmp_path / "case"
+    c.mkdir()
+    (c / "namelist.input").write_text(BIGCHILL_ISC)
+    plan = proxy.make_plan(str(c), 4, ["16x28", "16x18"], 112, proxy_nodes=3)
+    assert [(r["tag"], r["nodes"], r["ranks_per_node"], r["ranks"], (r["nx"], r["ny"])) for r in plan["runs"]] == [
+        ("16x28_o1_nt1", 3, 112, 336, (560, 357))]
+    # 16x18: 72 ranks per node, not whole rows of 16 -- no band, nested or split
+    assert plan["skipped"] == ["16x18"]

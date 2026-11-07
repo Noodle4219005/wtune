@@ -6,10 +6,11 @@ in the target. Validated on conus25 (Grace, layout order of N=4/N=8 ledger, s/st
 karina (x86, hybrid and numtiles effects of a 4-node ABBA truth). It ranks; it is not a wall-time
 predictor (its bias is machine dependent) and it does not see inter-node effects (cyclic
 placement, network). A nested case runs as one nested run with every domain cropped around its
-nest (nest_crop_boxes), so the parent-child interaction is timed too; where that does not fit, or
-with --nested split, it is split into its domains, each timed as a single domain and summed by its
-steps per d01 step (a fine nest can then go CFL-unstable under the frozen boundary). A box that is
-the whole of domain 1 uses the case's own wrfinput_d01 and wrfbdy_d01.
+nest (nest_crop_boxes, on one node or as a band), so the parent-child interaction is timed too;
+where that does not fit, or with --nested split, it is split into its domains, each timed as a
+single domain and summed by its steps per d01 step (a fine nest can then go CFL-unstable under
+the frozen boundary). A box that is the whole of domain 1 uses the case's own wrfinput_d01 and
+wrfbdy_d01 (a whole nest its own wrfinput_d0N).
 
   wtune proxy plan   CASE --nodes N --layout 18x64 [--layout 9x32:omp=2:nt=24 ...]
   wtune proxy submit CASE --nodes N --layout ... [--steps 10] [--reps 2] [--out DIR] [--dry-run]
@@ -267,18 +268,25 @@ def _fit(lo, w, n, m, step, margin):
     return min(max((2 * c + step) // (2 * step), k_lo), k_hi) * step
 
 
-def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None):
+def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None, proxy_nodes=1):
     """A nested case as ONE run on the one-node proxy's a x b ranks (domain 1's proxy_shape):
     every domain cropped to a x ceil(m/px) by b x ceil(m/py) of its own mass points (a nest's
     rounded up to its parent_grid_ratio), so each rank owns the target's patch in every domain.
-    The deepest crop sits at its domain's centre, each parent's crop around its child's with
-    >= margin parent cells (default spec_bdy_width + 1) on every side. dict(ranks, a, b, boxes=[
-    dict(domain, nx, ny, i0, j0, i_parent_start, j_parent_start)]) with 0-based crop offsets and
-    1-based parent starts relative to the parent's crop, or None when not reproducible (a domain
-    tree that is not a chain, a crop bigger than its domain, or a child that does not fit)."""
+    proxy_nodes > 1 is the band (domain 1's band_shape: a = px, b = proxy_nodes x the rows of a
+    target node) on that many nodes, each crop capped at its domain's size: full width; at
+    proxy_nodes == nodes every domain is whole, as in the case. The deepest crop sits at its
+    domain's centre, each parent's crop around its child's with >= margin parent cells (default
+    spec_bdy_width + 1) on every side. dict(ranks, a, b, boxes=[dict(domain, nx, ny, i0, j0,
+    i_parent_start, j_parent_start)]) (+ nodes, ranks_per_node for a band) with 0-based crop
+    offsets and 1-based parent starts relative to the parent's crop, or None when not
+    reproducible (a domain tree that is not a chain, a crop bigger than its domain, or a child
+    that does not fit)."""
     layers = domain_layers(text)
     n = len(layers)
-    sh = proxy_shape(layers[0]["e_we"], layers[0]["e_sn"], px, py, nodes, cores_per_node, omp)
+    if proxy_nodes > 1:
+        sh = band_shape(layers[0]["e_we"], layers[0]["e_sn"], px, py, nodes, cores_per_node, omp, proxy_nodes)
+    else:
+        sh = proxy_shape(layers[0]["e_we"], layers[0]["e_sn"], px, py, nodes, cores_per_node, omp)
     if sh is None:
         return None
     cols = {k: [int(float(v)) for v in nl_values(text, k)]
@@ -290,6 +298,7 @@ def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None):
     if margin is None:
         margin = int(nl_get(text, "spec_bdy_width") or 5) + 1
     a, b = sh["a"], sh["b"]
+    band = dict(nodes=sh["nodes"], ranks_per_node=sh["ranks_per_node"]) if proxy_nodes > 1 else {}
     boxes = []
     for ly in layers:
         d = ly["domain"]
@@ -297,9 +306,18 @@ def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None):
         mx, my = ly["e_we"] - 1, ly["e_sn"] - 1
         nx, ny = a * math.ceil(mx / px), b * math.ceil(my / py)
         nx, ny = -(-nx // r) * r, -(-ny // r) * r
+        if band:
+            nx, ny = min(nx, mx), min(ny, my)
         if nx > mx or ny > my:
             return None
         boxes.append(dict(domain=d, nx=nx, ny=ny, ratio=r, mx=mx, my=my))
+    keys = ("domain", "nx", "ny", "i0", "j0", "i_parent_start", "j_parent_start")
+    if proxy_nodes > 1 and proxy_nodes == nodes:      # the whole case: its own nest placement
+        for bx in boxes:
+            d = bx["domain"]
+            bx.update(i0=0, j0=0, i_parent_start=cols["i_parent_start"][d - 1] if d > 1 else 1,
+                      j_parent_start=cols["j_parent_start"][d - 1] if d > 1 else 1)
+        return dict(ranks=sh["ranks"], a=a, b=b, boxes=[{k: bx[k] for k in keys} for bx in boxes], **band)
     deep = boxes[-1]
     r = deep["ratio"]
     deep["i0"], deep["j0"] = (deep["mx"] - deep["nx"]) // 2 // r * r, (deep["my"] - deep["ny"]) // 2 // r * r
@@ -314,8 +332,7 @@ def nest_crop_boxes(text, px, py, nodes, cores_per_node, omp=1, margin=None):
             return None
         c["i_parent_start"], c["j_parent_start"] = fi - p["i0"] + 1, fj - p["j0"] + 1
     boxes[0]["i_parent_start"] = boxes[0]["j_parent_start"] = 1
-    keys = ("domain", "nx", "ny", "i0", "j0", "i_parent_start", "j_parent_start")
-    return dict(ranks=sh["ranks"], a=a, b=b, boxes=[{k: bx[k] for k in keys} for bx in boxes])
+    return dict(ranks=sh["ranks"], a=a, b=b, boxes=[{k: bx[k] for k in keys} for bx in boxes], **band)
 
 
 # --------------------------------------------------------------------------------------- crop
@@ -473,7 +490,7 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
     domain-1 timing includes the nests), or, with "split" or where the crop does not fit, is split
     into its domains, each run on its own as a single domain with the same px x py patch rule;
     collect() adds those up weighted by each domain's steps per d01 step. proxy_nodes > 1 runs
-    band proxies (band_shape) on that many nodes instead of one, always split."""
+    band proxies (band_shape; nested: nest_crop_boxes' band) on that many nodes instead of one."""
     text = open(os.path.join(case_dir, "namelist.input")).read()
     layers = domain_layers(text)
     margin = (bdy_width or int(nl_get(text, "spec_bdy_width") or 5)) + 1
@@ -483,12 +500,14 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
         tree = wrf_tree_omp if (L["omp"] > 1 and wrf_tree_omp) else wrf_tree
         tag = "%dx%d_o%d_nt%d" % (L["px"], L["py"], L["omp"], L["numtiles"])
         nb = None
-        if len(layers) > 1 and nested == "crop" and proxy_nodes == 1:
-            nb = nest_crop_boxes(text, L["px"], L["py"], nodes, cores_per_node, L["omp"], margin)
+        if len(layers) > 1 and nested == "crop":
+            nb = nest_crop_boxes(text, L["px"], L["py"], nodes, cores_per_node, L["omp"], margin, proxy_nodes)
         if nb:
             d1 = nb["boxes"][0]
+            band = {k: nb[k] for k in ("nodes", "ranks_per_node") if k in nb}
             runs.append(dict(tag=tag, layout=tag, domain=1, weight=1, dt=layers[0]["dt"], **L, ranks=nb["ranks"],
-                             a=nb["a"], b=nb["b"], nx=d1["nx"], ny=d1["ny"], boxes=nb["boxes"], wrf_tree=tree))
+                             a=nb["a"], b=nb["b"], nx=d1["nx"], ny=d1["ny"], boxes=nb["boxes"], wrf_tree=tree,
+                             **band))
             continue
         if proxy_nodes > 1:
             shapes = [band_shape(ly["e_we"], ly["e_sn"], L["px"], L["py"], nodes, cores_per_node, L["omp"],
@@ -642,7 +661,8 @@ def whole_domain(plan, r):
 def _inputs(plan, r, scratch, layers):
     """{file name in the run directory: path} for run r: the case's own d01 files for a whole
     domain 1, otherwise crops cached per box in `scratch`. A nested crop run (r["boxes"]) gets
-    every domain's wrfinput (a nest without one in the case is interpolated by WRF) plus wrfbdy_d01."""
+    every domain's wrfinput (a nest without one in the case is interpolated by WRF; a whole nest
+    is the case's own file) plus wrfbdy_d01."""
     case, place, bw = plan["case_dir"], plan.get("place", "centre"), plan.get("bdy_width")
     dom, files = r.get("domain", 1), {}
     if whole_domain(plan, r):
@@ -660,6 +680,10 @@ def _inputs(plan, r, scratch, layers):
         d, name = bx["domain"], "wrfinput_d%02d" % bx["domain"]
         src = os.path.join(case, name)
         if (d == 1 and files) or (d > 1 and not os.path.exists(src)):
+            continue
+        ly = layers.get(d)
+        if d > 1 and ly and (bx["nx"], bx["ny"]) == (ly["e_we"] - 1, ly["e_sn"] - 1):
+            files[name] = src
             continue
         box = os.path.join(scratch, "n%d_%dx%d_%d_%d_p%d_%d_bw%s" % (
             d, bx["nx"], bx["ny"], bx["i0"], bx["j0"], bx["i_parent_start"], bx["j_parent_start"], bw or "src"))

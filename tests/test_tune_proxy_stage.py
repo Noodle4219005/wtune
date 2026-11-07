@@ -364,7 +364,8 @@ def test_seed_layouts_take_the_balanced_and_the_x_wide_patch_per_thread_count(mo
     monkeypatch.setattr(S, "cores_used", lambda c: 112)
     ctx = types.SimpleNamespace(case_json={}, nodes=8, hardware_id="x")
     got = {(c["nx"], c["ny"], c["omp"], c["numtiles"]) for c in S._seed_layouts(ctx)}
-    assert got == {(28, 32, 1, 12), (8, 112, 1, 12), (16, 28, 2, 12), (8, 56, 2, 12)}
+    # balanced + widest-in-x (seed_design) and the next x-wide shape per thread count
+    assert got == {(28, 32, 1, 12), (8, 112, 1, 12), (14, 64, 1, 12), (16, 28, 2, 12), (8, 56, 2, 12)}
 
 
 def test_band_leaders_are_distinct_patch_shapes():

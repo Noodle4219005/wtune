@@ -35,6 +35,7 @@ PROXY_MAX_JOBS = 28            # proxy jobs one batch submits: f1 ct112 QOS allo
 PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
 PROXY_SEED_OMP = (1, 2, 4)     # joint pool: decomp_space.seed_design shapes at these thread counts
 PROXY_SEED_TILES = (12,)       # ... at the numtiles nearest these
+PROXY_SEED_X_WIDE = 2          # ... plus the 2 widest-in-x patch shapes per thread count
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
@@ -327,6 +328,19 @@ def _seed_layouts(ctx) -> list[dict]:
         return []
     space = _apply_search_filter(ctx, [c for c in space if c.get("omp") in PROXY_SEED_OMP])
     picks = decomp_space.seed_design(space, numtiles_targets=PROXY_SEED_TILES, max_omp=max(PROXY_SEED_OMP))
+    # and the next x-wide shapes per thread count (x-wide patches vectorise better; isc-synth N=8:
+    # 8x56 omp2 2.712, the widest 7x64 omp2 2.814 s/step)
+    have = {(c["nx"], c["ny"], c["omp"]) for c in picks}
+    for omp in PROXY_SEED_OMP:
+        group = [c for c in space if c["omp"] == omp and c.get("tile_shape", "1d_y") == "1d_y"
+                 and c.get("dist", "block") == "block" and str(c.get("blocktime", "0")) == "0"]
+        shapes = sorted({(c["nx"], c["ny"]) for c in group}, key=lambda xy: (xy[0], -xy[1]))
+        for xy in shapes[:PROXY_SEED_X_WIDE]:
+            if (xy[0], xy[1], omp) in have:
+                continue
+            shape = [c for c in group if (c["nx"], c["ny"]) == xy]
+            picks.append(min(shape, key=lambda c: (abs(c["numtiles"] - PROXY_SEED_TILES[0]), c["numtiles"])))
+            have.add((xy[0], xy[1], omp))
     return decomp_space.to_campaign_configs(picks, prefix="S") if picks else []
 
 

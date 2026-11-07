@@ -1286,6 +1286,20 @@ class TestCompareMetrics(unittest.TestCase):
         p_k = np.array([100000.0, 85000.0, 70000.0])
         self.assertTrue(math.isnan(cr.interp_pressure_level_column(field_k, p_k, 110000.0)))
 
+    def test_interp_pressure_level_field_matches_per_column_loop(self):
+        rng = np.random.default_rng(7)
+        nz, ny, nx = 12, 9, 11
+        p = np.sort(rng.uniform(5000.0, 105000.0, (nz, ny, nx)), axis=0)[::-1].copy()
+        p[3, 0, 0] = p[4, 0, 0]                      # equal neighbours -> field[idx]
+        p[0, 1, 1] = 80000.0                         # target above the surface pressure
+        f = rng.normal(280.0, 10.0, (nz, ny, nx))
+        for target in (85000.0, 50000.0, 100000.0, 2000.0):
+            got = cr.interp_pressure_level_field(f, p, target)
+            want = np.array([[cr.interp_pressure_level_column(f[:, j, i], p[:, j, i], target)
+                              for i in range(nx)] for j in range(ny)])
+            np.testing.assert_allclose(got, want, rtol=0, atol=1e-9, equal_nan=True)
+            self.assertTrue(np.array_equal(np.isnan(got), np.isnan(want)))
+
     def test_interp_pressure_level_column_midpoint_linear_in_lnp(self):
         import math as _m
         field_k = np.array([0.0, 100.0])

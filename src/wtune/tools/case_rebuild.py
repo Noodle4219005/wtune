@@ -1882,10 +1882,20 @@ def interp_pressure_level_field(field_3d: ArrayLike, p_3d: ArrayLike, target_pa:
     field_3d = np.asarray(field_3d, dtype=float)
     p_3d = np.asarray(p_3d, dtype=float)
     nz, ny, nx = field_3d.shape
+    # same bracket rule as interp_pressure_level_column (searchsorted on -p == count of levels
+    # with p > target), done for every column at once
     out = np.full((ny, nx), np.nan)
-    for j in range(ny):
-        for i in range(nx):
-            out[j, i] = interp_pressure_level_column(field_3d[:, j, i], p_3d[:, j, i], target_pa)
+    inside = ~((target_pa > p_3d[0]) | (target_pa < p_3d[-1]))
+    idx = np.clip((p_3d > target_pa).sum(axis=0) - 1, 0, nz - 2)[None]
+    p_hi = np.take_along_axis(p_3d, idx, 0)[0]
+    p_lo = np.take_along_axis(p_3d, idx + 1, 0)[0]
+    f_hi = np.take_along_axis(field_3d, idx, 0)[0]
+    f_lo = np.take_along_axis(field_3d, idx + 1, 0)[0]
+    same = p_hi == p_lo
+    with np.errstate(all="ignore"):
+        frac = (np.log(target_pa) - np.log(p_hi)) / (np.log(p_lo) - np.log(p_hi))
+    val = np.where(same, f_hi, f_hi + frac * (f_lo - f_hi))
+    out[inside] = val[inside]
     return out
 
 

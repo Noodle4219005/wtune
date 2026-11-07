@@ -75,6 +75,8 @@ _VAL = re.compile(r"'[^']*'|\"[^\"]*\"|[^,]+")
 _BDY_KEYS = ("specified", "nested", "spec_bdy_width", "spec_zone", "relax_zone", "spec_exp")
 PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation rows (WRF default 1 + 4)
 PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
+PROXY_MIN_STEPS = 4         # a run with fewer timed steps is not used
+PROXY_RUN_CAP_S = 150       # wall cap of one proxy run: WRF stopped, its completed steps used
 PROXY_MAX_STEPS = 8         # frozen-boundary instabilities start after 11-60 steps; the proxy only ranks
 PROXY_POSITIONS = 2         # crop positions per layout: centred and crop_offset's shifted one
 PROXY_TIME_POINTS = 2       # states at other times a leader is also timed on, when there are any
@@ -723,11 +725,14 @@ def _run(plan, r, rep, out, scratch, retry=False):
     try:
         rc = subprocess.run(shlex.split(cmd), cwd=d, env=env, stdin=subprocess.DEVNULL,
                             stdout=open(os.path.join(d, "run.log"), "w"),
-                            stderr=subprocess.STDOUT, timeout=60 + 20 * run_seconds).returncode
+                            stderr=subprocess.STDOUT, timeout=min(60 + 20 * run_seconds, PROXY_RUN_CAP_S)).returncode
     except subprocess.TimeoutExpired:
         rc = 124
     steps = _step_times(os.path.join(d, "rsl.error.0000"))
-    ok = rc == 0 and len(steps) >= max(10, plan["steps"] // 2)
+    # enough steps for a median; a run the wall cap stopped counts when it has them: a slow layout
+    # (a few steps of 12-16 s on isc-synth) is not the one to pick, so fewer steps still rank it
+    need = max(PROXY_MIN_STEPS, min(plan["steps"], 2 * PROXY_MIN_STEPS) // 2)
+    ok = (rc == 0 or (rc == 124 and len(steps) >= need)) and len(steps) >= need
     rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=dom, weight=r.get("weight", 1),
                pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=rc, steps=len(steps), ok=ok,
                median=statistics.median(steps[1:]) if len(steps) > 1 else None,

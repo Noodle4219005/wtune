@@ -691,3 +691,41 @@ def test_a_run_failing_twice_with_tiles_runs_once_more_at_half_the_tiles(tmp_pat
     recs = [json.loads(line) for line in open(out / "results.jsonl")]
     assert [(r["ok"], r.get("nt_fallback")) for r in recs] == [(False, None), (False, None), (True, 16)]
     assert [r["tag"] for r in proxy.collect(str(out))] == ["A"]
+
+
+def test_eight_step_runs_count_and_a_capped_run_keeps_its_completed_steps(tmp_path, monkeypatch):
+    import subprocess
+    import wtune.machine
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(" &time_control\n run_days = 0, run_hours = 1, run_minutes = 0, run_seconds = 0,\n /\n &domains\n time_step = 15,\n"
+                                         " max_dom = 1,\n e_we = 101,\n e_sn = 81,\n /\n")
+    tree = _tree(tmp_path, "dmpar")
+    run = dict(domain=1, weight=1, dt=15.0, px=2, py=2, omp=1, numtiles=1, ranks=4, a=2, b=2, nx=100, ny=80,
+               wrf_tree=tree)
+    plan = dict(case_dir=str(case), e_we=101, e_sn=81, max_dom=1, dt=15.0, steps=proxy.PROXY_MAX_STEPS, reps=1,
+                runs=[dict(run, tag="A", layout="A"), dict(run, tag="B", layout="B")])
+    out = tmp_path / "job"
+    out.mkdir()
+    json.dump(plan, open(out / "plan.json", "w"))
+    monkeypatch.setenv("WTUNE_PROXY_SCRATCH", str(tmp_path / "scratch"))
+    monkeypatch.setattr(wtune.machine, "load_user", lambda: {})
+    monkeypatch.setattr(wtune.machine, "export", lambda m: None)
+    monkeypatch.setattr(wtune.machine, "site_launch_line", lambda *a: "mpirun ./wrf.exe")
+    caps = []
+
+    def fake(cmd, cwd=None, timeout=None, **k):
+        if cmd[0] == "rm":
+            return subprocess.CompletedProcess(cmd, 0)
+        caps.append(timeout)
+        slow = os.path.basename(cwd).startswith("B")              # B: the wall cap stops it after 5 steps
+        open(os.path.join(cwd, "rsl.error.0000"), "w").write("".join(
+            "Timing for main: time 2019 on domain   1:    0.50000 elapsed seconds\n" for _ in range(5 if slow else 8)))
+        if slow:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr(subprocess, "run", fake)
+    assert proxy.worker(str(out / "plan.json")) == 0
+    recs = [json.loads(line) for line in open(out / "results.jsonl")]
+    assert [(r["tag"], r["rc"], r["steps"], r["ok"]) for r in recs] == [("A", 0, 8, True), ("B", 124, 5, True)]
+    assert all(c <= proxy.PROXY_RUN_CAP_S for c in caps)

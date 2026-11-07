@@ -520,3 +520,16 @@ def test_collect_drops_runs_marked_failed(tmp_path):
                                                                      retry=True), dict(tag="B", rep=1, rc=0, median=0.45)]
     (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert [(r["tag"], r["median"]) for r in proxy.collect(str(tmp_path))] == [("B", 0.45), ("A", 0.47)]
+
+
+def test_drop_runs_keeps_the_records_and_the_failed_reruns(tmp_path):
+    for d in ("runs/A-1", "runs/B-1", "runs/B-1-retry"):
+        os.makedirs(tmp_path / d)
+        (tmp_path / d / "rsl.error.0000").write_text("x")
+    os.symlink(str(tmp_path / "plan.json"), str(tmp_path / "runs" / "A-1" / "wrfinput_d01"))
+    for f in ("results.jsonl", "plan.json", "proxy-7.out"):
+        (tmp_path / f).write_text("x")
+    proxy.drop_runs(str(tmp_path))
+    assert sorted(os.listdir(tmp_path / "runs")) == ["B-1-retry"]
+    assert sorted(os.listdir(tmp_path)) == ["plan.json", "proxy-7.out", "results.jsonl", "runs"]
+    proxy.drop_runs(str(tmp_path / "nothing-here"))

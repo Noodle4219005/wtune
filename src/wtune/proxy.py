@@ -731,6 +731,17 @@ def _tidy(d, keep_logs=False):
                 pass
 
 
+def drop_runs(out_dir):
+    """Delete out_dir/runs/* once collected, but the kept re-runs of failed runs (*-retry):
+    results.jsonl, the job's .out and plan.json stay. A job's run directories held 0.8 GB and
+    filled f1-arm's 100 GB quota."""
+    import shutil
+    root = os.path.join(out_dir, "runs")
+    for f in os.listdir(root) if os.path.isdir(root) else []:
+        if not f.endswith("-retry"):
+            shutil.rmtree(os.path.join(root, f), ignore_errors=True)
+
+
 def _tree_name(tree):
     tree = tree.rstrip("/")
     name = os.path.basename(tree)

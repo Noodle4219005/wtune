@@ -197,3 +197,13 @@ def test_select_with_a_joint_ranking_submits_nothing(tmp_path, monkeypatch):
     out = S.select(ctx, configs)
     assert [c["id"] for c in out] == ["ANCHOR", "D0001", "D0002"] and ctx.proxy_used
     assert submitted == [] and ctx.owned_jobs == []
+
+
+def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, monkeypatch):
+    _patch(monkeypatch, [], {"A": 0.5})
+    dropped = []
+    monkeypatch.setattr(P, "drop_runs", lambda d: dropped.append(os.path.basename(d)))
+    runs = [dict(tag=t) for t in "ABCDEF"]
+    ctx = _ctx(tmp_path)
+    assert S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o"), "job", 1) == {"A": 0.5}
+    assert dropped == ["job0", "job1"]

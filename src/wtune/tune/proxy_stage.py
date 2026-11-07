@@ -268,6 +268,7 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
                 timed[r["tag"]] = r["median"]
         except OSError:
             pass
+        _proxy.drop_runs(d)
     return timed
 
 

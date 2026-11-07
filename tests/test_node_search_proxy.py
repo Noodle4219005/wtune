@@ -43,8 +43,9 @@ def _patch(monkeypatch, ranking, calls, consistent=None):
     monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS[n], None) if n in ANCHORS
                         else (None, "no legal decomposition"))
 
-    def rank(ctx, legal):
+    def rank(ctx, legal, anchor_only_below=0):
         calls.append(("rank", legal))
+        calls.append(("below", anchor_only_below))
         ctx.owned_jobs += ["901", "902"]
         return ranking, (consistent if consistent is not None else {n: True for n in ranking})
     monkeypatch.setattr(PS, "rank_across_nodes", rank)
@@ -81,7 +82,7 @@ def test_joint_proxy_tunes_the_two_best_n_and_chooses_by_real_medians(tmp_path, 
     _patch(monkeypatch, RANKING, calls)
     ctx = _ctx(tmp_path)
     report, collect = _search(ctx, 2)
-    assert calls[0] == ("rank", [2, 4, 8])
+    assert calls[0] == ("rank", [2, 4, 8]) and calls[1] == ("below", 4)   # objective time: N < 8/2
     tuned = [c for c in calls if c[0] == "tune"]
     assert [c[1] for c in tuned] == [8, 4]                                  # lowest proxy scores first
     for _k, n, ranked, anchor, adaptive, confirm, cores, full in tuned:

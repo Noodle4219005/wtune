@@ -19,6 +19,7 @@ import dataclasses
 import glob
 import math
 import os
+import re
 
 import wtune.proxy as _proxy
 from . import jobs as _jobs
@@ -29,7 +30,7 @@ PROXY_POOL_FACTOR = 3          # pool = 3 x what round0 would measure
 PROXY_POOL_MAX = 24
 PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes at once: max_nodes caps the
                                # run being tuned, not the one-node tuning jobs (queue wait is not charged)
-PROXY_MAX_JOBS = 24            # proxy jobs one batch submits: f1 ct112 QOS allows 32 submitted, 28 running
+PROXY_MAX_JOBS = 28            # proxy jobs one batch submits: f1 ct112 QOS allows 32 submitted, 28 running
 PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
@@ -174,7 +175,7 @@ def _select_ranked(ctx, configs, keep):
     return chosen
 
 
-def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
+def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0) -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each, every N in one batch of jobs; then the PROXY_JOINT_LEADERS one-node
     leaders of each N re-timed so that N compare: as band proxies when N > PROXY_BAND_NODES, as the
@@ -182,7 +183,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
     PROXY_POSITIONS crop positions where they can be placed (the whole domain has one). Returns
     ({N: [(config, s/step, "band" | "full" | "one-node"), ...]} best first, re-timed ahead of
     one-node ones (one node alone reads 0-18 % low), {N: True when its crop positions agree on the
-    fastest layout}); ({}, {}) when nothing was timed."""
+    fastest layout}); ({}, {}) when nothing was timed. N < anchor_only_below is timed with its
+    ANCHOR alone (the objective time: an N under half the largest cannot be the fastest)."""
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
     pools, runs, base = {}, [], None
     for n in legal_nodes:
@@ -192,7 +194,7 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int]) -> tuple[dict, dict]:
             continue
         # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take the
         # slots (Big Chill N=4, N=5: the ANCHOR alone was left)
-        more = _apply_search_filter(cn, sample_more_diverse_configs(
+        more = [] if n < anchor_only_below else _apply_search_filter(cn, sample_more_diverse_configs(
             cn, [anchor], PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
         pool = {}
         for c in [anchor] + more:
@@ -291,21 +293,34 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     return _collect_jobs(h, by_pos)
 
 
+def _layout_nodes(tag: str) -> int:
+    m = re.match(r"N(\d+)_", tag)
+    return int(m.group(1)) if m else 0
+
+
 def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
     """The submit half of _run_jobs: {"live": job ids still to wait for, "out_dirs"}, or None."""
     groups = {}
     for r in runs:
         groups.setdefault(r.get("layout", r["tag"]), []).append(r)
-    groups = list(groups.values())
+    # dearest first (fewest nodes: the most cells per rank), so that when layouts must share a job
+    # the dear ones run alone and the cheap ones pair up
+    groups = sorted(groups.values(), key=lambda g: _layout_nodes(g[0].get("layout", g[0]["tag"])))
     # one job per layout up to the nodes there are: a nested or band run costs as much per step
     # as the real N-node run, so packing PROXY_RUNS_PER_JOB of them into a job serialises minutes
     n_jobs = max(1, min(PROXY_JOB_NODES_FACTOR * ctx.max_nodes // nodes_per_job, len(groups),
                         PROXY_MAX_JOBS))
+    # greedy, dearest first onto the least loaded job; a layout costs ~1/N (cells per rank)
+    packed, load = [[] for _ in range(n_jobs)], [0.0] * n_jobs
+    for g in groups:
+        k = load.index(min(load))
+        packed[k].append(g)
+        load[k] += 1.0 / max(1, _layout_nodes(g[0].get("layout", g[0]["tag"])))
     job_ids, out_dirs, ended = [], [], []
     j = 0
     while j < n_jobs:
         d = os.path.join(out_root, "%s%d" % (prefix, j))
-        job_runs = [r for g in groups[j::n_jobs] for r in g]
+        job_runs = [r for g in packed[j] for r in g]
         job, msg = _proxy.submit_plan(dict(plan, runs=job_runs), d, _proxy_time_limit(ctx))
         if job:
             job_ids.append(job)

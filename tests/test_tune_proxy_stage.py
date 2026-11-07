@@ -326,3 +326,17 @@ def test_the_whole_domain_and_band_rounds_are_submitted_together(tmp_path, monke
     after_one = events[[i for i, e in enumerate(events) if e[0] == "wait"][0] + 1:]
     assert [e for e in after_one if e[0] == "submit"] == [("submit", 2), ("submit", 2), ("submit", 3), ("submit", 3)]
     assert after_one[-1] == ("wait", 4)                                # one wait for both sizes
+
+
+def test_an_n_under_the_cut_is_timed_with_its_anchor_alone_and_dear_layouts_get_their_own_job(
+        tmp_path, monkeypatch):
+    ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    asked = []
+    monkeypatch.setattr(S, "sample_more_diverse_configs",
+                        lambda c, ex, k, seed: asked.append(c.nodes) or POOLS[c.nodes][1:k + 1])
+    monkeypatch.setattr(S, "PROXY_MAX_JOBS", 4)
+    S.rank_across_nodes(ctx, [2, 4, 5], anchor_only_below=4)
+    assert asked == [4, 5]                                               # N=2: no sample drawn
+    jobs = [sorted({r["layout"] for r in p["runs"]}) for p in submitted if p["proxy_nodes"] == 1]
+    assert ["N2_16x18_o1_nt1"] in jobs                                    # the dearest runs alone
+    assert sum(len(j) for j in jobs) == 7 and len(jobs) == 4

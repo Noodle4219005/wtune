@@ -936,7 +936,9 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         else:
             legal.append(n)
     first_job = len(ctx.owned_jobs)
-    ranking, consistent = proxy_stage.rank_across_nodes(ctx, legal)
+    # objective time: N under half the largest legal N would need > 2x superlinear speedup to win
+    ranking, consistent = proxy_stage.rank_across_nodes(
+        ctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0)
     proxy_jobs = list(ctx.owned_jobs[first_job:])
     if not ranking:
         print("node search: the joint proxy search ranked nothing; running the real node sweep")

@@ -948,6 +948,15 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     finals = order[:proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)]
     if not consistent.get(order[0], True):
         print("node search: N=%d's crop positions disagree on its fastest layout -- one more finalist" % order[0])
+    if objective == "time" and best[order[0]][2] in ("band", "full"):
+        # an N the proxy puts beyond the margin cannot be the fastest, nor within noise of it; only
+        # behind a band or whole-domain leader: one-node scores read ~7% low (isc-synth N=8)
+        lead = best[order[0]][1]
+        slow = [n for n in finals if best[n][1] > lead * (1 + proxy_stage.PROXY_FINALIST_MARGIN)]
+        if slow:
+            print("node search: N=%s more than %d%% slower than N=%d in the proxy -- not tuned for real"
+                  % (",".join(map(str, slow)), round(100 * proxy_stage.PROXY_FINALIST_MARGIN), order[0]))
+            finals = [n for n in finals if n not in slow]
     anchors = {n: next((c for c, _t, _f in ranking[n] if c.get("id") == "ANCHOR"), None)
                or _sweep_anchor(ctx, n)[0] for n in finals}
     sw = dict(measurements={}, anchors=anchors, cores={}, results={}, skipped=skipped, jobs={},

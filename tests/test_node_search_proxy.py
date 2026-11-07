@@ -33,8 +33,8 @@ def _ctx(tmp_path, proxy=True, inputs=True):
 
 
 ANCHORS = {n: _cfg("ANCHOR", 12 * n, 12) for n in (2, 4, 8)}
-RANKING = {2: [(ANCHORS[2], 0.60, "one-node")],
-           4: [(_cfg("D0001", 24, 24), 0.30, "band"), (ANCHORS[4], 0.32, "band")],
+RANKING = {2: [(ANCHORS[2], 0.262, "one-node")],
+           4: [(_cfg("D0001", 24, 24), 0.26, "band"), (ANCHORS[4], 0.32, "band")],
            8: [(ANCHORS[8], 0.25, "band"), (_cfg("D0001", 32, 36), 0.27, "one-node")]}
 REAL = {2: 0.33, 4: 0.29, 8: 0.31}   # real medians: the proxy's best N (8) loses to N=4
 
@@ -93,7 +93,7 @@ def test_joint_proxy_tunes_the_two_best_n_and_chooses_by_real_medians(tmp_path, 
     assert ns["note"] == "joint proxy search" and ns["finalists"] == [8, 4] and ns["sweep_jobs"] == ["901", "902"]
     assert ns["position_consistent"] == {"2": True, "4": True, "8": True}
     assert [(r["nodes"], r["median"], r["fidelity"]) for r in ns["table"]] == [
-        (2, 0.60, "one-node"), (4, 0.30, "band"), (8, 0.25, "band")]
+        (2, 0.262, "one-node"), (4, 0.26, "band"), (8, 0.25, "band")]
     assert ns["table"][1]["layout"] == "24x24_o1_nt1"
     assert {s["nodes"] for s in ns["skipped"]} == {1, 3, 5, 6, 7}
     assert report["cores_used_per_node"] == 144 and report["full_run_prediction"] == dict(stub=True)
@@ -114,6 +114,20 @@ def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, mo
     (tmp_path / "b").mkdir()
     _search(_ctx(tmp_path / "b"), 2)
     assert [c[1] for c in calls if c[0] == "tune"] == [8, 4]           # only the best N's flag counts
+
+
+@pytest.mark.parametrize("objective,lead,tuned", [("time", "band", [8]), ("time", "one-node", [8, 4]),
+                                                  ("cost", "band", [8, 4])])
+def test_a_finalist_beyond_the_margin_behind_an_accurate_leader_is_not_tuned(tmp_path, monkeypatch,
+                                                                             objective, lead, tuned):
+    calls = []
+    ranking = {2: [(ANCHORS[2], 0.40, "one-node")], 4: [(ANCHORS[4], 0.25 * 1.06, "band")],
+               8: [(ANCHORS[8], 0.25, lead)]}
+    _patch(monkeypatch, ranking, calls)
+    report = NS.run_node_search(_ctx(tmp_path), {}, objective, None, 0.7, 2, 1000, plan=dict(level=2),
+                                collect={})
+    assert [c[1] for c in calls if c[0] == "tune"] == tuned
+    assert report["node_selection"]["finalists"] == tuned
 
 
 def test_joint_proxy_falls_back_to_the_real_sweep_without_a_ranking(tmp_path, monkeypatch):

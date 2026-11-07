@@ -1727,6 +1727,23 @@ def test_o2_runs_the_layouts_that_tie_with_the_fastest_once_more(tmp_path, capsy
     assert [res[c]["n"] for c in "ABC"] == [3, 3, 1]        # the fake reports 2 runs per job
 
 
+def test_after_the_proxy_the_race_runs_one_layout_per_job(tmp_path, capsys):
+    from wtune.tune import candidates, rounds
+    sbatch, reader, _jn = make_scaling_fakes({1: 0.30})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    ctx.proxy_used = True
+    a = candidates._sweep_anchor(ctx, 1)[0]
+    res = {cid: dict(cid=cid, config=dict(a, id=cid), s_values=[m], median=m, lo=m, hi=m, n=1,
+                     run_ids=["r"]) for cid, m in (("A", 0.30), ("B", 0.31), ("C", 0.40))}
+    rounds._race_leaders(ctx, res, 0.3)
+    assert "race: submitted job 7001,7002 (A, B once more" in capsys.readouterr().out
+    assert [res[c]["n"] for c in "ABC"] == [3, 3, 1]
+    assert rounds._proxy_slots(ctx, 1) == 4 * ctx.max_nodes
+    ctx.proxy_used = False
+    assert rounds._proxy_slots(ctx, 1) == 1
+
+
 def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
     # 91x100 grid (r_max 90), 72 cores/node: pure MPI at N>=2 is illegal, but ranks = N*72/omp is
     # legal for omp=2 (N=2), 4 (N=4), 8 (N=8) -> all are sweep candidates with a hybrid ANCHOR.

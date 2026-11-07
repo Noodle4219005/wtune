@@ -29,6 +29,8 @@ PROXY_POOL_FACTOR = 3          # pool = 3 x what round0 would measure
 PROXY_POOL_MAX = 24
 PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes at once: max_nodes caps the
                                # run being tuned, not the one-node tuning jobs (queue wait is not charged)
+PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
+                               # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
 PROXY_REAL_KEEP = 3            # real N-node probes after the proxy: ANCHOR + the 2 fastest
 PROXY_BAND_KEEP = 4            # one-node leaders re-timed as band proxies

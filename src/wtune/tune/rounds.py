@@ -229,7 +229,7 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         configs0 = proxy_stage.select(ctx, configs0)
 
     job_ids, configs_by_cid, rows, job_configs, states = _submit_round0_wave(
-        ctx, configs0, slots, s_est, "round0")
+        ctx, configs0, _proxy_slots(ctx, slots), s_est, "round0")
     if job_ids:
         wave0_results = aggregate_by_cid(rows, configs_by_cid)
         _adopt_round0_startup(ctx, job_configs, states, wave0_results)
@@ -531,6 +531,16 @@ def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
     all_results[cid] = again
 
 
+def _proxy_slots(ctx: Ctx, slots: int) -> int:
+    """Parallel jobs once the proxy ranked the layouts: one config per job, up to
+    PROXY_JOB_NODES_FACTOR x max_nodes nodes at once (queue wait is not tune time; a config takes
+    ~startup + probe steps, 4-5 min on an ISC-size case, so a job of 3 ran 14 min)."""
+    if not ctx.proxy_used:
+        return slots
+    from .proxy_stage import PROXY_JOB_NODES_FACTOR
+    return max(slots, PROXY_JOB_NODES_FACTOR * ctx.max_nodes // max(1, ctx.nodes))
+
+
 def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
     """With no confirm stage (-O2) the pick rests on one run: the layouts that tie with the
     fastest (common.close_to_best) run once more, in one job, merged into their results."""
@@ -545,12 +555,19 @@ def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
     if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
         print("race: SKIP -- no budget left for a second run of %s" % cids)
         return
-    job_id, _path, _te = submit_configs_job(ctx, configs, reps=1, name_suffix="race",
-                                            s_est=s_est, time_est=est)
+    groups = chunk_round_robin(configs, min(len(configs), _proxy_slots(ctx, 1)))
+    job_ids = []
+    for k, g in enumerate(groups):
+        g_est = estimate_run_time([(c, measured[c["id"]]["median"]) for c in g], 1, ctx.steps,
+                                  startup_s=ctx.startup_s)
+        job_id, _path, _te = submit_configs_job(ctx, g, reps=1,
+                                                name_suffix="race" if k == 0 else "race%d" % k,
+                                                s_est=s_est, time_est=g_est)
+        job_ids.append(job_id)
     print("race: submitted job %s (%s once more, within 2x noise of the fastest)"
-          % (job_id, ", ".join(cids)))
-    _jobs.wait_for_jobs(ctx, [job_id], "race")
-    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, [job_id]),
+          % (",".join(map(str, job_ids)), ", ".join(cids)))
+    _jobs.wait_for_jobs(ctx, job_ids, "race")
+    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, job_ids),
                              {c: measured[c]["config"] for c in cids})
     for cid, r in again.items():
         all_results[cid] = merge_aggs(all_results[cid], r)

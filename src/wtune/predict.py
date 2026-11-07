@@ -872,8 +872,9 @@ def _sample_points_via_netcdf4(path):
             return None
         lat = ds.variables["XLAT"][0]
         lon = ds.variables["XLONG"][0]
-        lat2d = [[float(lat[j][i]) for i in range(lat.shape[1])] for j in range(lat.shape[0])]
-        lon2d = [[float(lon[j][i]) for i in range(lon.shape[1])] for j in range(lon.shape[0])]
+        import numpy as np
+        lat2d = np.ma.filled(np.ma.asarray(lat, dtype=float), np.nan).tolist()
+        lon2d = np.ma.filled(np.ma.asarray(lon, dtype=float), np.nan).tolist()
         return sample_lattice_5x5_from_grid(lat2d, lon2d)
     except Exception:
         return None

@@ -52,8 +52,8 @@ def test_proxy_keeps_the_anchor_and_the_proxys_fastest(tmp_path, monkeypatch):
     assert sum(len(p["runs"]) for p in one) == 12 and ctx.owned_jobs[:2] == ["101", "102"]
     assert sorted(r["tag"] for p in one for r in p["runs"] if r["pos"] == 1) == sorted(t + "_p1" for t in timings)
     bands = [p for p in submitted if p.get("proxy_nodes") == 3]            # N=4 > 3: the 4 leaders as bands
-    assert [r["layout"] for p in bands for r in p["runs"] if r["pos"] == 0] == [
-        "12x24_o2_nt24", "9x64_o1_nt13", "18x32_o1_nt1"]   # 32x18: 144 ranks per node, not whole rows
+    assert sorted(r["layout"] for p in bands for r in p["runs"] if r["pos"] == 0) == [
+        "12x24_o2_nt24", "18x32_o1_nt1", "9x64_o1_nt13"]   # 32x18: 144 ranks per node, not whole rows
     assert sum(r["pos"] == 1 for p in bands for r in p["runs"]) == 3       # a band shifts along y
 
 
@@ -214,6 +214,17 @@ def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, mon
     ctx = _ctx(tmp_path)
     assert S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o"), "job", 1) == {"A": 0.5}
     assert dropped == ["job0", "job1"]
+
+
+def test_run_jobs_keeps_a_layouts_runs_in_one_job(tmp_path, monkeypatch):
+    submitted = _patch(monkeypatch, [], {})
+    runs = [dict(tag=t + s, layout=t) for t in "ABCDE" for s in ("", "_p1", "_t1")]
+    S._run_jobs(_ctx(tmp_path), dict(runs=runs), runs, str(tmp_path / "o"), "job", 1)
+    assert len(submitted) == 4                                     # ceil(15 / 4) jobs, max_nodes 8
+    for p in submitted:
+        lays = {r["layout"] for r in p["runs"]}
+        assert all(sum(r["layout"] == x for r in p["runs"]) == 3 for x in lays)
+    assert sorted(r["tag"] for p in submitted for r in p["runs"]) == sorted(r["tag"] for r in runs)
 
 
 def test_rank_across_nodes_flags_an_n_whose_crop_positions_disagree(tmp_path, monkeypatch):

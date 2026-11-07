@@ -267,12 +267,18 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
 def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     """Spread `runs` over proxy jobs of nodes_per_job nodes each (as many as max_nodes holds), wait,
     and return {layout tag: score} (and fill by_pos with {layout tag: {crop position: score}});
-    None when no job could be submitted."""
-    n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, math.ceil(len(runs) / PROXY_RUNS_PER_JOB)))
+    None when no job could be submitted. A layout's runs (domains, crop positions, time points)
+    share one job: collect() scores a layout from one job's results."""
+    groups = {}
+    for r in runs:
+        groups.setdefault(r.get("layout", r["tag"]), []).append(r)
+    groups = list(groups.values())
+    n_jobs = max(1, min(ctx.max_nodes // nodes_per_job, math.ceil(len(runs) / PROXY_RUNS_PER_JOB), len(groups)))
     job_ids, out_dirs = [], []
     for j in range(n_jobs):
         d = os.path.join(out_root, "%s%d" % (prefix, j))
-        job, msg = _proxy.submit_plan(dict(plan, runs=runs[j::n_jobs]), d, _proxy_time_limit(ctx))
+        job_runs = [r for g in groups[j::n_jobs] for r in g]
+        job, msg = _proxy.submit_plan(dict(plan, runs=job_runs), d, _proxy_time_limit(ctx))
         if job:
             job_ids.append(job)
             out_dirs.append(d)

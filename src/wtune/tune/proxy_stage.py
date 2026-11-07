@@ -23,6 +23,7 @@ import re
 
 import wtune.proxy as _proxy
 from . import jobs as _jobs
+from ._deps import decomp_space
 from .candidates import _apply_search_filter, _sweep_anchor, sample_more_diverse_configs
 from .context import Ctx, cores_used
 
@@ -32,6 +33,8 @@ PROXY_JOB_NODES_FACTOR = 4     # proxy jobs may hold up to 4 x max_nodes nodes a
                                # run being tuned, not the one-node tuning jobs (queue wait is not charged)
 PROXY_MAX_JOBS = 28            # proxy jobs one batch submits: f1 ct112 QOS allows 32 submitted, 28 running
 PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
+PROXY_SEED_OMP = (1, 2, 4)     # joint pool: decomp_space.seed_design shapes at these thread counts
+PROXY_SEED_TILES = (12,)       # ... at the numtiles nearest these
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
@@ -194,11 +197,15 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
             continue
         # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take the
         # slots (Big Chill N=4, N=5: the ANCHOR alone was left)
+        # the seed shapes first: per thread count the most balanced and the widest-in-x patch.
+        # The sampled pool alone missed the fastest class on isc-synth N=8 (omp2, x-wide patches:
+        # 8x56 omp2 nt14 2.71 s/step; the pick from the pool, 28x16 omp2 nt14, 3.37: 24% regret)
+        seeds = [] if n < anchor_only_below else _seed_layouts(cn)
         more = [] if n < anchor_only_below else _apply_search_filter(cn, sample_more_diverse_configs(
-            cn, [anchor], PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
-        pool = {}
-        for c in [anchor] + more:
-            if _spec(c) and len(pool) < PROXY_JOINT_PER_N:
+            cn, [anchor] + seeds, PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
+        pool, cap = {}, PROXY_JOINT_PER_N + len(seeds)
+        for c in [anchor] + seeds + more:
+            if _spec(c) and len(pool) < cap:
                 pool.setdefault(_tag(c), c)
         plan, got = _joint_plan(cn, case_dir, n, pool, 1)
         if got:
@@ -291,6 +298,20 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
         return None
     _jobs.wait_for_jobs(ctx, h["live"], "proxy")
     return _collect_jobs(h, by_pos)
+
+
+def _seed_layouts(ctx) -> list[dict]:
+    """decomp_space.seed_design at ctx.nodes over PROXY_SEED_OMP: the most balanced and the
+    widest-in-x patch per thread count, numtiles nearest PROXY_SEED_TILES, as campaign configs
+    (ids S0001..); [] when the space cannot be enumerated."""
+    try:
+        space, _axis = decomp_space.enumerate_space(ctx.case_json, ctx.nodes * cores_used(ctx), ctx.nodes,
+                                                    ctx.hardware_id)
+    except (KeyError, ValueError, TypeError):
+        return []
+    space = _apply_search_filter(ctx, [c for c in space if c.get("omp") in PROXY_SEED_OMP])
+    picks = decomp_space.seed_design(space, numtiles_targets=PROXY_SEED_TILES, max_omp=max(PROXY_SEED_OMP))
+    return decomp_space.to_campaign_configs(picks, prefix="S") if picks else []
 
 
 def _layout_nodes(tag: str) -> int:

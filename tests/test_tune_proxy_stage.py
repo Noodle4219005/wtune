@@ -140,6 +140,7 @@ def _joint(tmp_path, monkeypatch, pools, timings, band):
     ctx = _JCtx(namelist_path=ns.namelist_path, wrf_tree=ns.wrf_tree, out_dir=ns.out_dir)
     submitted = _patch(monkeypatch, [], {}, None)
     monkeypatch.setattr(S, "_sweep_anchor", lambda c, n: (pools[n][0], None) if n in pools else (None, "x"))
+    monkeypatch.setattr(S, "_seed_layouts", lambda c: [])
     monkeypatch.setattr(S, "sample_more_diverse_configs", lambda c, ex, k, seed: pools[c.nodes][1:k + 1])
     monkeypatch.setattr(P, "collect", lambda d: [dict(tag=t, median=m) for t, m in
                         (timings if d.endswith("jobs0") else band if "band" in os.path.basename(d) else {}).items()])
@@ -340,3 +341,27 @@ def test_an_n_under_the_cut_is_timed_with_its_anchor_alone_and_dear_layouts_get_
     jobs = [sorted({r["layout"] for r in p["runs"]}) for p in submitted if p["proxy_nodes"] == 1]
     assert ["N2_16x18_o1_nt1"] in jobs                                    # the dearest runs alone
     assert sum(len(j) for j in jobs) == 7 and len(jobs) == 4
+
+
+def test_the_seed_shapes_lead_the_joint_pool_ahead_of_the_sampled_layouts(tmp_path, monkeypatch):
+    ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    seeds = [_cfg("S0001", 8, 45, omp=2, nt=12), _cfg("S0002", 4, 90, omp=2, nt=12)]
+    monkeypatch.setattr(S, "_seed_layouts", lambda c: seeds if c.nodes == 5 else [])
+    S.rank_across_nodes(ctx, [5])
+    tags = [r["layout"] for p in submitted for r in p["runs"]]
+    assert tags[:4] == ["N5_24x30_o1_nt1", "N5_8x45_o2_nt12", "N5_4x90_o2_nt12", "N5_20x36_o1_nt1"]
+    assert len(set(tags)) == 5                         # 2 seeds on top of the anchor + 2 sampled
+
+
+def test_seed_layouts_take_the_balanced_and_the_x_wide_patch_per_thread_count(monkeypatch):
+    import types
+    space = [dict(nx=nx, ny=ny, ranks=nx * ny, omp=omp, numtiles=nt, tile_shape="1d_y", dist="block",
+                  blocktime="0", patch_x=800 // nx, patch_y=800 // ny)
+             for omp, shapes in ((1, [(28, 32), (14, 64), (8, 112)]), (2, [(16, 28), (8, 56), (28, 16)]))
+             for nx, ny in shapes for nt in (1, 12)]
+    monkeypatch.setattr(S.decomp_space, "enumerate_space", lambda case, cores, n, hw: (space, None))
+    monkeypatch.setattr(S, "_apply_search_filter", lambda c, cs: cs)
+    monkeypatch.setattr(S, "cores_used", lambda c: 112)
+    ctx = types.SimpleNamespace(case_json={}, nodes=8, hardware_id="x")
+    got = {(c["nx"], c["ny"], c["omp"], c["numtiles"]) for c in S._seed_layouts(ctx)}
+    assert got == {(28, 32, 1, 12), (8, 112, 1, 12), (16, 28, 2, 12), (8, 56, 2, 12)}

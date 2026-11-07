@@ -58,7 +58,9 @@ def nl_set(text, **kv):
 
 _SEG = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)")
 _VAL = re.compile(r"'[^']*'|\"[^\"]*\"|[^,]+")
-_BDY_KEYS = ("specified", "nested")
+_BDY_KEYS = ("specified", "nested", "spec_bdy_width", "spec_zone", "relax_zone", "spec_exp")
+PROXY_BDY_WIDTH = 10        # proxy lateral boundary: 1 specified + 9 relaxation rows (WRF default 1 + 4)
+PROXY_SPEC_EXP = 0.33       # exponential relaxation across the wider zone (WRF default 0: linear)
 
 
 def nl_values(text, key):
@@ -234,16 +236,43 @@ def band_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1, proxy_nodes=3):
 
 
 # --------------------------------------------------------------------------------------- crop
-def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None):
-    """Centre-crop wrfinput_d01 to nx x ny mass points and synthesize wrfbdy_d01 from the crop's
-    edges (values mass-coupled as real.exe writes them, zero tendencies). Fields wrfbdy carries
-    but wrfinput lacks (e.g. HT_SHAD) are zero. Returns the zero-filled field names."""
+def flat_offset(hgt, nx, ny, band, steps=24):
+    """(i0, j0) of the nx x ny window of terrain `hgt` (south_north x west_east) whose `band`-row
+    edge strips have the smallest mean terrain slope: the frozen boundary of a crop drives the
+    interior least where its edges are flat (the proxy's CFL and radiation-step failures sat on
+    crop edges over steep terrain). Offsets searched on a steps x steps grid; the centre wins ties."""
+    import numpy as np
+    my, mx = hgt.shape
+    gy, gx = np.gradient(hgt.astype("f8"))
+    slope = np.hypot(gx, gy)
+    ci, cj = (mx - nx) // 2, (my - ny) // 2
+    best = None
+    for j0 in sorted(set(np.linspace(0, my - ny, min(steps, my - ny + 1)).astype(int)) | {cj}):
+        for i0 in sorted(set(np.linspace(0, mx - nx, min(steps, mx - nx + 1)).astype(int)) | {ci}):
+            w = slope[j0:j0 + ny, i0:i0 + nx]
+            b = min(band, nx // 2, ny // 2)
+            edge = np.concatenate([w[:b].ravel(), w[-b:].ravel(), w[:, :b].ravel(), w[:, -b:].ravel()])
+            key = (float(edge.mean()), abs(i0 - ci) + abs(j0 - cj))
+            if best is None or key < best[0]:
+                best = (key, i0, j0)
+    return best[1], best[2]
+
+
+def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None, place="centre", bdy_width=None):
+    """Crop wrfinput_d01 to nx x ny mass points (`place` "centre", or "flat": flat_offset) and
+    synthesize wrfbdy_d01 from the crop's edges (values mass-coupled as real.exe writes them, zero
+    tendencies; `bdy_width` rows, default the source wrfbdy's). Fields wrfbdy carries but wrfinput
+    lacks (e.g. HT_SHAD) are zero. Returns the zero-filled field names."""
     import datetime as dt
     import netCDF4 as nc
     import numpy as np
     S = nc.Dataset(src_in)
-    i0 = (len(S.dimensions["west_east"]) - nx) // 2
-    j0 = (len(S.dimensions["south_north"]) - ny) // 2
+    if place == "flat":
+        S.variables["HGT"].set_auto_mask(False)
+        i0, j0 = flat_offset(S.variables["HGT"][0], nx, ny, bdy_width or 5)
+    else:
+        i0 = (len(S.dimensions["west_east"]) - nx) // 2
+        j0 = (len(S.dimensions["south_north"]) - ny) // 2
     size = {"west_east": nx, "west_east_stag": nx + 1, "south_north": ny, "south_north_stag": ny + 1}
     off = {"west_east": i0, "west_east_stag": i0, "south_north": j0, "south_north_stag": j0}
 
@@ -308,7 +337,8 @@ def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None):
             return f * mu / g("MAPFAC_MY")
         return f * mu
 
-    bw = len(B.dimensions["bdy_width"])
+    bw = bdy_width or len(B.dimensions["bdy_width"])
+    size["bdy_width"] = bw
     O = nc.Dataset(os.path.join(out_dir, "wrfbdy_d01"), "w", format="NETCDF3_64BIT_OFFSET")
     ovs = define(B, O)
     fmt = "%Y-%m-%d_%H:%M:%S"
@@ -345,7 +375,7 @@ def crop(src_in, src_bdy, out_dir, nx, ny, as_top=False, dxdy=None):
 
 # -------------------------------------------------------------------------------------- plan
 def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tree=None,
-              wrf_tree_omp=None, proxy_nodes=1):
+              wrf_tree_omp=None, proxy_nodes=1, place="centre", bdy_width=None):
     """One proxy run per layout and domain. A nested case is split into its domains, each run on
     its own as a single domain with the same px x py patch rule; collect() adds them up weighted by
     each domain's steps per d01 step (domain 1's timing in a nested run includes its nests).
@@ -371,6 +401,7 @@ def make_plan(case_dir, nodes, layouts, cores_per_node, steps=40, reps=2, wrf_tr
                              domain=ly["domain"], weight=ly["weight"], dt=ly["dt"], **L, **sh, wrf_tree=tree))
     return dict(case_dir=os.path.abspath(case_dir), nodes=nodes, proxy_nodes=proxy_nodes, steps=steps,
                 reps=reps, dt=time_step_seconds(text), max_dom=len(layers), layers=layers,
+                place=place, bdy_width=bdy_width,
                 e_we=layers[0]["e_we"], e_sn=layers[0]["e_sn"], runs=runs, skipped=skipped)
 
 
@@ -432,12 +463,13 @@ def worker(plan_path):
             for r in plan["runs"]:
                 dom = r.get("domain", 1)
                 run_seconds = max(1, math.ceil(plan["steps"] * r.get("dt", plan["dt"])))
-                box = os.path.join(scratch, "d%d_%dx%d" % (dom, r["nx"], r["ny"]))
+                place, bw = plan.get("place", "centre"), plan.get("bdy_width")
+                box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s" % (dom, r["nx"], r["ny"], place, bw or "src"))
                 if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
                     os.makedirs(box, exist_ok=True)
                     crop(os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
                          box, r["nx"], r["ny"], as_top=dom > 1,
-                         dxdy=nest_dx(layers[dom]) if nested and dom > 1 else None)
+                         dxdy=nest_dx(layers[dom]) if nested and dom > 1 else None, place=place, bdy_width=bw)
                 d = os.path.join(out, "runs", "%s-%d" % (r["tag"], rep))
                 os.makedirs(d, exist_ok=True)
                 run_dir = os.path.join(r["wrf_tree"], "run")
@@ -456,6 +488,8 @@ def worker(plan_path):
                                 run_days=0, run_hours=0, run_minutes=0, run_seconds=run_seconds,
                                 nproc_x=r["a"], nproc_y=r["b"], numtiles=r["numtiles"],
                                 **_quiet_output(base_nl))
+                if bw:
+                    nl = nl_force(nl, spec_bdy_width=bw, spec_zone=1, relax_zone=bw - 1, spec_exp=PROXY_SPEC_EXP)
                 open(os.path.join(d, "namelist.input"), "w").write(nl)
                 _null_rsl(d, r["ranks"])
                 cmd = wtune.machine.site_launch_line(r["ranks"], r.get("ranks_per_node", r["ranks"]), r["omp"],
@@ -614,6 +648,11 @@ def main(argv=None):
         p.add_argument("--reps", type=int, default=2)
         p.add_argument("--wrf-tree", default=None, help="WRF tree for omp=1 (default: machine's)")
         p.add_argument("--wrf-tree-omp", default=None, help="WRF tree (dmsm) for omp>1")
+        p.add_argument("--place", default="centre", choices=("centre", "flat"),
+                       help="crop position: domain centre (default) or the flattest edges (flat_offset)")
+        p.add_argument("--bdy-width", type=int, default=None,
+                       help="proxy boundary rows (spec_bdy_width; relax_zone = this - 1, spec_exp %.2f); "
+                            "default: the case's" % PROXY_SPEC_EXP)
         p.add_argument("--proxy-nodes", type=int, default=1,
                        help="1: one-node proxy (default); M>1: band proxy on M nodes (full width)")
         if name == "submit":
@@ -633,7 +672,7 @@ def main(argv=None):
 
     tree = a.wrf_tree or wtune.machine.wrf_tree()
     plan = make_plan(a.case_dir, a.nodes, a.layout, wtune.machine.cores_per_node(), a.steps, a.reps,
-                     tree, a.wrf_tree_omp, a.proxy_nodes)
+                     tree, a.wrf_tree_omp, a.proxy_nodes, a.place, a.bdy_width)
     for r in plan["runs"]:
         print("%-20s proxy %3d ranks (%dx%d) on %d node(s) box %dx%d  build %s" % (
             r["tag"], r["ranks"], r["a"], r["b"], r.get("nodes", 1), r["nx"], r["ny"], _tree_name(r["wrf_tree"])))

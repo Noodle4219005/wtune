@@ -220,6 +220,30 @@ def test_crop_couples_boundaries_with_dry_air_mass(tmp_path):
     np.testing.assert_allclose(D.variables["U_BXS"][0, 0], expect, rtol=1e-5)
     np.testing.assert_allclose(D.variables["MU_BXE"][0, 0], C.variables["MU"][0][:, -1], rtol=1e-6)
     assert not D.variables["U_BTXS"][:].any() and D.variables["T_BYE"][0, 0].mean() > 1e3   # coupled, not raw ~5
+    D.close()
+    wide = tmp_path / "wide"
+    wide.mkdir()
+    proxy.crop(str(src / "wrfinput_d01"), str(src / "wrfbdy_d01"), str(wide), 8, 6, bdy_width=3)
+    W = nc.Dataset(wide / "wrfbdy_d01")
+    assert W.dimensions["bdy_width"].size == 3                            # wider than the source's 2
+    np.testing.assert_allclose(W.variables["U_BXS"][0, 2], u[:, :, 2] * (0.5 * (mu[:, 1] + mu[:, 2]))[None, :]
+                               / C.variables["MAPFAC_UY"][0][:, 2], rtol=1e-5)
+
+
+def test_flat_offset_moves_the_crop_edges_off_the_ridge():
+    np = pytest.importorskip("numpy")
+    hgt = np.zeros((40, 50))
+    hgt[:, 20:26] = np.linspace(0, 3000, 6)[None, :]          # a ridge crossing the domain centre
+    i0, j0 = proxy.flat_offset(hgt, 15, 30, 3)
+    assert i0 + 15 <= 20 or i0 >= 26                           # the window avoids the ridge
+    assert proxy.flat_offset(np.zeros((40, 50)), 15, 30, 3) == (17, 5)   # flat everywhere: the centre
+
+
+def test_wide_boundary_keys_go_to_bdy_control():
+    nl = proxy.nl_force(" &domains\n e_we = 10,\n /\n &bdy_control\n specified = .true.,\n /\n",
+                        spec_bdy_width=10, relax_zone=9, spec_exp=0.33)
+    bdy = nl.split("&bdy_control")[1]
+    assert "spec_bdy_width = 10" in bdy and "relax_zone = 9" in bdy and "spec_exp = 0.33" in bdy
 
 
 def test_nest_dx_only_moves_when_dt_sits_on_the_bound():

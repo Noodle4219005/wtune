@@ -5,8 +5,8 @@ round0 would measure k sampled layouts at N nodes for real. Instead a wider pool
 max_nodes nodes in parallel. When N > PROXY_BAND_NODES, the PROXY_BAND_KEEP fastest are re-timed as
 band proxies (PROXY_BAND_NODES nodes reproducing the target's interior node) and rank by that. Only
 the ANCHOR plus the proxy's PROXY_REAL_KEEP-1 fastest go to the real N-node probes (which race and
-confirm as before). A nested case is split into its domains
-(wtune/proxy.py). Configs the proxy cannot reproduce (2-D tiles, dist=cyclic) are not ranked; no
+confirm as before). A nested case runs as one cropped nested run, or split into its domains where
+that does not fit (wtune/proxy.py). Configs the proxy cannot reproduce (2-D tiles, dist=cyclic) are not ranked; no
 netCDF wrfinput/wrfbdy in the case directory, or no proxy timing at all, falls back to round0's own
 selection, with a note.
 

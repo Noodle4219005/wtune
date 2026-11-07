@@ -119,7 +119,7 @@ def test_nested_case_is_split_into_weighted_single_domain_runs(tmp_path):
     c = tmp_path / "case"
     c.mkdir()
     (c / "namelist.input").write_text(MARSHALL)
-    plan = proxy.make_plan(str(c), 8, ["32x32"], 144)
+    plan = proxy.make_plan(str(c), 8, ["32x32"], 144, nested="split")
     assert [(r["tag"], r["domain"], r["weight"]) for r in plan["runs"]] == [("32x32_o1_nt1_d1", 1, 1), ("32x32_o1_nt1_d2", 2, 9)]
     assert plan["runs"][1]["dt"] == pytest.approx(6 / 9) and plan["max_dom"] == 2
 
@@ -257,3 +257,155 @@ def test_null_rsl_links_every_rank_but_zero_to_dev_null(tmp_path):
     proxy._null_rsl(str(tmp_path), 3)
     assert sorted(os.listdir(tmp_path)) == ["rsl.error.0001", "rsl.error.0002", "rsl.out.0001", "rsl.out.0002"]
     assert all(os.readlink(tmp_path / f) == os.devnull for f in os.listdir(tmp_path))
+
+
+BIGCHILL = (" &time_control\n run_days = 0, run_hours = 4, run_minutes = 0, run_seconds = 0,\n history_interval = 60, 60,\n /\n"
+            " &domains\n time_step = 15,\n"
+            " max_dom = 2,\n e_we = 561, 671,\n e_sn = 450, 791,\n e_vert = 86, 86,\n dx = 3000, 600,\n"
+            " dy = 3000, 600,\n grid_id = 1, 2,\n parent_id = 0, 1,\n i_parent_start = 1, 150,\n"
+            " j_parent_start = 1, 80,\n parent_grid_ratio = 1, 5,\n parent_time_step_ratio = 1, 5,\n /\n"
+            " &bdy_control\n spec_bdy_width = 5,\n specified = .true., .false.,\n nested = .false., .true.,\n /\n")
+
+
+def _check_nest_crop(text, nb, px, py, margin):
+    layers = proxy.domain_layers(text)
+    ratio = [1] + [int(v) for v in proxy.nl_values(text, "parent_grid_ratio")[1:]]
+    ips = [int(v) for v in proxy.nl_values(text, "i_parent_start")]
+    jps = [int(v) for v in proxy.nl_values(text, "j_parent_start")]
+    for ly, bx in zip(layers, nb["boxes"]):
+        d, r = ly["domain"], ratio[ly["domain"] - 1]
+        mx, my = ly["e_we"] - 1, ly["e_sn"] - 1
+        # each rank owns the target's patch, up to the rounding to the parent ratio
+        assert 0 <= bx["nx"] - nb["a"] * -(-mx // px) < r and 0 <= bx["ny"] - nb["b"] * -(-my // py) < r
+        assert bx["nx"] % r == 0 and bx["ny"] % r == 0 and bx["i0"] % r == 0 and bx["j0"] % r == 0
+        assert 0 <= bx["i0"] <= mx - bx["nx"] and 0 <= bx["j0"] <= my - bx["ny"]
+        if d == 1:
+            assert (bx["i_parent_start"], bx["j_parent_start"]) == (1, 1)
+            continue
+        p = nb["boxes"][d - 2]
+        # the same parent cell before and after cropping
+        assert p["i0"] + bx["i_parent_start"] == ips[d - 1] + bx["i0"] // r
+        assert p["j0"] + bx["j_parent_start"] == jps[d - 1] + bx["j0"] // r
+        assert bx["i_parent_start"] - 1 >= margin and p["nx"] - (bx["i_parent_start"] - 1 + bx["nx"] // r) >= margin
+        assert bx["j_parent_start"] - 1 >= margin and p["ny"] - (bx["j_parent_start"] - 1 + bx["ny"] // r) >= margin
+
+
+def test_nest_crop_boxes_give_every_rank_the_targets_patch_in_both_big_chill_domains():
+    nb = proxy.nest_crop_boxes(BIGCHILL, 16, 18, 2, 144)
+    assert (nb["ranks"], nb["a"], nb["b"]) == (144, 12, 12)
+    assert nb["boxes"] == [dict(domain=1, nx=420, ny=300, i0=6, j0=8, i_parent_start=1, j_parent_start=1),
+                           dict(domain=2, nx=505, ny=530, i0=80, j0=130, i_parent_start=160, j_parent_start=98)]
+    _check_nest_crop(BIGCHILL, nb, 16, 18, 6)
+    nb = proxy.nest_crop_boxes(BIGCHILL, 12, 12, 2, 144, omp=2)
+    assert nb["ranks"] == 72 and nb["a"] * nb["b"] == 72
+    _check_nest_crop(BIGCHILL, nb, 12, 12, 6)
+
+
+def test_nest_crop_boxes_walk_up_a_three_domain_chain():
+    text = BIGCHILL.replace("max_dom = 2", "max_dom = 3").replace("671,", "671, 601,").replace("791,", "791, 601,")
+    for k, v in (("parent_id = 0, 1", "0, 1, 2"), ("i_parent_start = 1, 150", "1, 150, 30"),
+                 ("j_parent_start = 1, 80", "1, 80, 90"), ("parent_grid_ratio = 1, 5", "1, 5, 3"),
+                 ("parent_time_step_ratio = 1, 5", "1, 5, 3")):
+        text = text.replace(k, k.split("=")[0] + "= " + v)
+    nb = proxy.nest_crop_boxes(text, 16, 18, 2, 144)
+    assert [bx["domain"] for bx in nb["boxes"]] == [1, 2, 3]
+    _check_nest_crop(text, nb, 16, 18, 6)
+
+
+def test_nest_crop_boxes_refuse_what_does_not_fit():
+    # d02 over nearly all of d01: its crop's footprint leaves no 6-cell margin in d01's crop
+    big = BIGCHILL.replace("671,", "2741,").replace("i_parent_start = 1, 150", "i_parent_start = 1, 7")
+    assert proxy.nest_crop_boxes(big, 16, 18, 2, 144) is None
+    assert proxy.nest_crop_boxes(BIGCHILL, 71, 16, 8, 144) is None                  # no one-node shape
+    assert proxy.nest_crop_boxes(BIGCHILL.replace(" j_parent_start = 1, 80,\n", ""), 16, 18, 2, 144) is None
+    sib = BIGCHILL.replace("max_dom = 2", "max_dom = 3").replace("parent_id = 0, 1", "parent_id = 0, 1, 1")
+    assert proxy.nest_crop_boxes(sib, 16, 18, 2, 144) is None                        # siblings, not a chain
+
+
+def test_nested_namelist_sets_every_domain_column():
+    nb = proxy.nest_crop_boxes(BIGCHILL, 16, 18, 2, 144)
+    out = proxy.nested_namelist(BIGCHILL, nb["boxes"], 12, 12, 2, 450)
+    for key, vals in (("max_dom", ["2"]), ("e_we", ["421", "506"]), ("e_sn", ["301", "531"]),
+                      ("i_parent_start", ["1", "160"]), ("j_parent_start", ["1", "98"]),
+                      ("history_interval", ["100000"]), ("run_hours", ["0"]), ("run_seconds", ["450"]),
+                      ("nproc_x", ["12"]), ("nproc_y", ["12"]), ("numtiles", ["2"]),
+                      ("parent_grid_ratio", ["1", "5"]), ("dx", ["3000", "600"]), ("nested", [".false.", ".true."])):
+        assert proxy.nl_values(out, key) == vals, key
+
+
+def test_nested_plan_is_one_cropped_run_per_layout_and_split_still_works(tmp_path):
+    c = tmp_path / "case"
+    c.mkdir()
+    (c / "namelist.input").write_text(BIGCHILL)
+    plan = proxy.make_plan(str(c), 2, ["16x18", "12x12:omp=2"], 144, steps=70)
+    assert [(r["tag"], r["layout"], r["domain"], r["weight"], len(r["boxes"])) for r in plan["runs"]] == [
+        ("16x18_o1_nt1", "16x18_o1_nt1", 1, 1, 2), ("12x12_o2_nt1", "12x12_o2_nt1", 1, 1, 2)]
+    assert (plan["runs"][0]["nx"], plan["runs"][0]["ny"], plan["runs"][0]["ranks"]) == (420, 300, 144)
+    assert plan["steps"] == proxy.PROXY_MAX_STEPS == 30
+    split = proxy.make_plan(str(c), 2, ["16x18"], 144, nested="split")
+    assert [(r["tag"], r["weight"], "boxes" in r) for r in split["runs"]] == [
+        ("16x18_o1_nt1_d1", 1, False), ("16x18_o1_nt1_d2", 5, False)]
+    band = proxy.make_plan(str(c), 2, ["16x18"], 144, proxy_nodes=2)       # band proxies stay split
+    assert [r["tag"] for r in band["runs"]] == ["16x18_o1_nt1_d1", "16x18_o1_nt1_d2"]
+
+
+def test_collect_takes_a_nested_crop_run_as_the_whole_layout(tmp_path):
+    json.dump(dict(max_dom=2), open(tmp_path / "plan.json", "w"))
+    rows = [dict(tag="A", layout="A", domain=1, weight=1, rep=1, rc=0, median=0.9, nested="crop"),
+            dict(tag="B_d1", layout="B", domain=1, weight=1, rep=1, rc=0, median=0.3)]
+    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert [(r["tag"], r["median"]) for r in proxy.collect(str(tmp_path))] == [("A", 0.9)]
+
+
+def test_whole_domain_box_uses_the_cases_own_files(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((os.path.basename(a[0]), a[1], k)))
+    plan = dict(case_dir="/case", e_we=561, e_sn=450, max_dom=2, place="centre", bdy_width=10)
+    full = dict(domain=1, nx=560, ny=449)
+    assert proxy.whole_domain(plan, full) and not proxy.whole_domain(plan, dict(full, domain=2))
+    assert not proxy.whole_domain(plan, dict(full, ny=448))
+    assert proxy._inputs(plan, full, str(tmp_path), {}) == {"wrfinput_d01": "/case/wrfinput_d01",
+                                                         "wrfbdy_d01": "/case/wrfbdy_d01"}
+    assert calls == []
+    part = proxy._inputs(plan, dict(full, nx=420, ny=300), str(tmp_path), {})
+    assert calls[0][0] == "wrfinput_d01" and part["wrfbdy_d01"].startswith(str(tmp_path))
+
+
+def test_nested_crop_run_crops_every_domain_at_its_offsets(tmp_path, monkeypatch):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "wrfinput_d02").write_text("x")
+    calls = []
+    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((os.path.basename(a[0]), a[1], a[3:5], k)))
+    nb = proxy.nest_crop_boxes(BIGCHILL, 16, 18, 2, 144)
+    plan = dict(case_dir=str(case), e_we=561, e_sn=450, max_dom=2)
+    files = proxy._inputs(plan, dict(domain=1, nx=420, ny=300, boxes=nb["boxes"]), str(tmp_path / "s"), {})
+    assert sorted(files) == ["wrfbdy_d01", "wrfinput_d01", "wrfinput_d02"]
+    (n1, bdy1, box1, k1), (n2, bdy2, box2, k2) = calls
+    assert (n1, box1, k1["i0"], k1["j0"], k1["parent_start"]) == ("wrfinput_d01", (420, 300), 6, 8, None)
+    assert bdy1.endswith("wrfbdy_d01") and bdy2 is None
+    assert (n2, box2, k2["i0"], k2["j0"], k2["parent_start"]) == ("wrfinput_d02", (505, 530), 80, 130, (160, 98))
+
+
+def test_crop_at_offsets_keeps_a_nest_a_nest(tmp_path):
+    nc = pytest.importorskip("netCDF4")
+    np = pytest.importorskip("numpy")
+    src = tmp_path / "wrfinput_d02"
+    I = nc.Dataset(src, "w", format="NETCDF3_64BIT_OFFSET")
+    for d, n in (("Time", None), ("west_east", 12), ("west_east_stag", 13), ("south_north", 10),
+                 ("south_north_stag", 11)):
+        I.createDimension(d, n)
+    for k, v in (("WEST-EAST_GRID_DIMENSION", 13), ("SOUTH-NORTH_GRID_DIMENSION", 11), ("GRID_ID", 2),
+                 ("PARENT_ID", 1), ("PARENT_GRID_RATIO", 3), ("I_PARENT_START", 40), ("J_PARENT_START", 50)):
+        I.setncattr(k, np.int32(v))
+    u = np.arange(10 * 13, dtype="f4").reshape(10, 13)
+    I.createVariable("U", "f4", ("Time", "south_north", "west_east_stag"))[0] = u
+    I.close()
+    out = tmp_path / "out"
+    out.mkdir()
+    assert proxy.crop(str(src), None, str(out), 6, 3, i0=3, j0=6, parent_start=(7, 9)) == []
+    assert sorted(os.listdir(out)) == ["wrfinput_d02"]
+    C = nc.Dataset(out / "wrfinput_d02")
+    np.testing.assert_array_equal(C.variables["U"][0], u[6:9, 3:10])
+    assert (C.getncattr("I_PARENT_START"), C.getncattr("J_PARENT_START"), C.getncattr("GRID_ID")) == (7, 9, 2)
+    assert C.getncattr("WEST-EAST_GRID_DIMENSION") == 7 and C.getncattr("PARENT_GRID_RATIO") == 3

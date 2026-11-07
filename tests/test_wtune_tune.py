@@ -2617,6 +2617,29 @@ def test_wait_for_jobs_charges_only_the_intervals_a_job_is_running():
     assert ctx.wall_elapsed() == pytest.approx(180.0 + 180.0 + 5000.0)
 
 
+def test_wait_for_jobs_charges_the_time_its_sacct_queries_take():
+    seen = {"n": 0}
+    clock = FakeClock()
+
+    def sacct(cmd):
+        if "--format=JobID,State,Elapsed" not in cmd:
+            return ""
+        seen["n"] += 1
+        clock.t += 10.0                                             # a slow sacct with many jobs
+        state = "PENDING" if seen["n"] <= 3 else ("RUNNING" if seen["n"] <= 6 else "COMPLETED")
+        return "1|%s|00:00:00" % state
+
+    ctx = _ctx(clock=clock, sacct_runner=sacct, budget_s=10000.0, poll_interval=60.0)
+    ctx.budget_mode = "running"
+    ctx.shared_queue = {"s": 0.0, "cap_hit": False, "run_s": 0.0}
+    clock.t = 0.0
+    wtune.tune.wait_for_jobs(ctx, ["1"], "t")
+    # 6 polls of 60 s + 10 s of sacct each: 3 queued, 3 running; the 7th query (10 s) ends the wait
+    assert ctx.queue_wait_s == pytest.approx(210.0)
+    assert ctx.elapsed() == pytest.approx(210.0)
+    assert ctx.wall_elapsed() == pytest.approx(430.0)
+
+
 def test_pipeline_full_rejects_fixed_nodes(monkeypatch, tmp_path):
     args = wtune.tune.build_arg_parser().parse_args(
         ["matthew", "--pipeline", "full", "--minutes", "30", "--nodes", "4"])

@@ -133,6 +133,10 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
     only when one of our jobs (or ctx.background_jobs) runs, else counted as queue wait (capped by
     max_queue_s). Cancels at the budget (not when `exempt_budget`) or the wall cap."""
     misses: dict = {}
+    # each poll is charged from the end of the last one: the sacct query and the progress line
+    # take seconds with many jobs, and charging the sleep alone left them uncounted (isc-synth on
+    # f1: 18:40 charged of 22:11 with a job in flight, the rest shown as controller time)
+    t0 = ctx.clock.now()
     while True:
         elapsed = ctx.elapsed()
         wall = ctx.wall_elapsed()
@@ -166,12 +170,13 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
         if not running:            # nothing consumes budget: only the wall cap bounds the poll
             step = ctx.poll_interval if ctx.max_wall_s is None else \
                 min(ctx.poll_interval, max(0.0, ctx.max_wall_s - wall))
-        t0 = ctx.clock.now()
         ctx.clock.sleep(step)
+        t1 = ctx.clock.now()
+        charged, t0 = t1 - t0, t1
         if running:
-            ctx.add_running(ctx.clock.now() - t0)
+            ctx.add_running(charged)
         if not running:
-            ctx.add_queue_wait(ctx.clock.now() - t0)
+            ctx.add_queue_wait(charged)
             if ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s:
                 if ctx.shared_queue is not None:
                     ctx.shared_queue["cap_hit"] = True

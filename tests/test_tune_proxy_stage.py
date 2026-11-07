@@ -365,3 +365,20 @@ def test_seed_layouts_take_the_balanced_and_the_x_wide_patch_per_thread_count(mo
     ctx = types.SimpleNamespace(case_json={}, nodes=8, hardware_id="x")
     got = {(c["nx"], c["ny"], c["omp"], c["numtiles"]) for c in S._seed_layouts(ctx)}
     assert got == {(28, 32, 1, 12), (8, 112, 1, 12), (16, 28, 2, 12), (8, 56, 2, 12)}
+
+
+def test_band_leaders_are_distinct_patch_shapes():
+    tags = ["7x64_o2_nt12", "7x64_o2_nt6", "16x28_o2_nt12", "14x64_o1_nt12"]
+    assert S._distinct_shapes(tags, 2) == ["7x64_o2_nt12", "16x28_o2_nt12"]
+    assert S._distinct_shapes(["7x64_o2_nt12", "7x64_o2_nt6"], 2) == ["7x64_o2_nt12", "7x64_o2_nt6"]
+    assert S._distinct_shapes(["8x56_o2_nt14", "8x56_o1_nt14"], 2) == ["8x56_o2_nt14", "8x56_o1_nt14"]
+
+
+def test_select_with_a_joint_ranking_probes_distinct_shapes(tmp_path, monkeypatch):
+    configs = [_cfg("ANCHOR", 24, 24), _cfg("G0001", 32, 18), _cfg("G0002", 16, 36)]
+    _patch(monkeypatch, [], {})
+    ctx = _ctx(tmp_path, with_inputs=False)
+    ctx.proxy_ranked = [(_cfg("D0001", 12, 24, omp=2, nt=12), 0.40, "band"),
+                        (_cfg("D0002", 12, 24, omp=2, nt=6), 0.41, "band"),
+                        (_cfg("D0003", 18, 32), 0.45, "one-node")]
+    assert [c["id"] for c in S.select(ctx, configs)] == ["ANCHOR", "D0001", "D0003"]

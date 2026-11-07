@@ -169,7 +169,9 @@ def _select_ranked(ctx, configs, keep):
             seen.add(_tag(c))
             ranked.append(c)
     untimed = [c for c in configs[1:] if _tag(c) not in seen]
-    chosen = _afford(ctx, [anchor] + (ranked or untimed)[:keep - 1], anchor)
+    by_tag = {_tag(c): c for c in ranked}
+    ranked_picks = [by_tag[t] for t in _distinct_shapes([_tag(c) for c in ranked], keep - 1)]
+    chosen = _afford(ctx, [anchor] + (ranked_picks or untimed[:keep - 1]), anchor)
     ctx.proxy_used = True
     for i, c in enumerate([anchor] + ranked):
         t, f = score.get(_tag(c), (None, ""))
@@ -230,7 +232,7 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     for n in sorted(one):
         size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
         if size > 1 and ctx.max_nodes >= size:
-            lead = sorted(one[n], key=one[n].get)[:PROXY_JOINT_LEADERS]
+            lead = _distinct_shapes(sorted(one[n], key=one[n].get), PROXY_JOINT_LEADERS)
             plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, size, points)
             if got:
                 prev = by_size.get(size, (plan, []))
@@ -298,6 +300,20 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
         return None
     _jobs.wait_for_jobs(ctx, h["live"], "proxy")
     return _collect_jobs(h, by_pos)
+
+
+def _distinct_shapes(tags: list[str], k: int) -> list[str]:
+    """The first k of `tags` (best first) with distinct patch shapes (nx x ny, omp): numtiles
+    variants of one shape rank alike, and two of them took both band slots on isc-synth N=8
+    (7x64 omp2 nt12, nt6) while 16x28 omp2 nt12, one-node 2.673, was never re-timed. Tile variants
+    fill in when there are fewer than k shapes."""
+    shape = lambda t: t.rsplit("_nt", 1)[0]
+    out, seen = [], set()
+    for t in tags:
+        if shape(t) not in seen:
+            seen.add(shape(t))
+            out.append(t)
+    return (out + [t for t in tags if t not in out])[:k]
 
 
 def _seed_layouts(ctx) -> list[dict]:

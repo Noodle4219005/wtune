@@ -439,8 +439,8 @@ class _FakePool:
             self.ran.add(todo[0][1])
         return pred()
 
-    def close(self):
-        self.closed = True
+    def close(self, stopped=False):
+        self.closed, self.stopped = True, stopped
 
 
 def _pool_joint(tmp_path, monkeypatch, timings, band, fake):
@@ -479,7 +479,7 @@ def test_the_node_pool_bands_an_n_as_soon_as_its_one_node_runs_are_timed(tmp_pat
         ("one-N5", "1-994", 1), ("one-N4", "1-995", 1), ("one-N2", "1-997", 1),
         ("band-N5", "0-994", 3), ("band-N4", "0-995", 3), ("band-N2", "0-997", 2)]
     assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N4"] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
-    assert fake.closed
+    assert fake.closed and not fake.stopped
     # the same ranking as one batch of jobs per round
     assert [(S._tag(c), t, f) for c, t, f in out[4]] == [
         ("24x24_o1_nt1", 0.46, "band"), ("12x24_o2_nt24", 0.47, "band"), ("18x32_o1_nt1", 0.47, "one-node")]
@@ -490,7 +490,7 @@ def test_the_node_pool_ranks_what_finished_at_the_deadline(tmp_path, monkeypatch
     fake = _FakePool(stop_after=2)                      # N=5's one-node runs, then its band
     ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
     out, _same = S.rank_across_nodes(ctx, [2, 4, 5])
-    assert sorted(out) == [5] and out[5][0][2] == "band" and fake.closed
+    assert sorted(out) == [5] and out[5][0][2] == "band" and fake.closed and fake.stopped
     assert "stopped with N=[2, 4] not fully timed" in capsys.readouterr().out
 
 
@@ -607,3 +607,12 @@ def test_pool_worker_backfills_one_node_runs_that_cannot_delay_a_waiting_band(tm
     assert order[:3] == ["B1", "L3", "L4"] and order.index("B2") < order.index("L5")
     assert not P._backfill_ok(3, 0, {})                                 # nothing running: no backfill
     assert not P._backfill_ok(3, 0, {"x": (None, ["a"], 0.0), "y": (None, list("bcd"), 1.0)})
+
+
+def test_a_pool_stopped_at_the_deadline_leaves_no_crops_behind(tmp_path):
+    pool = S._Pool(None, str(tmp_path), 8, "1")
+    os.makedirs(tmp_path / "scratch" / "1-991-000001")
+    pool.close()
+    assert (tmp_path / "scratch").exists()
+    pool.close(stopped=True)
+    assert (tmp_path / "CLOSE").exists() and not (tmp_path / "scratch").exists()

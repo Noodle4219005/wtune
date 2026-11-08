@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import shutil
 
 import wtune.proxy as _proxy
 from . import jobs as _jobs
@@ -347,7 +348,7 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
             take_one(n)
         for n in banding:
             band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
-    pool.close()
+    pool.close(stopped=bool(waiting or banding))
     return one, band, one_pos, band_pos
 
 
@@ -426,8 +427,10 @@ class _Pool:
         _jobs.wait_for_jobs(self.ctx, [self.job], "proxy", until=pred)
         return pred()
 
-    def close(self):
+    def close(self, stopped=False):
         open(os.path.join(self.root, "CLOSE"), "w").close()
+        if stopped:                        # cancelled worker: its runs' crops are left behind
+            shutil.rmtree(os.path.join(self.root, "scratch"), ignore_errors=True)
 
 
 def _same_fastest(*sources):

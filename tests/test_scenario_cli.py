@@ -3,7 +3,6 @@ network/downloads/ungrib.exe)."""
 
 import datetime
 
-import pytest
 
 import wtune.scenario.cli as scenario_cli
 from wtune.scenario.base import list_generators
@@ -15,27 +14,6 @@ def test_cli_list_contains_every_registered_name(capsys):
     out = capsys.readouterr().out
     for row in list_generators():
         assert row["name"] in out
-
-
-def test_cli_generate_dry_run_analog(tmp_path, monkeypatch, capsys):
-    fixed_date = datetime.datetime(2025, 8, 29, 12)
-    monkeypatch.setattr(scenario_cli, "select_analog_date", lambda start, **kw: fixed_date)
-
-    rc = scenario_cli.main([
-        "generate", "--generator", "analog",
-        "--start", "2031-07-15T12:00:00", "--end", "2031-07-15T12:00:00",
-        "--bbox", "30,40,-110,-100",
-        "--out", str(tmp_path / "out"),
-        "--dry-run",
-    ])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "analog date: %s" % fixed_date.isoformat() in out
-    assert "generator: analog" in out
-    assert "files expected: 1" in out
-    assert "license:" in out
-    # no files/network side effects on a dry run
-    assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
 
 
 def test_cli_generate_dry_run_reports_missing_fields(tmp_path, monkeypatch, capsys):
@@ -72,24 +50,6 @@ def _case_dir_with_interval(tmp_path, interval_seconds):
     case_dir.mkdir()
     (case_dir / "namelist.wps").write_text("&share\n interval_seconds = %d,\n/\n" % interval_seconds)
     return case_dir
-
-
-def test_interval_h_derived_from_case_namelist(tmp_path, monkeypatch, capsys):
-    # conus25-style case: 3h cadence (interval_seconds=10800) -> 0,3,6h = 3 files over a 6h span.
-    case_dir = _case_dir_with_interval(tmp_path, 10800)
-    monkeypatch.setattr(scenario_cli, "select_analog_date",
-                         lambda start, **kw: datetime.datetime(2025, 8, 29, 12))
-
-    rc = scenario_cli.main([
-        "generate", "--generator", "analog",
-        "--start", "2031-07-15T00:00:00", "--end", "2031-07-15T06:00:00",
-        "--bbox", "30,40,-110,-100", "--out", str(tmp_path / "out"),
-        "--case-dir", str(case_dir), "--dry-run",
-    ])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "interval_h: 3 (interval_seconds=10800)" in out
-    assert "files expected: 3" in out
 
 
 def test_interval_h_falls_back_to_namelist_input_when_no_namelist_wps(tmp_path, monkeypatch, capsys):

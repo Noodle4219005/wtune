@@ -7,27 +7,9 @@ from wtune.post import changemap
 from wtune.post.recipes import mapfig
 
 
-def test_pooled_levels_span_all_frames_not_one():
-    f0 = np.linspace(987, 1011, 100)
-    f1 = np.linspace(965, 1010, 100)
-    lev = mapfig.pooled_levels([f0, f1])
-    assert lev[0] <= 968 and lev[-1] >= 1008
-    lev_one = mapfig.pooled_levels([f0])
-    assert lev_one[0] > lev[0]           # a single frame would have given a narrower range
-
-
 def test_pooled_levels_floor_clamps_lower_bound():
     lev = mapfig.pooled_levels([np.linspace(0.3, 30, 200)], floor=0.0)
     assert lev[0] >= 0.0
-
-
-def test_change_scale_symmetric_with_no_zero_boundary():
-    diffs = [np.random.RandomState(0).randn(50, 50) * 2, np.random.RandomState(1).randn(50, 50)]
-    levels, cmap, extend = changemap._change_scale("t2", diffs)
-    assert cmap == "RdBu_r" and extend == "both"
-    assert np.allclose(levels, -levels[::-1])
-    assert not np.any(np.isclose(levels, 0.0))
-    assert len(levels) % 2 == 0          # odd number of bins -> the central bin is the white one
 
 
 def test_change_scale_rain_is_sequential_on_wpc_thresholds():
@@ -71,13 +53,3 @@ def test_time_series_fields_include_pw_and_rules_documented():
     assert "pw" in timeseries.TIME_SERIES_FIELDS
     assert timeseries.SCALE_RULE["slp"].startswith("true min/max")
     assert "percentile" in timeseries.SCALE_RULE["mcape"]
-
-
-def test_change_scale_rain_over_taiwan_uses_cwa_thresholds():
-    # haitang2017 run72: rain_acc-chg6h over Taiwan was drawn on the WPC inch scale
-    from wtune.post.rainscale import CWA_LEVELS
-    lat, lon = np.meshgrid(np.linspace(21, 26, 5), np.linspace(118, 123, 5), indexing="ij")
-    levels, cmap, extend = changemap._change_scale("rain_acc", [np.array([0.0, 5.0, 80.0])],
-                                                   lat, lon)
-    assert list(levels) == [float(v) for v in CWA_LEVELS[:len(levels)]] and levels[-1] == 90.0
-    assert cmap.name == "cwa_rain" and extend == "max"

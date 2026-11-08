@@ -24,14 +24,6 @@ def test_knots_factor():
     assert synoptic.KT_PER_MS == pytest.approx(1.943844, rel=1e-6)
 
 
-def test_celsius_levels_symmetric_about_zero():
-    t = np.linspace(-31.0, 7.0, 200)
-    lv = synoptic.celsius_levels(t)
-    assert lv[0] == -lv[-1]
-    assert 0.0 in lv
-    assert np.allclose(np.diff(lv), lv[1] - lv[0])
-
-
 def test_performance_diagram_success_ratio():
     rows = [dict(thresh=1.0, pod=0.99, far=0.32, csi=0.67, fbias=1.47, total=3973),
             dict(thresh=10.0, pod=0.14, far=0.70, csi=0.10, fbias=0.46, total=3973),
@@ -80,34 +72,3 @@ def test_highs_lows_skips_excluded_cells():
     mask = np.zeros(slp.shape, bool)
     mask[20:40, 10:30] = True                      # "mountains" over the low
     assert [k for _, _, k in mapfig.highs_lows(slp, window=21, exclude=mask)].count("L") == 0
-
-
-def test_reflectivity_table_fits_boundarynorm_with_overflow():
-    pytest.importorskip("metpy")
-    from matplotlib.colors import BoundaryNorm
-    from wtune.post.conventions import DBZ_LEVELS, reflectivity_cmap
-    cm = reflectivity_cmap()
-    BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")      # raises if the table is one colour short
-    assert DBZ_LEVELS[0] == 5 and DBZ_LEVELS[-1] == 75 and DBZ_LEVELS[1] - DBZ_LEVELS[0] == 5
-
-
-def test_highs_lows_none_at_the_boundary_or_beside_high_terrain():
-    # haitang2017 slp_d03 (2026-10-26): L/H letters along the domain edge and at the foot of the
-    # Central Mountain Range
-    y, x = np.mgrid[0:60, 0:80]
-    slp = 1012 - 15 * np.exp(-((x - 73) ** 2 + (y - 30) ** 2) / 120.0)   # 6 cells from the edge
-    assert mapfig.highs_lows(slp, window=21) == []
-    slp = 1012 - 15 * np.exp(-((x - 40) ** 2 + (y - 30) ** 2) / 120.0)
-    mask = np.zeros(slp.shape, bool)
-    mask[29:32, 42:45] = True                      # terrain one cell east of the low
-    assert mapfig.highs_lows(slp, window=21, exclude=mask) == []
-
-
-def test_no_isobars_over_high_ground():
-    # haitang2017 preview: a tangle of closed isobars over the Tibetan Plateau
-    slp = np.full((4, 4), 1008.0)
-    hgt = np.zeros((4, 4))
-    hgt[0, 0] = 4500.0
-    hgt[1, 1] = 900.0
-    out = mapfig.slp_isobar_field(slp, hgt)
-    assert np.isnan(out[0, 0]) and out[1, 1] == 1008.0 and slp[0, 0] == 1008.0

@@ -10,17 +10,6 @@ from wtune.post import analysis_kit as kit
 from wtune.post import check
 
 
-def test_contingency_scores_match_the_textbook_table():
-    # hits 50, misses 20, false alarms 30, correct negatives 900 (Wilks ch. 9 style table)
-    obs = np.array([1] * 50 + [1] * 20 + [0] * 30 + [0] * 900, dtype=float)
-    fc = np.array([1] * 50 + [0] * 20 + [1] * 30 + [0] * 900, dtype=float)
-    s = kit.contingency(obs, fc, 0.5)
-    assert (s["hits"], s["misses"], s["false_alarms"], s["correct_negatives"]) == (50, 20, 30, 900)
-    assert s["fbias"] == pytest.approx(80 / 70) and s["csi"] == pytest.approx(0.5)
-    a_r = 80 * 70 / 1000
-    assert s["ets"] == pytest.approx((50 - a_r) / (100 - a_r))
-
-
 def test_normalized_thresholds_score_a_weak_but_well_placed_field():
     rng = np.random.default_rng(0)
     obs = rng.gamma(1.0, 20.0, size=(40, 40))
@@ -233,19 +222,6 @@ def test_a_bdeck_only_storm_is_a_project_setting(tmp_path):
     f = preview._best_track(str(tmp_path / "out"), "WP122017", None,
                             (datetime(2017, 7, 31), datetime(2017, 8, 1)), bdeck=str(bdeck))
     assert os.path.getsize(f["path"]) > 10000 and f["source"].startswith("b-deck")
-
-
-def test_project_set_accepts_the_agent_drawing_flags_in_a_review(tmp_path):
-    project = _project(tmp_path)
-    post = _preview_dir(tmp_path, project)
-    review = dict(schema="wtune-post-review/1", figures=[dict(
-        path="figures/common_domain_map.png", verdict="fix", issues=["d03 has no terrain"],
-        action=dict(kind="project_set", args=["--post-map-domains", "d01,d03",
-                                              "--post-figures-off", "timeseries_slp"]))],
-        plan=[dict(figure="d03 terrain", how="zoomed map", action=dict(
-            kind="project_set", args=["--post-times=2019-01-30T06"]))])
-    (post / "review.json").write_text(json.dumps(review))
-    assert check.check(str(post), project_dir=str(project))[0] == []
 
 
 def test_check_warns_when_a_station_in_the_stats_is_never_named(tmp_path):

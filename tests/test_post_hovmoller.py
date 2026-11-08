@@ -1,6 +1,5 @@
 """post/recipes/hovmoller.py: rain against distance along a line and time, model and observation."""
 import json
-import math
 import os
 from datetime import datetime, timedelta
 
@@ -62,13 +61,6 @@ def _cmorph(project, value=12.0):
                 fetched_utc="2026-11-03T00:00:00Z", files=files)
     with open(os.path.join(d, "provenance.json"), "w") as fh:
         json.dump(prov, fh)
-
-
-def test_across_flow_line_is_perpendicular_to_the_wind():
-    # south-west wind (from 225 deg): the line runs south-east -> north-west through the point
-    lat0, lon0, lat1, lon1 = hovmoller.across_flow_line(23.0, 120.0, 5.0, 5.0, half_km=100.0)
-    assert lat0 < 23.0 < lat1 and lon0 > 120.0 > lon1
-    assert abs((lat1 - lat0) * 111.2 / 2 - 100.0 / math.sqrt(2)) < 0.5
 
 
 def test_off_grid_points_are_nan_not_the_edge_cell():

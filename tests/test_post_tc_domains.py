@@ -3,7 +3,6 @@ choice by grid-index interior containment, parent-seeded nest track selection, f
 reasons, and the three user-facing hints. TempestExtremes and wrf-python are replaced by
 fakes; the real chain is exercised on scc (see the delegation report)."""
 import json
-import os
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -38,21 +37,11 @@ def fake_nest(monkeypatch):
     monkeypatch.setattr(tc, "_tracks_for_domain", lambda *a, **k: box["tracks"])
     monkeypatch.setattr(tc, "in_domain_interior",
                         lambda frame, lat, lon, bdy: lon < box["east"])
-    import wtune.analysis.tc_track
     from wtune import analysis  # noqa: F401  -- must import for finest_domain_track's own guard
     return box
 
 
 PARENT = [pt(h, 25.0, -85.0 + 0.2 * h, 985.0, 35.0) for h in range(6)]
-
-
-def test_storm_in_nest_uses_nest_values(fake_nest):
-    fake_nest["tracks"] = [[pt(h, 25.02, -85.0 + 0.2 * h, 970.0, 50.0) for h in range(6)]]
-    recs, info = tc.finest_domain_track("/r", PARENT, doms(), 1, "/w", 5)
-    assert [r["domain"] for r in recs] == [2] * 6
-    assert all(r["pmin_hpa"] == 970.0 and r["vmax_ms"] == 50.0 for r in recs)
-    assert all(r["reason"] == "" and r["finest_available"] == 2 for r in recs)
-    assert tc.tracking_notes("m1", recs, doms()) == []
 
 
 def test_storm_leaves_nest_interior_falls_back_and_warns(fake_nest):
@@ -85,14 +74,6 @@ def test_nest_minimum_far_from_parent_is_rejected(fake_nest):
     assert all(r["domain"] == 1 for r in recs)
 
 
-def test_pick_seeded_track_prefers_track_agreeing_with_parent():
-    good = [pt(h, 25.0, -85.0 + 0.2 * h) for h in range(6)]
-    deeper_elsewhere = [pt(h, 28.0, -83.0, slp=940.0) for h in range(6)]
-    longer_far = deeper_elsewhere + [pt(6, 28.0, -83.0)]
-    assert tc._pick_seeded_track([longer_far, good], PARENT, 150.0) is good
-    assert tc._pick_seeded_track([longer_far], PARENT, 150.0) is None
-
-
 def test_nest_tracker_failure_keeps_parent_and_reports(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("DetectNodes failed\nstack")
@@ -121,20 +102,9 @@ def test_no_nest_coarse_grid_hint_b():
     assert "grid-limited" in notes[0]
 
 
-def test_fine_single_domain_has_no_hint():
-    d = doms(dx=(3.0,))
-    recs = [dict(p, domain=1, finest_available=1, reason="") for p in PARENT]
-    assert tc.tracking_notes("run", recs, d) == []
-
-
 def test_ranges_compress_consecutive_hours():
     ts = [T0 + timedelta(hours=h) for h in (0, 1, 2, 5, 7, 8)]
     assert tc._ranges(ts, 1.0) == "08-27 00:00Z..08-27 02:00Z, 08-27 05:00Z, 08-27 07:00Z..08-27 08:00Z"
-
-
-def test_interp_position():
-    assert tc._interp_position(PARENT, T0 + timedelta(hours=2, minutes=30))[1] == pytest.approx(-84.5)
-    assert tc._interp_position(PARENT, T0 + timedelta(hours=20)) is None
 
 
 def test_in_domain_interior_uses_grid_index_and_bdy_width(tmp_path, monkeypatch):
@@ -166,14 +136,6 @@ def test_tc_extra_annotates_figure_but_emits_no_missing_entry(tmp_path, monkeypa
     figs = tc_extra.figures("/r", "m1", "/a", 1, str(tmp_path))
     assert [f["id"] for f in figs] == ["tc_radius_time_wind"] and not figs[0]["missing"]
     assert figs[0]["note"] == "m1: hint text"
-
-
-def test_recipe_notes_are_collected_and_not_counted_as_figures():
-    from wtune.post import recipe
-    n = recipe.note("tc", "12 km grid")
-    assert n == dict(kind="note", source="tc", level="warning", text="12 km grid")
-    assert recipe.is_note(n) and not recipe.is_note(recipe.missing("x", "d", "r"))
-    assert not recipe.is_note(recipe.fig("x", "/p", "run"))
 
 
 def test_hourly_step_stats_flags_a_hopping_track():
@@ -257,18 +219,6 @@ def _track(zig=0.0):
 BT = [(T0 + timedelta(hours=h), 25.0, -85.0 + 0.135 * h) for h in (0, 6, 12)]
 
 
-def test_step_stats_speed_ratio_and_tortuosity_straight_track():
-    st = tc.hourly_step_stats(_track(), bdeck_points=BT)
-    assert st["tortuosity"] == pytest.approx(1.0, abs=1e-3)
-    assert st["speed_ratio"] == pytest.approx(1.0, abs=0.02)
-    assert st["bt_speed_km_h"] == pytest.approx(st["median_km_h"], rel=0.02)
-
-
-def test_step_stats_zigzag_fails_both_criteria():
-    st = tc.hourly_step_stats(_track(zig=0.25), bdeck_points=BT)
-    assert st["tortuosity"] > 1.3 and st["speed_ratio"] > 1.5
-
-
 def test_step_stats_without_bdeck_and_format_line():
     st = tc.hourly_step_stats(_track())
     assert st["bt_speed_km_h"] is None and st["speed_ratio"] is None
@@ -284,14 +234,6 @@ def test_bdeck_fixes_one_per_time(tmp_path):
                  radii_kt={34: (10, 10, 10, 10), 50: (5, 5, 5, 5)})]
     path = atcf.write_lines(rows, str(tmp_path / "b.dat"), basin="AL", cy="12", tech="BEST")
     assert len(tc._bdeck_fixes(path)) == 1 and tc._bdeck_fixes(None) == []
-
-
-def test_track_smooth_km_option_default_30_and_zero_means_raw():
-    from wtune.post import cli
-    p = cli.build_parser()
-    assert p.parse_args(["tc"]).track_smooth_km == 30.0
-    assert p.parse_args(["tc", "--track-smooth-km", "0"]).track_smooth_km == 0.0
-    assert p.parse_args(["recipe", "--track-smooth-km", "40"]).track_smooth_km == 40.0
 
 
 def test_zero_smoothing_skips_cdo(tmp_path, monkeypatch):

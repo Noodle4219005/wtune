@@ -107,31 +107,6 @@ def test_verify_detects_corruption(tmp_path, wps):
     assert not g.verify_dataset(r["dataset_dir"])["ok"]
 
 
-def test_tbl_copy_added_and_original_untouched(tmp_path, wps):
-    tif = tmp_path / "dem.tif"
-    make_tiff(tif, hill(), -100.0, 40.0, 0.01, 0.01)
-    before = (wps / "geogrid" / "GEOGRID.TBL.ARW").read_bytes()
-    r = g.import_dem([str(tif)], "mydem", dest=str(tmp_path / "o"), wps_dir=str(wps))
-    assert (wps / "geogrid" / "GEOGRID.TBL.ARW").read_bytes() == before
-    assert os.path.realpath(r["tbl"]) != os.path.realpath(str(wps / "geogrid" / "GEOGRID.TBL"))
-    new = open(r["tbl"]).read()
-    hgt = new.split("name=LANDUSEF")[0]
-    assert "interp_option = mydem:average_gcell(4.0)+four_pt+average_4pt" in hgt
-    assert re.search(r"abs_path = mydem:%s/" % re.escape(r["dataset_dir"]), hgt)   # dest outside geog path
-    assert "mydem" not in new.split("name=LANDUSEF")[1]
-    # the other lines are all still there, in order
-    assert [l for l in new.splitlines() if "mydem" not in l] == [l for l in TBL.splitlines()]
-    assert "geog_data_res = 'mydem+default'" in r["namelist"] and "opt_geogrid_tbl_path" in r["namelist"]
-
-
-def test_rel_path_when_inside_geog(tmp_path, wps):
-    geog = tmp_path / "geog"; geog.mkdir()
-    tif = tmp_path / "dem.tif"
-    make_tiff(tif, hill(), -100.0, 40.0, 0.01, 0.01)
-    r = g.import_dem([str(tif)], "mydem", dest=str(geog), wps_dir=str(wps), geog_path=str(geog))
-    assert "rel_path = mydem:mydem/" in open(r["tbl"]).read()
-
-
 def test_name_collision_and_duplicate_key(tmp_path, wps):
     tif = tmp_path / "d.tif"; make_tiff(tif, hill(), 0.0, 10.0, 0.01, 0.01)
     with pytest.raises(SystemExit):

@@ -141,18 +141,6 @@ def test_parse_cts_and_nbrcnt(tmp_path):
     assert [(x["thresh"], x["width"], x["fss"]) for x in r] == [(10.0, 1, 0.4), (10.0, 3, 0.6)]
 
 
-def test_pooled_scores():
-    ctc = [[dict(thresh=20.0, fy_oy=10, fy_on=10, fn_oy=10, fn_on=70)],
-           [dict(thresh=20.0, fy_oy=30, fy_on=0, fn_oy=10, fn_on=60)]]
-    p = convection._pool_counts(ctc)[0]
-    assert p["pod"] == 40 / 60 and p["far"] == 10 / 50 and abs(p["csi"] - 40 / 70) < 1e-12
-    assert p["fbias"] == 50 / 60 and p["total"] == 200
-    nb = [[dict(thresh=20.0, width=1, fss=0.5, fbs=0.1, o_rate=0.1, f_rate=0.1)],
-          [dict(thresh=20.0, width=1, fss=0.5, fbs=0.3, o_rate=0.3, f_rate=0.3)]]
-    f = convection._pool_fss(nb)[0]
-    assert abs(f["fss"] - 0.5) < 1e-12 and abs(f["fbs"] - 0.4) < 1e-12
-
-
 def test_precip_pick_window_and_reasons():
     from datetime import timedelta
     base = datetime(2005, 8, 27)

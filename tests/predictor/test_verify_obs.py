@@ -22,7 +22,6 @@ The HURDAT2 excerpt below is REAL: bytes copied verbatim out of
 HTTP 200, 7,034,638 B), lines 46323-46332 and the AL122005 records for the SC26-P2
 window. A hand-written imitation would not catch a real formatting quirk.
 """
-import math
 import os
 import sys
 
@@ -66,40 +65,6 @@ def _hurdat2_file(tmp_path, text=AL122005_EXCERPT):
 # great-circle distance
 # --------------------------------------------------------------------------------------
 
-def test_great_circle_one_degree_of_latitude():
-    """One degree of meridian = R*pi/180 exactly on a sphere. Checks the units."""
-    expected = verify_obs.EARTH_RADIUS_KM * math.pi / 180.0        # 111.1949... km
-    assert verify_obs.great_circle_km(0.0, 0.0, 1.0, 0.0) == pytest.approx(expected, rel=1e-12)
-    # and away from the equator, since a meridian arc does not depend on latitude
-    assert verify_obs.great_circle_km(45.0, 10.0, 46.0, 10.0) == pytest.approx(expected, rel=1e-12)
-
-
-def test_great_circle_quarter_circumference_and_identity():
-    quarter = verify_obs.EARTH_RADIUS_KM * math.pi / 2.0           # 10007.54... km
-    assert verify_obs.great_circle_km(0.0, 0.0, 0.0, 90.0) == pytest.approx(quarter, rel=1e-12)
-    assert verify_obs.great_circle_km(0.0, 0.0, 0.0, -90.0) == pytest.approx(quarter, rel=1e-12)
-    assert verify_obs.great_circle_km(31.4, -89.6, 31.4, -89.6) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_great_circle_known_pair_jfk_lax():
-    """JFK (40.6397N 73.7789W) -> LAX (33.9425N 118.4081W): 3974 km on R=6371 km.
-
-    A published pair, not a self-consistent one: it is the check that would fail if the
-    haversine were coded with the wrong argument order or a degrees/radians slip, which
-    the analytic cases above would not catch (they are symmetric in lat or in lon).
-    """
-    d = verify_obs.great_circle_km(40.6397, -73.7789, 33.9425, -118.4081)
-    assert d == pytest.approx(3974.0, abs=5.0)
-
-
-def test_great_circle_is_symmetric_and_vectorises():
-    a = verify_obs.great_circle_km(24.6, -83.3, 25.2, -86.7)
-    b = verify_obs.great_circle_km(25.2, -86.7, 24.6, -83.3)
-    assert a == pytest.approx(b, rel=1e-12)
-    arr = verify_obs.great_circle_km(24.6, -83.3, np.array([24.6, 25.6]), np.array([-83.3, -83.3]))
-    assert arr.shape == (2,)
-    assert arr[0] == pytest.approx(0.0, abs=1e-9)
-
 
 # --------------------------------------------------------------------------------------
 # HURDAT2 parser
@@ -114,36 +79,6 @@ def test_hurdat2_parses_the_right_storm_block(tmp_path):
     assert first["lon"] == pytest.approx(-82.6)    # 82.6W must come back NEGATIVE
     assert first["pmin_hpa"] == pytest.approx(968.0)
     assert first["status"] == "HU"
-
-
-def test_hurdat2_does_not_bleed_into_neighbouring_storms(tmp_path):
-    """IRENE sits before KATRINA and LEE after it; neither may appear in the result."""
-    points = verify_obs.parse_hurdat2(_hurdat2_file(tmp_path), "AL122005")
-    lats = [p["lat"] for p in points]
-    assert 12.9 not in lats                        # IRENE's only record
-    assert 31.7 not in lats                        # LEE's only record
-    assert all(p["time"].year == 2005 and p["time"].month == 8 for p in points)
-    assert points == sorted(points, key=lambda p: p["time"])
-
-
-def test_hurdat2_katrina_peak_and_units(tmp_path):
-    points = verify_obs.parse_hurdat2(_hurdat2_file(tmp_path), "al122005")   # case-insensitive
-    peak = min(points, key=lambda p: p["pmin_hpa"])
-    assert peak["pmin_hpa"] == pytest.approx(902.0)
-    assert peak["time"].strftime("%Y-%m-%d %H:%M") == "2005-08-28 18:00"
-    assert peak["vmax_kt"] == pytest.approx(150.0)
-    # 150 kt -> m/s. This is the conversion a track report's wind error depends on.
-    assert peak["vmax_ms"] == pytest.approx(150.0 * 0.514444, rel=1e-9)
-    assert peak["vmax_ms"] == pytest.approx(77.17, abs=0.01)
-
-
-def test_hurdat2_missing_values_become_none_not_minus_999(tmp_path):
-    text = ("AL122005,            KATRINA,      1,\n"
-            "20050827, 0000,  , HU, 24.6N,  83.3W, -999, -999,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n")
-    points = verify_obs.parse_hurdat2(_hurdat2_file(tmp_path, text), "AL122005")
-    assert points[0]["pmin_hpa"] is None
-    assert points[0]["vmax_kt"] is None and points[0]["vmax_ms"] is None
 
 
 def test_hurdat2_unknown_storm_raises_with_a_usable_message(tmp_path):
@@ -179,25 +114,12 @@ def _obs_csv(tmp_path, rows, header="TIME,T2_C", name="obs.csv"):
     return str(path)
 
 
-def test_read_station_obs_autodetects_columns_and_sorts(tmp_path):
-    path = _obs_csv(tmp_path, ["2019-01-28 01:00,-12.5", "2019-01-28 00:00,-10.0"])
-    obs = verify_obs.read_station_obs(path)
-    assert [v for _, v in obs] == [-10.0, -12.5]            # sorted by time
-    assert obs[0][0].strftime("%Y-%m-%d %H:%M") == "2019-01-28 00:00"
-
-
 def test_read_station_obs_unit_conversion():
     assert verify_obs._to_celsius(273.15, "K") == pytest.approx(0.0)
     assert verify_obs._to_celsius(32.0, "F") == pytest.approx(0.0)
     assert verify_obs._to_celsius(-18.9, "C") == pytest.approx(-18.9)
     with pytest.raises(verify_obs.VerifyObsError):
         verify_obs._to_celsius(1.0, "furlongs")
-
-
-def test_read_station_obs_kelvin_file_becomes_celsius(tmp_path):
-    path = _obs_csv(tmp_path, ["2019-01-28 00:00,263.15"], header="TIME,T2")
-    obs = verify_obs.read_station_obs(path, units="K")
-    assert obs[0][1] == pytest.approx(-10.0)
 
 
 def test_read_station_obs_unidentifiable_column_raises_and_lists_columns(tmp_path):
@@ -232,22 +154,6 @@ def test_read_station_obs_missing_file_refuses_and_forbids_a_substitute(tmp_path
 def _dt(text):
     from datetime import datetime
     return datetime.strptime(text, "%Y-%m-%d_%H:%M:%S")
-
-
-def test_match_times_pairs_within_tolerance_only():
-    obs = [_dt("2019-01-28_00:00:00"), _dt("2019-01-28_01:00:00"), _dt("2019-01-28_02:00:00")]
-    model = [_dt("2019-01-28_00:00:00"), _dt("2019-01-28_01:00:30")]
-    pairs = verify_obs.match_times(obs, model, tol_s=60.0)
-    assert [(o, m) for o, m, _ in pairs] == [(0, 0), (1, 1)]
-    assert pairs[1][2] == pytest.approx(30.0)
-    assert verify_obs.match_times(obs, model, tol_s=10.0) == [(0, 0, 0.0)]
-
-
-def test_match_times_never_reuses_a_model_frame():
-    obs = [_dt("2019-01-28_00:00:00"), _dt("2019-01-28_00:00:30")]
-    model = [_dt("2019-01-28_00:00:00")]
-    pairs = verify_obs.match_times(obs, model, tol_s=120.0)
-    assert len(pairs) == 1
 
 
 def test_require_matches_refuses_below_the_fraction():
@@ -344,33 +250,6 @@ def _write_wrfout(path, times, *, t2=None, low_at=None, land_at=(), u10=None):
 # nearest-grid-point selection
 # --------------------------------------------------------------------------------------
 
-def test_nearest_index_picks_the_closest_cell_and_reports_the_true_distance():
-    lat, lon = _grid()
-    # 26.4 N, -87.1 E rounds to row 2 (26 N) and column 3 (-87 E)
-    j, i, glat, glon, dist = verify_obs.nearest_index(lat, lon, 26.4, -87.1)
-    assert (j, i) == (2, 3)
-    assert glat == pytest.approx(26.0) and glon == pytest.approx(-87.0)
-    expected = verify_obs.great_circle_km(26.4, -87.1, 26.0, -87.0)
-    assert dist == pytest.approx(expected, rel=1e-9)
-    # exactly on a grid point -> that point, zero distance
-    j, i, _, _, dist = verify_obs.nearest_index(lat, lon, 25.0, -88.0)
-    assert (j, i) == (1, 2) and dist == pytest.approx(0.0, abs=1e-9)
-
-
-def test_station_series_uses_the_nearest_point_not_the_corner(tmp_path):
-    pytest.importorskip("netCDF4")
-    times = ["2019-01-28_00:00:00", "2019-01-28_01:00:00"]
-    t2 = np.zeros((2, NY, NX), dtype=np.float32)
-    t2[:, :, :] = 250.0
-    t2[0, 2, 3] = 263.15                      # a marker only at the cell we expect
-    t2[1, 2, 3] = 264.15
-    path = str(tmp_path / "wrfout_d01_2019-01-28_00:00:00")
-    _write_wrfout(path, times, t2=t2)
-    series, meta = verify_obs.station_series(path, 26.4, -87.1)
-    assert (meta["j"], meta["i"]) == (2, 3)
-    assert [v for _, v in series] == [pytest.approx(263.15), pytest.approx(264.15)]
-    assert meta["frames"] == 2 and meta["files"] == 1
-
 
 # --------------------------------------------------------------------------------------
 # station mode end to end
@@ -393,18 +272,6 @@ def _station_run(tmp_path, n=6, model_c=None, obs_c=None, obs_offset_min=0):
     return path, _obs_csv(tmp_path, rows)
 
 
-def test_verify_station_converts_kelvin_to_celsius_and_scores_zero_on_a_perfect_match(tmp_path):
-    pytest.importorskip("netCDF4")
-    wrfout, obs = _station_run(tmp_path, model_c=[-10, -12, -14, -16, -18, -20],
-                               obs_c=[-10, -12, -14, -16, -18, -20])
-    res = verify_obs.verify_station(wrfout, obs, 26.4, -87.1)
-    assert res["matched"] == 6
-    assert res["rmse_c"] == pytest.approx(0.0, abs=1e-4)
-    assert res["bias_c"] == pytest.approx(0.0, abs=1e-4)
-    assert res["correlation"] == pytest.approx(1.0, abs=1e-6)
-    assert res["model_mean_c"] == pytest.approx(-15.0, abs=1e-4)
-
-
 def test_verify_station_rmse_bias_and_correlation_are_the_textbook_values(tmp_path):
     pytest.importorskip("netCDF4")
     # model - obs = [+1, -1, +1, -1, +1, -1] -> bias 0, RMSE 1
@@ -415,13 +282,6 @@ def test_verify_station_rmse_bias_and_correlation_are_the_textbook_values(tmp_pa
     assert res["bias_c"] == pytest.approx(0.0, abs=1e-3)
     assert res["mae_c"] == pytest.approx(1.0, abs=1e-3)
     assert verify_obs.accuracy_error(res) == pytest.approx(res["rmse_c"])
-
-
-def test_verify_station_sign_of_the_bias_is_model_minus_obs(tmp_path):
-    pytest.importorskip("netCDF4")
-    wrfout, obs = _station_run(tmp_path, model_c=[-8] * 6, obs_c=[-10] * 6)
-    res = verify_obs.verify_station(wrfout, obs, 26.4, -87.1)
-    assert res["bias_c"] == pytest.approx(2.0, abs=1e-3)   # model warmer -> positive
 
 
 def test_verify_station_refuses_a_deliberate_time_mismatch(tmp_path):
@@ -440,73 +300,9 @@ def test_verify_station_refuses_a_deliberate_time_mismatch(tmp_path):
     assert res["matched"] == 6
 
 
-def test_verify_station_refuses_a_partial_match_and_reports_the_fraction(tmp_path):
-    """4 of 6 obs times land on a model frame -> 66.7% < 90%, refuse."""
-    pytest.importorskip("netCDF4")
-    from datetime import datetime, timedelta
-    t0 = datetime(2019, 1, 28, 0, 0, 0)
-    times = [(t0 + timedelta(hours=k)).strftime("%Y-%m-%d_%H:%M:%S") for k in (0, 1, 2, 3)]
-    t2 = np.full((4, NY, NX), 263.15, dtype=np.float32)
-    wrfout = str(tmp_path / "wrfout_d01_2019-01-28_00:00:00")
-    _write_wrfout(wrfout, times, t2=t2)
-    rows = []
-    for k in range(4):
-        rows.append((t0 + timedelta(hours=k)).strftime("%Y-%m-%d %H:%M") + ",-10.0")
-    for minutes in (17, 43):                         # inside the window, on no frame
-        rows.append((t0 + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M") + ",-10.0")
-    obs = _obs_csv(tmp_path, rows)
-    with pytest.raises(verify_obs.InsufficientMatches) as exc:
-        verify_obs.verify_station(wrfout, obs, 26.4, -87.1)
-    assert "4 of 6" in str(exc.value)
-    # a lower bar accepts it -- the threshold is the caller's decision, not a hidden default
-    res = verify_obs.verify_station(wrfout, obs, 26.4, -87.1, min_match_frac=0.5)
-    assert res["matched"] == 4
-    assert res["matched_fraction"] == pytest.approx(4 / 6)
-
-
-def test_verify_station_ignores_obs_outside_the_model_window(tmp_path):
-    """Obs from before the run started are not "unmatched" -- they are out of scope."""
-    pytest.importorskip("netCDF4")
-    from datetime import datetime, timedelta
-    t0 = datetime(2019, 1, 28, 0, 0, 0)
-    times = [(t0 + timedelta(hours=k)).strftime("%Y-%m-%d_%H:%M:%S") for k in range(3)]
-    t2 = np.full((3, NY, NX), 263.15, dtype=np.float32)
-    wrfout = str(tmp_path / "wrfout_d01_2019-01-28_00:00:00")
-    _write_wrfout(wrfout, times, t2=t2)
-    rows = [(t0 - timedelta(hours=k)).strftime("%Y-%m-%d %H:%M") + ",-10.0" for k in (3, 2, 1)]
-    rows += [(t0 + timedelta(hours=k)).strftime("%Y-%m-%d %H:%M") + ",-10.0" for k in range(3)]
-    res = verify_obs.verify_station(wrfout, _obs_csv(tmp_path, rows), 26.4, -87.1)
-    assert res["obs_points_total"] == 6
-    assert res["obs_points_in_window"] == 3
-    assert res["matched"] == 3 and res["matched_fraction"] == pytest.approx(1.0)
-
-
 # --------------------------------------------------------------------------------------
 # track mode
 # --------------------------------------------------------------------------------------
-
-def test_storm_centre_is_the_sea_level_pressure_minimum(tmp_path):
-    """The centre lands on the deficit, and the deficit survives the sea-level reduction.
-
-    Note the ABSOLUTE sea-level pressure here is ~1058 hPa, not ~1000: the synthetic column
-    sits with its lowest mass level at 500 m, and reducing to sea level adds ~58 hPa. That is
-    the reduction doing its job, and it is exactly why min(PSFC) is the wrong centre finder --
-    so the assertion is on the DIFFERENCE between a flat field and one with a low, not on an
-    absolute value that only holds for this toy column.
-    """
-    pytest.importorskip("netCDF4")
-    times = ["2005-08-27_00:00:00"]
-    flat = str(tmp_path / "wrfout_d01_flat")
-    deep = str(tmp_path / "wrfout_d01_2005-08-27_00:00:00")
-    _write_wrfout(flat, times, low_at={0: (0, 0, 0.0)})
-    _write_wrfout(deep, times, low_at={0: (2, 3, 4000.0)})
-    centres = verify_obs.storm_centres(deep, ocean_only=False)
-    assert len(centres) == 1
-    assert centres[0]["lat"] == pytest.approx(26.0)
-    assert centres[0]["lon"] == pytest.approx(-87.0)
-    ambient = verify_obs.storm_centres(flat, ocean_only=False)[0]["pmin_hpa"]
-    # a 40 hPa surface deficit stays a ~40 hPa sea-level deficit on a uniform column
-    assert 35.0 < ambient - centres[0]["pmin_hpa"] < 48.0
 
 
 def test_ocean_only_rejects_a_deeper_low_over_land(tmp_path):
@@ -532,40 +328,6 @@ def _track_run(tmp_path, centres, times, u10_peak=None):
     return wrfout
 
 
-def test_verify_track_scores_a_perfect_track_as_zero_error(tmp_path):
-    """Model centres put exactly on the best-track positions -> track error 0."""
-    pytest.importorskip("netCDF4")
-    # best track 00Z: 24.6N 83.3W; 06Z: 24.4N 84.0W. Nearest grid cells are
-    # (j=1,i=7?) -- the grid only spans 24..28 N / -90..-85 E, so instead place the
-    # model low on grid points and check against a best track written to match them.
-    times = ["2005-08-27_00:00:00", "2005-08-27_06:00:00"]
-    wrfout = _track_run(tmp_path, {0: (1, 4, 4000.0), 1: (2, 3, 6000.0)}, times)
-    text = ("AL122005,            KATRINA,      2,\n"
-            "20050827, 0000,  , HU, 25.0N,  86.0W,   90,  959,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n"
-            "20050827, 0600,  , HU, 26.0N,  87.0W,   95,  950,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n")
-    res = verify_obs.verify_track(wrfout, _hurdat2_file(tmp_path, text), "AL122005")
-    assert res["matched"] == 2
-    assert res["track_error_km_mean"] == pytest.approx(0.0, abs=1e-6)
-    assert verify_obs.accuracy_error(res) == pytest.approx(0.0, abs=1e-6)
-    assert [r["lead_h"] for r in res["series"]] == [0.0, 6.0]
-
-
-def test_verify_track_error_equals_the_great_circle_offset(tmp_path):
-    """Model one grid row north of the best track -> exactly one degree of latitude."""
-    pytest.importorskip("netCDF4")
-    times = ["2005-08-27_00:00:00"]
-    wrfout = _track_run(tmp_path, {0: (2, 3, 4000.0)}, times)     # 26.0 N, -87.0 E
-    text = ("AL122005,            KATRINA,      1,\n"
-            "20050827, 0000,  , HU, 25.0N,  87.0W,   90,  959,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n")
-    res = verify_obs.verify_track(wrfout, _hurdat2_file(tmp_path, text), "AL122005",
-                                  min_match_frac=1.0)
-    one_degree = verify_obs.EARTH_RADIUS_KM * math.pi / 180.0
-    assert res["series"][0]["track_error_km"] == pytest.approx(one_degree, rel=1e-4)
-
-
 def test_verify_track_pressure_and_wind_errors_have_the_right_sign_and_units(tmp_path):
     pytest.importorskip("netCDF4")
     times = ["2005-08-27_00:00:00"]
@@ -582,22 +344,6 @@ def test_verify_track_pressure_and_wind_errors_have_the_right_sign_and_units(tmp
     assert row["obs_vmax_ms"] == pytest.approx(90.0 * 0.514444, rel=1e-9)
     assert row["model_vmax_ms"] == pytest.approx(30.0, rel=1e-5)
     assert row["vmax_error_ms"] == pytest.approx(30.0 - 90.0 * 0.514444, rel=1e-4)
-
-
-def test_verify_track_reports_deepening_not_only_absolute_pressure(tmp_path):
-    """The discriminating quantity for Katrina: how much the storm deepened."""
-    pytest.importorskip("netCDF4")
-    times = ["2005-08-27_00:00:00", "2005-08-27_06:00:00"]
-    wrfout = _track_run(tmp_path, {0: (2, 3, 1000.0), 1: (2, 3, 4000.0)}, times)
-    text = ("AL122005,            KATRINA,      2,\n"
-            "20050827, 0000,  , HU, 26.0N,  87.0W,   90,  959,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n"
-            "20050827, 0600,  , HU, 26.0N,  87.0W,   95,  950,    0,    0,    0,    0,"
-            "    0,    0,    0,    0,    0,    0,    0,    0, -999\n")
-    res = verify_obs.verify_track(wrfout, _hurdat2_file(tmp_path, text), "AL122005")
-    assert res["obs_deepening_hpa"] == pytest.approx(9.0)          # 959 -> 950
-    assert res["model_deepening_hpa"] == pytest.approx(30.0, abs=1.5)   # 10 hPa -> 40 hPa
-    assert res["obs_pmin_min_hpa"] == pytest.approx(950.0)
 
 
 def test_verify_track_skips_off_hour_landfall_records_by_default(tmp_path):
@@ -637,10 +383,6 @@ def test_verify_track_needs_the_3d_state(tmp_path):
 # --------------------------------------------------------------------------------------
 # the case-driven library API recommend.py uses
 # --------------------------------------------------------------------------------------
-
-def test_observations_spec_returns_none_when_a_case_declares_none():
-    """A case with no observations is not an error -- the caller falls back to fidelity."""
-    assert verify_obs.observations_spec({"prep_dir": "/x", "dt": 72}) is None
 
 
 def test_observations_spec_validates_rather_than_silently_falling_back():

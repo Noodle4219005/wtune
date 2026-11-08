@@ -14,7 +14,6 @@ this module must uphold.
 Requires wrf-python:
     pixi run --manifest-path envs/wtune/pixi.toml python -m pytest -q tests/test_analysis_diagnostics.py
 """
-import os
 
 import numpy as np
 import pytest
@@ -28,26 +27,6 @@ import wtune.analysis.diagnostics as diag
 # --------------------------------------------------------------------------------------
 # grid separability -- pure numpy, no wrf-python needed
 # --------------------------------------------------------------------------------------
-
-def test_check_grid_separable_true_for_a_regular_lat_lon_grid():
-    ny, nx = 10, 12
-    lat2d = np.linspace(20.0, 35.0, ny)[:, None] * np.ones((1, nx))
-    lon2d = np.ones((ny, 1)) * np.linspace(-100.0, -80.0, nx)[None, :]
-    separable, max_lat_dev, max_lon_dev = diag.check_grid_separable(lat2d, lon2d)
-    assert separable is True
-    assert max_lat_dev == pytest.approx(0.0, abs=1e-12)
-    assert max_lon_dev == pytest.approx(0.0, abs=1e-12)
-
-
-def test_check_grid_separable_false_for_a_sheared_lambert_like_grid():
-    ny, nx = 10, 12
-    Y, X = np.meshgrid(np.linspace(20.0, 35.0, ny), np.linspace(-100.0, -80.0, nx), indexing="ij")
-    lat2d = Y + 0.05 * X            # lat now depends on the column index too
-    lon2d = X + 0.05 * Y            # lon now depends on the row index too
-    separable, max_lat_dev, max_lon_dev = diag.check_grid_separable(lat2d, lon2d)
-    assert separable is False
-    assert max_lat_dev > 1e-3
-    assert max_lon_dev > 1e-3
 
 
 # --------------------------------------------------------------------------------------

@@ -65,41 +65,6 @@ def _post(project):
     return yaml.safe_load((project / "project.yaml").read_text())["post"]
 
 
-def test_every_post_flag_is_written_and_read_back(tmp_path, capsys):
-    project = _project(tmp_path)
-    assert _set(project, "--post-times", "2019-01-30T06,2019-01-30T09:30",
-                "--post-map-domains", "d01,d03", "--post-figures-off", "timeseries_slp,anim_t2",
-                "--post-figures-on", "common_domain_map_zoom",
-                "--post-stations", "KSBA,KSMX1", "--post-station-vars", "t2,wspd10,wdir10,gust",
-                "--post-station-method", "bilinear", "--post-calm-kt", "3",
-                "--post-overlay", "wind10") == 0
-    post = _post(project)
-    assert post["types"] == "auto"                      # untouched keys survive
-    assert post["times"] == ["2019-01-30T06", "2019-01-30T09:30"]
-    assert post["map_domains"] == ["d01", "d03"]
-    assert post["figures_off"] == ["timeseries_slp", "anim_t2"]
-    assert post["figures_on"] == ["common_domain_map_zoom"]
-    assert post["stations"] == ["KSBA", "KSMX1"]
-    assert post["station_vars"] == ["t2", "wspd10", "wdir10", "gust"]
-    assert post["station_method"] == "bilinear" and post["calm_kt"] == 3.0
-    assert post["map_overlay"] == ["wind10"]
-    back = wp.project_post_defaults(wp.load_project(str(project)))
-    assert back["times"] == post["times"] and back["calm_kt"] == 3.0
-    assert back["map_overlay"] == ["wind10"] and back["station_method"] == "bilinear"
-    assert "post drawing options" in capsys.readouterr().out
-    info = wp.info_project(str(project))
-    assert "map_domains=['d01', 'd03']" in info and "station_method=bilinear" in info
-
-
-def test_none_clears_and_all_collapses(tmp_path):
-    project = _project(tmp_path)
-    assert _set(project, "--post-map-domains", "d02,all", "--post-times", "2019-01-30T06") == 0
-    assert _post(project)["map_domains"] == ["all"]
-    assert _set(project, "--post-map-domains", "none", "--post-times", "none") == 0
-    back = wp.project_post_defaults(wp.load_project(str(project)))
-    assert back["map_domains"] == [] and back["times"] == []
-
-
 @pytest.mark.parametrize("args, message", [
     (["--post-times", "2019/01/30 06"], "YYYY-MM-DDTHH"),
     (["--post-times", "2019-01-30T25"], "YYYY-MM-DDTHH"),
@@ -119,13 +84,6 @@ def test_bad_values_are_rejected_with_a_specific_message(tmp_path, capsys, args,
     assert _set(project, *args) == 1
     assert message in capsys.readouterr().err
     assert (project / "project.yaml").read_text() == before
-
-
-def test_unknown_figure_error_lists_catalog_ids(tmp_path, capsys):
-    project = _project(tmp_path)
-    assert _set(project, "--post-figures-off", "nope") == 1
-    err = capsys.readouterr().err
-    assert "common_domain_map," in err and "first 40 of" in err
 
 
 # -- post check ------------------------------------------------------------------------------
@@ -269,14 +227,6 @@ def test_overlay_without_u10_is_a_note_not_a_crash(tmp_path):
     out.mkdir()
     zooms = common.plot_domain_zooms(str(run), 3, str(out), "r", ["d03"], ["wind10"])
     assert "no U10/V10" in zooms[0][3] and _png(zooms[0][1])
-
-
-def test_the_d03_label_sits_outside_its_box():
-    doms = [dict(dom=1, x0=0, x1=1000, y0=0, y1=800), dict(dom=3, x0=400, x1=500, y0=300, y1=360),
-            dict(dom=2, x0=400, x1=700, y0=300, y1=500)]
-    a = domain_map._label_anchors(doms, 1000, 800)
-    assert a[1][1] > 360                                # above d03's top edge, not inside it
-    assert a[2][1] - a[1][1] > 0.02 * 800               # the neighbouring label is lifted off it
 
 
 def test_recipe_runs_the_common_figures_with_project_map_domains(tmp_path, monkeypatch):

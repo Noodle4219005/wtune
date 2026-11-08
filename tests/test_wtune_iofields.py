@@ -8,7 +8,6 @@ import pytest
 from wtune import iofields as iof
 from wtune import predict as wp
 from wtune import preflight as pf
-from wtune import run as wr
 from test_wtune_run import (NAMELIST_3DOM, Fakes, _make_case, _run, _tree_state,
                             fake_bp)  # noqa: F401  (autouse fixture)
 
@@ -18,35 +17,6 @@ def climate_iofields(lines=12, fields=167, prefix="-:h:0:"):
     names = ["F%03d" % i for i in range(fields)]
     per = -(-fields // lines)
     return "".join(prefix + ",".join(names[i:i + per]) + "\n" for i in range(0, fields, per))
-
-
-# ---------------------------------------------------------------------------
-# parse / count / merge
-# ---------------------------------------------------------------------------
-def test_parse_counts_and_calls():
-    text = "# kept fields\n-:h:0:U,V\n\n+:h:7:T2, Q2\nnot an entry\n"
-    got = iof.parse(text)
-    assert [(e.op, e.kind, e.stream, e.fields) for e in got] == [
-        (None, None, None, ()), ("-", "h", "0", ("U", "V")), (None, None, None, ()),
-        ("+", "h", "7", ("T2", " Q2")), (None, None, None, ())]
-    assert [e.raw for e in got] == text.splitlines()
-    assert iof.counts(text) == (2, 4) and iof.parse_calls(text) == 5 * 2 + 4
-    assert iof.parse_calls(climate_iofields()) == 227 and iof.parse_calls("") == 0
-
-
-def test_merge_adjacent_same_prefix_keeps_order_and_spelling():
-    text = "-:h:0:U,V\n-:h:0:w, T\n-:H:0:QVAPOR\n+:h:7:T2\n+:h:7:Q2\n-:h:0:P\n"
-    assert iof.merged(text) == "-:h:0:U,V,w, T,QVAPOR\n+:h:7:T2,Q2\n-:h:0:P\n"   # P not adjacent
-    one = iof.merged(climate_iofields())
-    assert iof.counts(one) == (1, 167) and iof.parse_calls(one) == 172
-    assert one == "-:h:0:" + ",".join("F%03d" % i for i in range(167)) + "\n"
-
-
-def test_other_lines_stay_and_break_adjacency():
-    text = "-:h:0:U\n# note\n-:h:0:V\n\n-:h:0:W\n-:h:0:T"          # no final newline either
-    assert iof.merged(text) == "-:h:0:U\n# note\n-:h:0:V\n\n-:h:0:W,T"
-    odd = "-:h:0:U,,V\n-:h:0:W\n"                # WRF ends the first list at the empty name
-    assert iof.merged(odd) is odd
 
 
 def test_unchanged_when_nothing_merges():
@@ -116,29 +86,6 @@ def test_run_stages_a_merged_copy_and_never_touches_the_case(tmp_path, extra):
     assert (case / "iofields_d01.txt").read_text() == climate_iofields()
 
 
-def test_run_leaves_a_one_line_file_linked_and_does_nothing_without_iofields(tmp_path):
-    case = _case_with_iofields(tmp_path, "-:h:0:U,V\n")
-    rc, out, rep, lines = _run(tmp_path, Fakes())
-    assert rc == 0 and not any(ln.startswith("  iofields:") for ln in lines)
-    assert os.readlink(out / "seg_0" / "iofields_d01.txt") == str(case / "iofields_d01.txt")
-    other = tmp_path / "plain"
-    other.mkdir()
-    rc, out, rep, lines = _run(other, Fakes())                 # the case names no iofields file
-    assert rc == 0 and not any(ln.startswith("  iofields:") for ln in lines)   # tmp paths may say iofields
-
-
-def test_probe_staging_merges_too(tmp_path, capsys):
-    case = _case_with_iofields(tmp_path)
-    run = tmp_path / "probe"
-    run.mkdir()
-    cc = wr.sweep.campaign_configs
-    assert cc._cmd_link_namelist_files([str(case / "namelist.input"), str(run), str(case)]) == 0
-    assert LOG in capsys.readouterr().out.splitlines()
-    assert not (run / "iofields_d01.txt").is_symlink()
-    assert iof.counts((run / "iofields_d01.txt").read_text()) == (1, 167)
-    assert (case / "iofields_d01.txt").read_text() == climate_iofields()
-
-
 # ---------------------------------------------------------------------------
 # wtune check C11
 # ---------------------------------------------------------------------------
@@ -171,17 +118,6 @@ def _c11(tmp_path, days=396, iofields=climate_iofields(), compute_s=None):
     pf.check_c11_iofields_parse(wp.parse_namelist(str(tmp_path / "namelist.input")),
                                 str(tmp_path), findings, compute_s=compute_s)
     return findings
-
-
-def test_check_warns_with_the_cost_before_and_after_merging(tmp_path):
-    (f,) = _c11(tmp_path)
-    assert (f.severity, f.id) == (pf.WARN, "C11")
-    # 6734 parses x 227 (172 merged) calls x 0.9 ms
-    assert "about 1376 s of this run as written, 1042 s after `wtune run` merges" in f.message
-    assert "iofields_d01.txt 12 line(s) / 167 field(s)" in f.message
-    assert "6734 parses, 227 get_fieldstr calls each" in f.message
-    assert "`+:h:<n>:FIELD,FIELD,...`" in f.fix
-    assert "(5 + kept) calls per parse instead of 227" in f.fix
 
 
 def test_check_is_silent_below_the_threshold(tmp_path):

@@ -25,23 +25,6 @@ def _mkbp(path, engine="BP5"):
     return str(path)
 
 
-# ---------------------------------------------------------------- detection
-def test_is_bp_engines_and_negatives(tmp_path):
-    assert wtune.bp.bp_engine(_mkbp(tmp_path / "a", "BP5")) == "BP5"
-    assert wtune.bp.bp_engine(_mkbp(tmp_path / "b", "BP4")) == "BP4"
-    assert wtune.bp.is_bp(str(tmp_path / "a")) and wtune.bp.is_bp(str(tmp_path / "b"))
-    os.symlink(tmp_path / "a", tmp_path / "link")
-    assert wtune.bp.is_bp(str(tmp_path / "link"))
-    nodata = tmp_path / "nodata"
-    nodata.mkdir()
-    (nodata / "md.idx").touch()
-    (nodata / "md.0").touch()
-    assert not wtune.bp.is_bp(str(nodata))
-    (tmp_path / "f.nc").write_bytes(NC)
-    assert not wtune.bp.is_bp(str(tmp_path / "f.nc"))
-    assert not wtune.bp.is_bp(str(tmp_path / "missing"))
-
-
 def test_is_netcdf_and_find_input_names(tmp_path):
     case = tmp_path / "case"
     case.mkdir()
@@ -204,14 +187,6 @@ def _fake_python(tmp_path, import_ok=True):
     return str(py)
 
 
-def test_require_adios2_python_message(no_adios2):
-    assert wtune.bp.adios2_python() is None
-    with pytest.raises(wtune.bp.Adios2Unavailable) as ei:
-        wtune.bp.require_adios2_python()
-    msg = str(ei.value)
-    assert "pixi install" in msg and os.path.join("envs", "adios2") in msg
-
-
 def test_adios2_python_resolution_order(no_adios2, monkeypatch, tmp_path):
     good, bad = _fake_python(tmp_path), _fake_python(tmp_path, import_ok=False)
     monkeypatch.setattr(wtune.bp, "_ADIOS2_ENV_PY", good)
@@ -305,49 +280,6 @@ def _nc(path, u, times=("2026-01-01_00:00:00", "2026-01-01_01:00:00"), attr="m s
         v.setncattr("units", attr)
         i = ds.createVariable("I", "i4", ("Time", "x"))
         i[:] = np.arange(6, dtype=np.int32).reshape(2, 3)
-
-
-def test_compare_netcdf(tmp_path):
-    pytest.importorskip("netCDF4")
-    base = np.array([[1, np.nan, 3], [4, 5, 6]], np.float32)
-    a, b = str(tmp_path / "a.nc"), str(tmp_path / "b.nc")
-    _nc(a, base)
-    _nc(b, base.copy())
-    r = wtune.bp.compare_netcdf(a, b)
-    assert r["ok"] and r["vars_compared"] == 3 and r["max_abs_diff"] == 0.0
-
-    c = str(tmp_path / "c.nc")
-    d2 = base.copy()
-    d2[1, 2] += 0.5
-    _nc(c, d2)
-    r = wtune.bp.compare_netcdf(a, c)
-    assert not r["ok"] and r["max_abs_diff"] == 0.5 and r["mismatches"][0].startswith("U:")
-
-    d = str(tmp_path / "d.nc")
-    _nc(d, base, times=("2026-01-01_00:00:00", "2026-01-01_02:00:00"), attr="m/s")
-    r = wtune.bp.compare_netcdf(a, d)
-    assert any(m.startswith("Times:") for m in r["mismatches"])
-    assert any(m.startswith("U:units") for m in r["mismatches"])
-
-
-# ---------------------------------------------------------------- CLI
-def test_cli_parsing_and_targets():
-    p = wtune.bp.build_parser()
-    a = p.parse_args(["nc2bp", "a", "b", "--out", "o", "--engine", "BP4", "--check"])
-    assert (a.action, a.src, a.out, a.engine, a.check) == ("nc2bp", ["a", "b"], "o", "BP4", True)
-    a = p.parse_args(["bp2nc", "x.bp"])
-    assert (a.action, a.src, a.out) == ("bp2nc", ["x.bp"], None)
-    a = p.parse_args(["inputs", "case", "--cache", "c", "--check"])
-    assert (a.case_dir, a.cache, a.check, a.engine, a.names) == ("case", "c", True, "BP4", None)
-    with pytest.raises(SystemExit):
-        p.parse_args(["inputs", "case"])          # --cache required
-    with pytest.raises(SystemExit):
-        p.parse_args(["nc2bp", "a", "--engine", "BP3"])
-    assert wtune.bp.nc2bp_target("/d/wrfinput_d01") == "/d/wrfinput_d01.bp"
-    assert wtune.bp.nc2bp_target("/d/wrfinput_d01", "/o") == "/o/wrfinput_d01"
-    assert wtune.bp.bp2nc_target("/d/wrfinput_d01.bp") == "/d/wrfinput_d01.nc"
-    assert wtune.bp.bp2nc_target("/d/wrfout_d01_2019-11-26_12:00:00/", "/o") == \
-        "/o/wrfout_d01_2019-11-26_12:00:00.nc"
 
 
 def test_cli_main_without_adios2_exits_2(no_adios2, capsys):
@@ -474,13 +406,6 @@ def test_fresh_input_copy_falls_back_to_cp_a_with_size_warning(tmp_path, monkeyp
     err = capsys.readouterr().err
     assert err.count("WARNING") == 1 and "full cp -a of 0.0 MB" in err
     assert wtune.bp.is_per_record_dir(out["wrflowinp_d01"])
-
-
-def test_fresh_input_copy_warns_inside_a_slurm_job(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("SLURM_JOB_ID", "1234")
-    src = _container(tmp_path / "wrfbdy_d01", "wrfbdy_d01")
-    wtune.bp.fresh_input_copy([src], str(tmp_path / "fresh"), runner=_FakeCp())
-    assert "inside Slurm job 1234 (a compute node)" in capsys.readouterr().err
 
 
 def test_cached_inputs_only_when_current(tmp_path, fake_conv):

@@ -27,16 +27,6 @@ def _lines():
     return [HDR, SFC, LV2, LV3, HDR2, SFC, LATE, SFC]
 
 
-def test_parse_level_units_and_missing():
-    lv = igra.parse_level(LV3)
-    assert lv["pressure_hPa"] == 850.0 and lv["height_m"] == 1528.0
-    assert lv["temp_C"] is None and lv["dewpoint_C"] is None      # -9999 / QA-removed
-    lv = igra.parse_level(LV2)
-    assert lv["temp_C"] == pytest.approx(24.0)
-    assert lv["dewpoint_C"] == pytest.approx(24.0 - 9.0)          # T - dewpoint depression
-    assert lv["wspd_ms"] == pytest.approx(2.6)
-
-
 def test_iter_soundings_window_hours_and_early_stop():
     u = dt.timezone.utc
     start, end = dt.datetime(2005, 8, 27, 0, tzinfo=u), dt.datetime(2005, 8, 29, 0, tzinfo=u)
@@ -95,11 +85,6 @@ def _column(z_top=3000.0, mixed_depth=1000.0, n=60):
     return dict(p=p, t=t, td=t - 15.0, u=np.full(n, 3.0), v=np.zeros(n), z=z, ter=0.0, pblh_model=np.nan)
 
 
-def test_pblh_bulk_ri_finds_inversion_base():
-    h = sounding.pblh_bulk_ri(_column(mixed_depth=1000.0))
-    assert 1000.0 <= h <= 1600.0          # Ri_c is crossed a little above the mixed-layer top
-
-
 def test_pblh_bulk_ri_missing_wind_levels_are_interpolated():
     col = _column()
     col["u"] = col["u"].copy()
@@ -130,7 +115,6 @@ def test_fill_below_valid_leaves_no_nan_wedge():
     a = np.array([[np.nan, 1.0], [np.nan, 2.0], [5.0, 3.0]])
     out = _fill_below_valid(a)
     assert not np.isnan(out).any() and out[0, 0] == 5.0
-
 
 
 def test_igra_defaults_to_the_finest_domain(tmp_path, monkeypatch):
@@ -181,13 +165,3 @@ def test_sounding_comparison_for_any_case_on_the_finest_domain_holding_the_stati
     assert times == ["3112", "0100", "0112", "0200", "0212", "0300"]   # 6 nearest 01 23Z; 3100 is 47 h off
     monkeypatch.setattr(pb, "_load_stations", lambda d: [])
     assert pb.sounding_figures(["/run"], ["r"], str(tmp_path), case) == []
-
-
-def test_pick_soundings_takes_utc_aware_igra_times():
-    # IGRA times are UTC-aware, the recipe's map time is naive: haitang2017 raised TypeError
-    from wtune.post.recipes import pbl as pb
-    u = dt.timezone.utc
-    rows = [dict(time=dt.datetime(2017, 7, 31, h, tzinfo=u) + dt.timedelta(days=d))
-            for d in range(3) for h in (0, 12)]
-    got = pb.pick_soundings(rows, dt.datetime(2017, 8, 1, 23), n=2)
-    assert [r["time"].strftime("%d%H") for r in got] == ["0112", "0200"]

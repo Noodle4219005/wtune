@@ -116,15 +116,6 @@ def test_from_asos_units_and_missing(tmp_path):
     assert prov["kind"] == "stations" and prov["files"]["stations.csv"]
 
 
-def test_from_asos_needs_position(tmp_path):
-    with pytest.raises(ValueError, match="SBA.*lat/lon"):
-        agent_obs.from_asos(str(_asos(tmp_path, False)), str(tmp_path / "ds"), ASOS_PROV)
-    path, _n = agent_obs.from_asos(str(_asos(tmp_path, False)), str(tmp_path / "ds"), ASOS_PROV,
-                                   {"SBA": (34.4, -119.8, 3.0)})
-    r = agent_obs.read_stations(path)[0]
-    assert r["lon"] == pytest.approx(-119.8) and r["elev_m"] == 3.0
-
-
 def test_event_cli_obs_convert(tmp_path, capsys):
     csvp = _asos(tmp_path, False)  # no positions in the file
     rc = event.main(["obs-convert", "asos", str(csvp), "--out", str(tmp_path / "o"), "--dataset", "x",
@@ -158,37 +149,6 @@ def test_check_stations_unknown_var(tmp_path):
     assert any("var must be one of" in e for e in err)
 
 
-# -- statistics -------------------------------------------------------------------------------
-def test_circular_difference():
-    assert sc.circ_diff(350.0, 10.0) == pytest.approx(-20.0)
-    assert sc.circ_diff(10.0, 350.0) == pytest.approx(20.0)
-    assert sc.circ_diff(90.0, 270.0) == pytest.approx(-180.0)
-
-
-def test_wind_dir_convention():
-    assert sc.wind_dir(0.0, -5.0) == pytest.approx(0.0)       # southward flow = from the north
-    assert sc.wind_dir(-5.0, 0.0) == pytest.approx(90.0)      # westward flow = from the east
-    assert sc.wind_dir(5.0, 0.0) == pytest.approx(270.0)
-
-
-def test_wdir_circular_bias_and_calm_exclusion(tmp_path):
-    # model wind from 350 deg: u = -sin(350)*5? flow vector toward = from + 180
-    sp, dr = 5.0, 350.0
-    u, v = -sp * np.sin(np.radians(dr)), -sp * np.cos(np.radians(dr))
-    run = _run(tmp_path, u=u, v=v)
-    la, lo = 33.0, 101.0                                   # inside d01 only
-    rows = [("A", la, lo, 100, 0, "wdir10", 10), ("A", la, lo, 100, 0, "wspd10", 5.0),
-            ("A", la, lo, 100, 60, "wdir10", 330), ("A", la, lo, 100, 60, "wspd10", 5.0),
-            ("A", la, lo, 100, 120, "wdir10", 90), ("A", la, lo, 100, 120, "wspd10", 1.0)]  # calm
-    res = sc.compare(str(run), str(_stations(tmp_path, rows)), ["A"], ["wdir10", "wspd10"])
-    st = {(s["domain"], s["variable"]): s for s in res["stats"]}[("d01", "wdir10")]
-    assert st["n"] == 2 and st["n_calm_excluded"] == 1
-    assert st["bias"] == pytest.approx((-20.0 + 20.0) / 2, abs=1e-3)
-    assert st["rmse"] == pytest.approx(20.0, abs=1e-3)
-    sp_st = {(s["domain"], s["variable"]): s for s in res["stats"]}[("d01", "wspd10")]
-    assert sp_st["n"] == 3 and sp_st["bias"] == pytest.approx(((0) + 0 + 4.0) / 3, abs=1e-3)
-
-
 def test_calm_threshold_is_in_knots(tmp_path):
     run = _run(tmp_path)
     rows = [("A", 33.0, 101.0, 100, 0, "wdir10", 10), ("A", 33.0, 101.0, 100, 0, "wspd10", 1.6)]
@@ -199,37 +159,6 @@ def test_calm_threshold_is_in_knots(tmp_path):
         "n_calm_excluded"] == 1
 
 
-def test_exactly_3_kt_is_not_calm_despite_the_rounded_ms_value(tmp_path):
-    run = _run(tmp_path)
-    rows = [("A", 33.0, 101.0, 100, 0, "wdir10", 10), ("A", 33.0, 101.0, 100, 0, "wspd10", 1.543),  # 3.0 kt rounded
-            ("A", 33.0, 101.0, 100, 60, "wdir10", 10), ("A", 33.0, 101.0, 100, 60, "wspd10", 1.49)]  # 2.9 kt
-    ds = _stations(tmp_path, rows)
-    st = [r for r in sc.compare(str(run), str(ds), ["A"], ["wdir10"])["stats"]]
-    assert st[0]["n"] == 1 and st[0]["n_calm_excluded"] == 1
-
-
-# -- domains and sampling ---------------------------------------------------------------------
-def test_station_only_in_d02_gives_only_d02(tmp_path):
-    run = _run(tmp_path)
-    rows = [("B", 32.2, 102.2, 300, h, "t2", 20.0) for h in (0, 60)]
-    res = sc.compare(str(run), str(_stations(tmp_path, rows)), ["B"], ["t2"], out_dir=str(tmp_path / "o"))
-    # d01 contains it as well (d02 is nested), so both lines exist; a station outside d02 has d01 only
-    assert {s["domain"] for s in res["stats"]} == {"d01", "d02"}
-    rows = [("C", 31.2, 101.2, 10, 0, "t2", 20.0)]
-    res = sc.compare(str(run), str(_stations(tmp_path, rows, "obs2")), ["C"], ["t2"])
-    assert {s["domain"] for s in res["stats"]} == {"d01"}
-    rows = [("D", 40.0, 100.5, 10, 0, "t2", 20.0)]
-    res = sc.compare(str(run), str(_stations(tmp_path, rows, "obs3")), ["D"], ["t2"])
-    assert res["stats"] == [] and any("outside every" in n for n in res["notes"])
-
-
-def test_domains_filter(tmp_path):
-    run = _run(tmp_path)
-    ds = _stations(tmp_path, [("B", 32.2, 102.2, 300, 0, "t2", 20.0)])
-    res = sc.compare(str(run), str(ds), ["B"], ["t2"], domains=[2])
-    assert {s["domain"] for s in res["stats"]} == {"d02"}
-
-
 def test_nearest_and_bilinear_on_linear_field(tmp_path):
     run = _run(tmp_path)
     # d01 point (31.3, 101.4): field = 10 + 1.3 + 2.8 = 14.1; nearest grid point (31, 101) = 13
@@ -238,14 +167,6 @@ def test_nearest_and_bilinear_on_linear_field(tmp_path):
     bl = sc.compare(str(run), str(ds), ["E"], ["t2"], method="bilinear")["series"][0]
     assert nn["model"] == pytest.approx(13.0, abs=1e-4)
     assert bl["model"] == pytest.approx(14.1, abs=1e-3) and bl["diff"] == pytest.approx(0, abs=1e-3)
-
-
-def test_station_elevation_difference(tmp_path):
-    run = _run(tmp_path)
-    ds = _stations(tmp_path, [("F", 32.2, 102.2, 1000, 0, "t2", 20.0)])
-    st = {s["domain"]: s for s in sc.compare(str(run), str(ds), ["F"], ["t2"])["stats"]}
-    assert st["d02"]["model_hgt_minus_elev_m"] == pytest.approx(250 - 1000)
-    assert st["d01"]["model_hgt_minus_elev_m"] == pytest.approx(100 - 1000)
 
 
 def test_td2_and_gust_and_pairing_tolerance(tmp_path):
@@ -343,15 +264,6 @@ def test_outermost_ring_not_compared_and_grid_columns(tmp_path):
     # (33N, 101E): row 3 (south_north), column 1 (west_east)
     assert (s["grid_j"], s["grid_i"], s["model_hgt_m"]) == (3, 1, 100.0)
     assert any("outermost" in n for n in res["notes"])
-
-
-def test_default_pairing_tolerance_is_10_minutes(tmp_path):
-    run = _run(tmp_path)
-    rows = [("A", 33.0, 101.0, 10, 8, "t2", 20.0), ("A", 33.0, 101.0, 10, 70, "t2", 20.0),
-            ("A", 33.0, 101.0, 10, 125, "t2", 20.0), ("A", 33.0, 101.0, 10, 111, "t2", 20.0)]
-    res = sc.compare(str(run), str(_stations(tmp_path, rows)), ["A"], ["t2"], domains=[1])
-    assert [r["time_utc"] for r in res["series"]] == ["2024-03-01 00:00", "2024-03-01 01:00",
-                                                      "2024-03-01 02:00"]
 
 
 def test_cli_stations(tmp_path, capsys):

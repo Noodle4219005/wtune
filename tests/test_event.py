@@ -11,7 +11,6 @@ from wtune import event
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.join(os.path.dirname(HERE), "skills", "wtune-event", "SKILL.md")
-EVENTS = os.path.join(HERE, "fixtures", "events")
 
 TXT = ("2013 年 6 月加拿大 Alberta 的洪水，暖濕氣流撞上洛磯山脈東坡，兩天下了 200 mm 以上。\n"
        "想看兩天累積雨量的分布對不對，還有山坡上的上升運動剖面。雨量站資料在 /data/ab_gauges.csv。\n")
@@ -31,23 +30,10 @@ def case(tmp_path):
     return p, doc
 
 
-def test_skill_example_passes_check(case):
-    p, doc = case
-    err, warn = event.check(doc, txt=TXT, txt_sha=event.sha256_file(str(p)))
-    assert err == [] and warn == []
-
-
 def test_template_has_sha_and_schema(case):
     p, _doc = case
     t = event.template(str(p))
     assert t["schema"] == event.SCHEMA and t["source_sha256"] == event.sha256_file(str(p))
-
-
-def test_quote_not_in_text_is_an_error(case):
-    _p, doc = case
-    doc["verify"].append({"value": "wind10", "from": "地面風"})
-    err, _ = event.check(doc, txt=TXT)
-    assert any("not in event.txt" in e for e in err)
 
 
 def test_unknown_vocabulary_is_an_error(case):

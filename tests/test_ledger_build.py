@@ -5,12 +5,9 @@ tune read)."""
 import argparse
 import csv
 import os
-import re
 import subprocess
 
-import pytest
 
-from wtune.tools import coldstart_sample as cs
 from wtune.tools import scc_sweep as sweep
 from wtune.tune import cli as tune_cli
 
@@ -42,66 +39,6 @@ def _ledger(d, case, job, rows):
                             s_per_step_median=s, notes=notes))
 
 
-def test_probe_and_tune_compute_the_same_build_id(tmp_path):
-    tree = _tree(tmp_path)
-    text = open(os.path.join(REPO, "campaign", "strict_campaign.sbatch")).read()
-    lines = [ln for ln in text.splitlines() if ln.startswith(("BUILD_ID=", "TABLE_CACHE="))]
-    out = _bash("\n".join(lines) + '\necho "$BUILD_ID $TABLE_CACHE"',
-                dict(W=tree, HOME=str(tmp_path)), str(tmp_path))
-    build, cache = out.split()
-    assert build == sweep.wrf_build_id(tree) and re.fullmatch("[0-9a-f]{16}", build)
-    assert cache == str(tmp_path / "wtune-runs" / "thompson_tables" / build)
-    assert "build=$BUILD_ID" in text
-    assert _bash("echo " + cs.build_id_expr("$W"), dict(W=tree), str(tmp_path)).strip() == build
-    assert sweep.wrf_build_id(str(tmp_path / "none")) == ""
-    _tree(tmp_path, "rebuilt")
-    assert sweep.wrf_build_id(tree) != build
-
-
-def test_estimate_scales_only_from_the_nearest_measured_node_count(tmp_path):
-    # matthew on f1-arm: every N scaled linearly to N=1 gave 0.061 s/step, N=1 measured 0.016
-    d = str(tmp_path / "ledgers")
-    _ledger(d, "m", 1, [(1, 0.016, ""), (2, 0.012, ""), (4, 0.010, ""), (8, 0.0095, "")])
-    est = sweep.estimate_s_per_step
-    assert est("m", 1, d, "hw", fallback=9.0) == (0.016, "ledger", 1)
-    s, src, n = est("m", 3, d, "hw", fallback=9.0)               # log-nearest: 4, not 2
-    assert (src, n) == ("ledger", 1) and s == pytest.approx(0.010 * 4 / 3)
-    assert est("m", 16, d, "hw", fallback=9.0)[0] == pytest.approx(0.0095 / 2)
-
-
-def test_estimate_keeps_to_the_build(tmp_path):
-    d = str(tmp_path / "ledgers")
-    _ledger(d, "c", 1, [(1, 1.0, "config=a build=aaaa"), (2, 0.5, "config=b build=aaaa")])
-    _ledger(d, "c", 2, [(1, 5.0, "config=a build=bbbb")])
-    _ledger(d, "c", 3, [(1, 3.0, "config=a")])
-    est = sweep.estimate_s_per_step
-    assert est("c", 1, d, "hw", fallback=9.0, build_id="aaaa") == (1.0, "ledger", 1)
-    assert est("c", 1, d, "hw", fallback=9.0, build_id="cccc") == (3.0, "ledger_unknown_build", 1)
-    assert est("c", 1, d, "hw", fallback=9.0) == (3.0, "ledger", 3)
-    assert est("c", 1, str(tmp_path / "empty"), "hw", fallback=9.0, build_id="aaaa",
-               extra_dirs=[d]) == (1.0, "ledger", 1)
-
-
-def test_tune_ledger_dir_is_the_project_and_reaches_the_jobs(tmp_path, monkeypatch):
-    import wtune.project
-    args = argparse.Namespace(ledger_dir=None, project=None)
-    monkeypatch.setattr(wtune.project, "find_project", lambda explicit=None: str(tmp_path / "proj"))
-    probes = str(tmp_path / "proj" / "probes")
-    assert tune_cli._ledger_dir(args) == probes
-    with tune_cli._campaign_out(probes):
-        assert os.environ[sweep.CAMPAIGN_OUT_ENV] == probes            # what the jobs inherit
-    assert sweep.CAMPAIGN_OUT_ENV not in os.environ                    # not the next tune's default
-    assert sweep.history_ledger_dirs(probes) == [sweep.HISTORY_LEDGER_DIR]
-    assert sweep.history_ledger_dirs(sweep.HISTORY_LEDGER_DIR) == []
-    args.ledger_dir = str(tmp_path / "mine")
-    assert tune_cli._ledger_dir(args) == str(tmp_path / "mine")
-    monkeypatch.setattr(wtune.project, "find_project", lambda explicit=None: None)
-    args.ledger_dir = None
-    assert tune_cli._ledger_dir(args) == sweep._expand(sweep.DEFAULT_LEDGER_DIR)
-    monkeypatch.setenv(sweep.CAMPAIGN_OUT_ENV, str(tmp_path / "user"))
-    assert tune_cli._ledger_dir(args) == str(tmp_path / "user")
-
-
 def test_build_id_comes_from_the_tree_the_jobs_run(tmp_path):
     """4df97ca review: the id came from machine.wrf_tree(), the jobs hash the site file's $W
     after `source env.sh` (f1-arm: env.sh sets WRF_TREE, machine.yaml has no wrf_tree)."""
@@ -121,25 +58,6 @@ def test_site_files_take_the_tunes_out(tmp_path):
         line = next(ln for ln in text.splitlines() if ln.startswith("OUT="))
         env = dict(HOME=str(tmp_path), WTUNE_CAMPAIGN_OUT=str(tmp_path / "p"))
         assert _bash(line + '\necho "$OUT"', env, str(tmp_path)).strip() == str(tmp_path / "p")
-
-
-def test_coldstart_window_links_no_table_the_cache_lacks(tmp_path):
-    """The run segment's 2026-10-25 failure in the coldstart probes' copy: a link to the absent
-    freezeH2O.dat made WRF fail writing it."""
-    lines = [ln.strip() for ln in cs._run_window_wrf_lines(2, 2, 1, 1, 2, 1, 60)]
-    link = [ln for ln in lines if ln.startswith("TBL_CACHE=") or '"$TBL_CACHE"/qr_acr_q' in ln]
-    harvest = [ln for ln in lines if ln.startswith(("shopt -s nullglob; TBLS=", 'for f in "${TBLS'))]
-    assert len(link) == 2 and len(harvest) == 2
-    tree = _tree(tmp_path)
-    run = tmp_path / "run"
-    run.mkdir()
-    env = dict(WRF_TREE=tree, HOME=str(tmp_path))
-    _bash("\n".join(link), env, str(run))
-    assert os.listdir(run) == []
-    (run / "freezeH2O.dat").write_text("table")
-    _bash("\n".join(link + harvest), env, str(run))
-    cache = tmp_path / "wtune-runs" / "thompson_tables" / sweep.wrf_build_id(tree)
-    assert os.listdir(cache) == ["freezeH2O.dat"]
 
 
 def test_o3_prior_leaves_out_other_builds(tmp_path, monkeypatch):

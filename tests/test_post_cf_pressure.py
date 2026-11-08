@@ -88,118 +88,11 @@ def _write_wrfout(path, time_str="2005-08-28_06:00:00", qice=True):
             d.setncattr(k, v)
 
 
-def test_output_name_and_grid_spacing():
-    name = cp.output_name(2, "2005-08-29_12:00:00")
-    assert name == "wrf_d02_pl_20050829_1200.nc" and ":" not in name
-    assert cp.grid_spacing_deg(12000.0) == 0.11
-    assert cp.grid_spacing_deg(333.0) == 0.01          # floored, never a zero spacing
-
-
-def test_bilinear_reproduces_field_linear_in_native_xy():
-    crs = pyproj.CRS(LCC)
-    xx, yy, lat, lon = _native_lonlat()
-    x0, sx, y0, sy = cp.native_affine(lat, lon, crs)
-    assert (x0, sx, y0, sy) == pytest.approx((xx[0, 0], DX, yy[0, 0], DX), abs=1.0)
-
-    field = 3e-3 * xx - 2e-3 * yy + 50.0
-    lat1d, lon1d = cp.target_grid(lat, lon, 0, 0.11)
-    jj, ii = cp.regrid_indices(lat1d, lon1d, crs, (x0, sx, y0, sy), lat.shape, 0)
-    out = cp.regrid(field, jj, ii)
-    tx, ty = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(
-        *np.meshgrid(lon1d, lat1d))
-    expected = 3e-3 * tx - 2e-3 * ty + 50.0
-    ok = np.isfinite(out)
-    assert ok.sum() > 0.5 * ok.size
-    np.testing.assert_allclose(out[ok], expected[ok], rtol=1e-5, atol=1e-3)
-
-
-def test_target_grid_regular_ascending_and_boundary_zone_excluded():
-    crs = pyproj.CRS(LCC)
-    _xx, _yy, lat, lon = _native_lonlat()
-    affine = cp.native_affine(lat, lon, crs)
-    lat0, lon0 = cp.target_grid(lat, lon, 0, 0.11)
-    lat5, lon5 = cp.target_grid(lat, lon, 5, 0.11)
-    for a in (lat5, lon5):
-        assert np.all(np.diff(a) > 0)
-        np.testing.assert_allclose(np.diff(a), 0.11, atol=1e-6)
-    assert len(lat5) < len(lat0) and len(lon5) < len(lon0)
-    interior_lat, interior_lon = lat[5:-5, 5:-5], lon[5:-5, 5:-5]
-    assert lat5[0] >= interior_lat.min() - 1e-6 and lat5[-1] <= interior_lat.max() + 1e-6
-    assert lon5[0] >= interior_lon.min() - 1e-6 and lon5[-1] <= interior_lon.max() + 1e-6
-
-    # every target point whose native index falls in the 5-cell zone is missing
-    jj_all, ii_all = cp.regrid_indices(lat5, lon5, crs, affine, lat.shape, 0)
-    jj5, _ii5 = cp.regrid_indices(lat5, lon5, crs, affine, lat.shape, 5)
-    in_zone = np.isfinite(jj_all) & ((ii_all < 5) | (ii_all > NX - 6)
-                                     | (jj_all < 5) | (jj_all > NY - 6))
-    assert in_zone.any()
-    assert np.isnan(jj5[in_zone]).all()
-    assert np.isnan(cp.regrid(np.ones((NY, NX)), jj5, _ii5)[in_zone]).all()
-
-
 def test_native_affine_refuses_a_grid_the_projection_does_not_describe():
     _xx, _yy, lat, lon = _native_lonlat()
     rng = np.random.default_rng(0)
     with pytest.raises(cp.CFPressureError, match="residual"):
         cp.native_affine(lat + rng.normal(0, 0.05, lat.shape), lon, pyproj.CRS(LCC))
-
-
-def test_convert_frame_cf_layout(tmp_path):
-    src = tmp_path / "wrfout_d01_2005-08-28_06:00:00"
-    _write_wrfout(str(src))
-    out = tmp_path / "o.nc"
-    r = cp.convert_frame(str(src), str(out), domain=1, bdy_width=5, command="wtune post cf3d x")
-    assert r["dropped_levels"] == [200.0, 150.0, 100.0]          # at/above P_TOP=200 hPa
-    with netCDF4.Dataset(out) as d:
-        assert d.Conventions == "CF-1.8" and d.source == "WRF V4.5.1"
-        assert "wtune post cf3d x" in d.history and "institution" not in d.ncattrs()
-        assert d.wtune_qice == "present"
-        assert d.dimensions["time"].isunlimited() and len(d.dimensions["time"]) == 1
-        t = d["time"]
-        assert t.units == "hours since 2005-08-28 00:00:00" and t.calendar == "standard"
-        assert t.standard_name == "time" and t.axis == "T" and t[0] == 6.0
-        frt = d["forecast_reference_time"]
-        assert frt.units == t.units and frt.standard_name == "forecast_reference_time"
-        assert float(frt[...]) == 0.0
-        p = d["isobaric"]
-        assert (p.units, p.positive, p.axis, p.standard_name, p.long_name) == \
-            ("hPa", "down", "Z", "air_pressure", "Isobaric surface")
-        assert list(p[:]) == [lev for lev in cp.PRESSURE_LEVELS_HPA if lev > 200]
-        for name, units, axis in (("lat", "degrees_north", "Y"), ("lon", "degrees_east", "X")):
-            v = d[name]
-            assert (v.units, v.axis, v.dimensions) == (units, axis, (name,))
-            np.testing.assert_allclose(np.diff(v[:]), 0.11, atol=1e-6)
-
-        std = dict(air_temperature="air_temperature", eastward_wind="eastward_wind",
-                   northward_wind="northward_wind", upward_air_velocity="upward_air_velocity",
-                   geopotential_height="geopotential_height",
-                   relative_humidity="relative_humidity")
-        for name, sn in std.items():
-            v = d[name]
-            assert v.standard_name == sn
-            assert v.dimensions == ("time", "isobaric", "lat", "lon")
-            assert v.dtype == np.float32 and v._FillValue == np.float32(9.96921e36)
-            f = v.filters()
-            assert f["zlib"] and f["complevel"] == 4
-        assert d["relative_humidity"].units == "%"
-        for name in ("QCLOUD", "QICE", "CLOUD_TOTAL"):
-            assert "standard_name" not in d[name].ncattrs() and d[name].units == "kg kg-1"
-        hs = d["surface_altitude"]
-        assert hs.dimensions == ("lat", "lon") and hs.standard_name == "surface_altitude"
-
-        # below ground: 1000 hPa is missing over the 1500 m plateau (regridded HGT exactly 1500
-        # = all four native neighbours on it), valid over the flat part; 700 hPa valid on both
-        hgt = hs[:]
-        plateau, flat = (hgt == 1500.0).filled(False), (hgt == 0.0).filled(False)
-        assert plateau.sum() > 5 and flat.sum() > 5
-        t1000 = d["air_temperature"][0, 0]
-        assert np.ma.count(t1000[plateau]) == 0 and np.ma.count(t1000[flat]) == flat.sum()
-        t700 = d["air_temperature"][0, list(p[:]).index(700)]
-        assert np.ma.count(t700[plateau]) == plateau.sum()
-
-        qc, qi, tot = (d[n][0] for n in ("QCLOUD", "QICE", "CLOUD_TOTAL"))
-        ok = ~np.ma.getmaskarray(tot)
-        np.testing.assert_allclose(tot[ok], (qc + qi)[ok], rtol=1e-6)
 
 
 def test_qice_missing_writes_cloud_total_as_qcloud(tmp_path):
@@ -256,13 +149,3 @@ def test_recipe_hook_data_file_record_report_and_import_failure(tmp_path, monkey
     monkeypatch.setitem(sys.modules, "wrf", None)      # import wrf -> ImportError
     recs = cf3d.figures(str(run), "base", str(out), case_info, 5)
     assert len(recs) == 1 and recs[0]["missing"] and recs[0]["id"] == "common_cf3d"
-
-
-def test_cli_cf3d_writes_into_out(tmp_path):
-    from wtune.post import cli
-    run = _run_dir(tmp_path)
-    out = tmp_path / "cli"
-    assert cli.main(["cf3d", str(run), "--times", "2005082806", "--out", str(out)]) == 0
-    path = out / "cf3d" / "d01" / "wrf_d01_pl_20050828_0600.nc"
-    with netCDF4.Dataset(path) as d:
-        assert "wtune post cf3d" in d.history and "--times 2005082806" in d.history

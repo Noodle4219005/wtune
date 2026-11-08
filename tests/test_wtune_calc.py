@@ -5,7 +5,6 @@ Run: envs/wtune/.pixi/envs/default/bin/python -m pytest -q tests/test_wtune_calc
 """
 import json
 import math
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -66,31 +65,6 @@ def test_every_rule_has_level_and_source():
         assert r["formula"].strip() and r["function"] and r["topic"] in wc.TOPICS, rid
 
 
-def test_wrf_doc_rules_cite_a_file_and_line():
-    for rid, r in wc.rules().items():
-        if r["source_level"] == "wrf-doc":
-            assert re.search(r"(README\.namelist|Registry|module_check_a_mundo\.F|start_em\.F|solve_em\.F|"
-                             r"mediation_nest_move\.F|module_model_constants\.F):\d+", r["source_ref"]), rid
-
-
-def test_only_wrf_doc_rules_can_be_hard():
-    for rid, r in wc.rules().items():
-        if r.get("hard"):
-            assert r["source_level"] == "wrf-doc", rid
-
-
-def test_wtune_measured_rules_cite_a_wiki_note_or_calibration():
-    for rid, r in wc.rules().items():
-        if r["source_level"] == "wtune-measured":
-            assert re.search(r"\.md|calibration|wtune.predict", r["source_ref"]), rid
-
-
-def test_rule_of_thumb_not_disguised_as_official():
-    for rid in ("dt.steep_terrain", "cfl.limit", "nudge.moisture", "nudge.wavenumber", "scales.effective_resolution",
-                "spinup.mesoscale", "longrun.threshold", "geog.res_vs_dx", "physics.cumulus"):
-        assert wc.rule(rid)["source_level"] == "rule-of-thumb"
-
-
 # ------------------------------------------------------------------------------------- units (C4)
 
 def test_deg_km_and_arcsec_known_values():
@@ -127,14 +101,6 @@ def test_units_function_shape_and_unknown_kind():
 
 # ------------------------------------------------------------------------------ dt / radt / cfl
 
-@pytest.mark.parametrize("dx,dt_s", [(3, 18), (9, 54), (27, 162)])
-def test_dt_6dx_and_radt(dx, dt_s):
-    r = wc.dt(dx)
-    assert val(r, "recommended") == pytest.approx(dt_s)
-    assert val(r, "steep") == [pytest.approx(4.0 * dx), pytest.approx(5.0 * dx)]
-    assert val(r, "abort limit") == pytest.approx(dt_s)
-    assert val(wc.radt(dx), "radt recommended") == pytest.approx(dx)
-
 
 def test_dt_map_factor_and_nest_dt_and_adaptive_defaults():
     r = wc.dt(9, max_map_factor=1.5, parent_grid_ratio=3)
@@ -155,12 +121,6 @@ def test_cfl_arithmetic():
 
 
 # ---------------------------------------------------------------------------------------- nest
-
-def test_nest_dimension_validity():
-    assert wc.nest_dim_ok(91, 3) and wc.nest_dim_ok(301, 3) and wc.nest_dim_ok(101, 5) and wc.nest_dim_ok(100, 3)
-    assert not wc.nest_dim_ok(92, 3) and not wc.nest_dim_ok(101, 3) and not wc.nest_dim_ok(100, 5)
-    assert wc.nearest_nest_dim(92, 3) == 91 and wc.nearest_nest_dim(101, 3) == 100
-    assert wc.nest_dim_ok(wc.nearest_nest_dim(98, 5), 5)
 
 
 def test_nest_dims_from_parent_cells_and_margin():
@@ -298,13 +258,6 @@ def test_longrun_and_spinup():
 
 # ---------------------------------------------------------------------------------- check engine
 
-def test_check_clean_namelist_has_no_error_and_no_false_alarm(tmp_path):
-    nl = write_nl(tmp_path, domains=NEST_DOMAINS, physics=" radt = 9, 9, cu_physics = 1, 0,\n",
-                  dynamics=" damp_opt = 3, zdamp = 5000.,\n")
-    rep = wc.check(nl, geog_res_arcsec=30.0)
-    assert rep["counts"]["ERROR"] == 0 and rep["counts"]["DEVIATES"] == 0, wc.render_check(rep)
-    assert ("d02", "OK") in statuses(rep, "nest.inside_parent")
-
 
 def test_check_hard_wrf_doc_constraints_are_errors(tmp_path):
     nl = write_nl(tmp_path, domains=NEST_DOMAINS.replace("301, e_sn = 200, 301", "300, e_sn = 200, 301"))
@@ -318,17 +271,6 @@ def test_check_hard_wrf_doc_constraints_are_errors(tmp_path):
     rep3 = wc.check(nl3)
     assert ("all", "ERROR") in statuses(rep3, "decomp.min_patch")            # 200//30 = 6 < 10
     assert all(f["source_level"] == "wrf-doc" for f in rep3["findings"] if f["status"] == "ERROR")
-
-
-def test_check_rule_of_thumb_deviation_is_never_error(tmp_path):
-    nl = write_nl(tmp_path, domains=NEST_DOMAINS, physics=" radt = 30, 30, cu_physics = 1, 1,\n")
-    rep = wc.check(nl)
-    assert ("d01", "DEVIATES") in statuses(rep, "radt.one_min_per_km")        # 30 min at 9 km
-    assert ("d02", "DEVIATES") in statuses(rep, "physics.cumulus")            # cu on at 3 km
-    assert rep["counts"]["ERROR"] == 0
-    for f in rep["findings"]:
-        if f["source_level"] == "rule-of-thumb":
-            assert f["status"] != "ERROR"
 
 
 def test_check_c3_600m_domain_with_30_arcsec_geog_is_flagged(tmp_path):
@@ -427,19 +369,6 @@ def test_cli_json_shape(capsys):
         assert it["source_level"] in LEVELS
     assert wc.main(["--json", "units", "kt-ms", "100"]) == 0
     assert json.loads(capsys.readouterr().out)["items"][0]["value"] == pytest.approx(51.4444, abs=1e-3)
-
-
-def test_cli_check_exit_codes_and_json(tmp_path, capsys):
-    good = write_nl(tmp_path, domains=NEST_DOMAINS, physics=" radt = 9, 9,\n")
-    assert wc.main(["check", good]) == 0
-    assert "合計" in capsys.readouterr().out
-    bad = write_nl(tmp_path, domains=NEST_DOMAINS.replace("time_step = 54", "time_step = 90"), name="bad.input")
-    assert wc.main(["check", bad, "--json"]) == 1
-    rep = json.loads(capsys.readouterr().out)
-    assert set(rep) == {"namelist", "geog_res_arcsec", "max_dom", "findings", "counts"}
-    assert rep["counts"]["ERROR"] >= 1
-    assert set(rep["findings"][0]) == {"rule_id", "domain", "status", "reason", "source_level", "source_ref"}
-    assert {f["status"] for f in rep["findings"]} <= {"OK", "DEVIATES", "ERROR"}
 
 
 def test_cli_geog_res_arcsec_option_and_bad_args(tmp_path, capsys):

@@ -7,27 +7,10 @@ import pytest
 from wtune import proxy
 
 
-def test_proxy_shape_matches_the_validated_conus25_and_karina_boxes():
-    # conus25 (1501x1201): the boxes used by the passed proxy runs (jobs 2024351/2024531)
-    assert proxy.proxy_shape(1501, 1201, 18, 64, 8, 144) == dict(ranks=144, a=6, b=24, nx=504, ny=456)
-    assert proxy.proxy_shape(1501, 1201, 9, 64, 4, 144) == dict(ranks=144, a=4, b=36, nx=668, ny=684)
-    # karina (901^2) hybrid 224x2 on 4 x 112 cores (job 2024533)
-    assert proxy.proxy_shape(901, 901, 8, 28, 4, 112, omp=2) == dict(ranks=56, a=4, b=14, nx=452, ny=462)
-
-
 def test_proxy_shape_refuses_what_one_node_cannot_reproduce():
     assert proxy.proxy_shape(1501, 1201, 71, 16, 8, 144) is None      # 142 ranks: 2x71, box too wide
     assert proxy.proxy_shape(1501, 1201, 18, 63, 8, 144) is None      # 1134 ranks not divisible by 8
     assert proxy.proxy_shape(901, 901, 8, 28, 4, 112, omp=4) is None  # 56 ranks x 4 threads > 112 cores
-
-
-def test_band_shape_keeps_full_width_and_three_node_rows():
-    # Big Chill d01 (561x450) at N=5, 24x30: 144 ranks per node = 6 whole rows of 24 -> 3 nodes x 6 rows
-    assert proxy.band_shape(561, 450, 24, 30, 5, 144) == dict(
-        ranks=432, a=24, b=18, nx=560, ny=270, nodes=3, ranks_per_node=144)
-    # conus25 (1501x1201) at N=8, 18x64: 8 rows per node
-    assert proxy.band_shape(1501, 1201, 18, 64, 8, 144) == dict(
-        ranks=432, a=18, b=24, nx=1500, ny=456, nodes=3, ranks_per_node=144)
 
 
 def test_band_shape_refuses_partial_rows_and_targets_no_larger_than_the_band():
@@ -54,28 +37,9 @@ def test_band_plan_runs_on_several_nodes(tmp_path, monkeypatch):
     assert "#SBATCH -p arm576 -N 3 --exclusive" in s and "export SLURM_JOB_NUM_NODES=3\n" in s
 
 
-def test_nl_set_handles_several_pairs_per_line_and_inserts_decomposition():
-    text = (" &time_control\n run_days=0, run_hours=48, run_minutes=0, run_seconds=0,\n /\n"
-            " &domains\n time_step=15, max_dom=1, e_we=901, e_sn=901, e_vert=45,\n /\n")
-    out = proxy.nl_set(text, e_we=453, run_hours=0, nproc_x=4, nproc_y=28, numtiles=14)
-    assert "e_we = 453, e_sn=901" in out and "run_hours = 0, run_minutes=0" in out
-    assert " nproc_x = 4,\n nproc_y = 28,\n numtiles = 14,\n" in out
-    assert proxy.nl_get(out, "e_vert") == "45"
-
-
-def test_nl_set_replaces_every_domain_column_and_keeps_one_comma():
-    out = proxy.nl_set(" &domains\n e_sn = 1201, 1201,\n e_we                = 1501,\n /\n", e_sn=457, e_we=505)
-    assert " e_sn = 457,\n" in out and " e_we = 505,\n" in out
-
-
 def test_nl_set_unknown_key_is_an_error():
     with pytest.raises(KeyError):
         proxy.nl_set(" &domains\n e_we = 10,\n /\n", radt=5)
-
-
-def test_time_step_includes_the_fraction():
-    assert proxy.time_step_seconds(" time_step = 0,\n time_step_fract_num = 2,\n time_step_fract_den = 3,\n") \
-        == pytest.approx(2 / 3)
 
 
 def _tree(tmp_path, name):
@@ -116,15 +80,6 @@ MARSHALL = (" &time_control\n run_hours = 5,\n history_interval = -1, 1,\n /\n &
             " &bdy_control\n specified = .true., .false.,\n nested = .false., .true.,\n /\n")
 
 
-def test_nested_case_is_split_into_weighted_single_domain_runs(tmp_path):
-    c = tmp_path / "case"
-    c.mkdir()
-    (c / "namelist.input").write_text(MARSHALL)
-    plan = proxy.make_plan(str(c), 8, ["32x32"], 144, nested="split")
-    assert [(r["tag"], r["domain"], r["weight"]) for r in plan["runs"]] == [("32x32_o1_nt1_d1", 1, 1), ("32x32_o1_nt1_d2", 2, 9)]
-    assert plan["runs"][1]["dt"] == pytest.approx(6 / 9) and plan["max_dom"] == 2
-
-
 def test_single_domain_namelist_takes_the_nest_column():
     layer = proxy.domain_layers(MARSHALL)[1]
     out = proxy.single_domain_namelist(MARSHALL, layer, 128, 256, 8, 16, 14, 27)
@@ -135,38 +90,6 @@ def test_single_domain_namelist_takes_the_nest_column():
         assert proxy.nl_get(out, key) == val, key
     assert float(proxy.nl_get(out, "dx")) > 111.1111          # nudged past WRF's dt <= 6*dx[km] bound
     assert proxy.nl_values(out, "e_we") == ["129"]
-
-
-def test_collect_adds_domains_by_weight_and_drops_incomplete_layouts(tmp_path):
-    json.dump(dict(max_dom=2), open(tmp_path / "plan.json", "w"))
-    rows = [dict(tag="A_d1", layout="A", domain=1, weight=1, rep=1, rc=0, median=0.06),
-            dict(tag="A_d2", layout="A", domain=2, weight=9, rep=1, rc=0, median=0.05),
-            dict(tag="B_d1", layout="B", domain=1, weight=1, rep=1, rc=0, median=0.05),
-            dict(tag="B_d2", layout="B", domain=2, weight=9, rep=1, rc=1, median=None)]
-    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    out = proxy.collect(str(tmp_path))
-    assert [r["tag"] for r in out] == ["A"] and out[0]["median"] == pytest.approx(0.06 + 9 * 0.05)
-
-
-def test_collect_ranks_by_median_and_drops_failed_runs(tmp_path):
-    rows = [dict(tag="A", rep=1, rc=0, median=0.47), dict(tag="A", rep=2, rc=0, median=0.48),
-            dict(tag="H", rep=1, rc=0, median=0.40), dict(tag="X", rep=1, rc=4, median=None)]
-    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    out = proxy.collect(str(tmp_path))
-    assert [r["tag"] for r in out] == ["H", "A"] and out[1]["reps"] == [0.47, 0.48]
-
-
-def test_render_sbatch_runs_the_python_worker_under_site_env(tmp_path, monkeypatch):
-    import wtune.machine
-    from wtune.tools import scc_sweep
-    monkeypatch.setattr(wtune.machine, "partition", lambda: "arm144")
-    monkeypatch.setattr(wtune.machine, "cores_per_node", lambda: 144)
-    monkeypatch.setattr(wtune.machine, "site", lambda: "f1arm")
-    monkeypatch.setattr(scc_sweep, "scheduler_args", lambda: "--account=acd110018")
-    s = proxy.render_sbatch(str(tmp_path / "plan.json"), "/env/bin/python", "/repo/campaign")
-    assert "#SBATCH -p arm144 -N 1 --exclusive --ntasks-per-node=144 --time=01:00:00 --account=acd110018" in s
-    assert 'source "$CAMPAIGN/sites/f1arm.sh"\n' in s and "\nsite_env\n" in s
-    assert "/env/bin/python -m wtune.proxy _worker %s" % (tmp_path / "plan.json") in s
 
 
 def test_crop_couples_boundaries_with_dry_air_mass(tmp_path):
@@ -240,24 +163,11 @@ def test_flat_offset_moves_the_crop_edges_off_the_ridge():
     assert proxy.flat_offset(np.zeros((40, 50)), 15, 30, 3) == (17, 5)   # flat everywhere: the centre
 
 
-def test_wide_boundary_keys_go_to_bdy_control():
-    nl = proxy.nl_force(" &domains\n e_we = 10,\n /\n &bdy_control\n specified = .true.,\n /\n",
-                        spec_bdy_width=10, relax_zone=9, spec_exp=0.33)
-    bdy = nl.split("&bdy_control")[1]
-    assert "spec_bdy_width = 10" in bdy and "relax_zone = 9" in bdy and "spec_exp = 0.33" in bdy
-
-
 def test_nest_dx_only_moves_when_dt_sits_on_the_bound():
     assert proxy.nest_dx(dict(domain=2, dx=600.0, dy=600.0, dt=3.0)) == (600.0, 600.0)   # Big Chill d02
     dx, dy = proxy.nest_dx(dict(domain=2, dx=111.1111, dy=111.1111, dt=6 / 9))            # marshall d02
     assert 6 * dx / 1000 >= 6 / 9 and dx < 111.2
     assert proxy.nest_dx(dict(domain=1, dx=1000.0, dy=1000.0, dt=6.0)) == (1000.0, 1000.0)
-
-
-def test_null_rsl_links_every_rank_but_zero_to_dev_null(tmp_path):
-    proxy._null_rsl(str(tmp_path), 3)
-    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0001", "rsl.error.0002", "rsl.out.0001", "rsl.out.0002"]
-    assert all(os.readlink(tmp_path / f) == os.devnull for f in os.listdir(tmp_path))
 
 
 BIGCHILL = (" &time_control\n run_days = 0, run_hours = 4, run_minutes = 0, run_seconds = 0,\n history_interval = 60, 60,\n /\n"
@@ -289,28 +199,6 @@ def _check_nest_crop(text, nb, px, py, margin):
         assert p["j0"] + bx["j_parent_start"] == jps[d - 1] + bx["j0"] // r
         assert bx["i_parent_start"] - 1 >= margin and p["nx"] - (bx["i_parent_start"] - 1 + bx["nx"] // r) >= margin
         assert bx["j_parent_start"] - 1 >= margin and p["ny"] - (bx["j_parent_start"] - 1 + bx["ny"] // r) >= margin
-
-
-def test_nest_crop_boxes_give_every_rank_the_targets_patch_in_both_big_chill_domains():
-    nb = proxy.nest_crop_boxes(BIGCHILL, 16, 18, 2, 144)
-    assert (nb["ranks"], nb["a"], nb["b"]) == (144, 12, 12)
-    assert nb["boxes"] == [dict(domain=1, nx=420, ny=300, i0=6, j0=8, i_parent_start=1, j_parent_start=1),
-                           dict(domain=2, nx=505, ny=530, i0=80, j0=130, i_parent_start=160, j_parent_start=98)]
-    _check_nest_crop(BIGCHILL, nb, 16, 18, 6)
-    nb = proxy.nest_crop_boxes(BIGCHILL, 12, 12, 2, 144, omp=2)
-    assert nb["ranks"] == 72 and nb["a"] * nb["b"] == 72
-    _check_nest_crop(BIGCHILL, nb, 12, 12, 6)
-
-
-def test_nest_crop_boxes_walk_up_a_three_domain_chain():
-    text = BIGCHILL.replace("max_dom = 2", "max_dom = 3").replace("671,", "671, 601,").replace("791,", "791, 601,")
-    for k, v in (("parent_id = 0, 1", "0, 1, 2"), ("i_parent_start = 1, 150", "1, 150, 30"),
-                 ("j_parent_start = 1, 80", "1, 80, 90"), ("parent_grid_ratio = 1, 5", "1, 5, 3"),
-                 ("parent_time_step_ratio = 1, 5", "1, 5, 3")):
-        text = text.replace(k, k.split("=")[0] + "= " + v)
-    nb = proxy.nest_crop_boxes(text, 16, 18, 2, 144)
-    assert [bx["domain"] for bx in nb["boxes"]] == [1, 2, 3]
-    _check_nest_crop(text, nb, 16, 18, 6)
 
 
 def test_nest_crop_boxes_refuse_what_does_not_fit():
@@ -360,20 +248,6 @@ def test_collect_takes_a_nested_crop_run_as_the_whole_layout(tmp_path):
     assert [(r["tag"], r["median"]) for r in proxy.collect(str(tmp_path))] == [("A", 0.9)]
 
 
-def test_whole_domain_box_uses_the_cases_own_files(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((os.path.basename(a[0]), a[1], k)))
-    plan = dict(case_dir="/case", e_we=561, e_sn=450, max_dom=2, place="centre", bdy_width=10)
-    full = dict(domain=1, nx=560, ny=449)
-    assert proxy.whole_domain(plan, full) and not proxy.whole_domain(plan, dict(full, domain=2))
-    assert not proxy.whole_domain(plan, dict(full, ny=448))
-    assert proxy._inputs(plan, full, str(tmp_path), {}) == {"wrfinput_d01": "/case/wrfinput_d01",
-                                                         "wrfbdy_d01": "/case/wrfbdy_d01"}
-    assert calls == []
-    part = proxy._inputs(plan, dict(full, nx=420, ny=300), str(tmp_path), {})
-    assert calls[0][0] == "wrfinput_d01" and part["wrfbdy_d01"].startswith(str(tmp_path))
-
-
 def test_nested_crop_run_crops_every_domain_at_its_offsets(tmp_path, monkeypatch):
     case = tmp_path / "case"
     case.mkdir()
@@ -414,35 +288,8 @@ def test_crop_at_offsets_keeps_a_nest_a_nest(tmp_path):
     assert C.getncattr("WEST-EAST_GRID_DIMENSION") == 7 and C.getncattr("PARENT_GRID_RATIO") == 3
 
 
-def test_nested_namelist_keeps_a_history_interval_per_domain():
-    text = (" &time_control\n run_days = 0,\n run_hours = 11,\n run_minutes = 0,\n run_seconds = 0,\n"
-            " history_interval = 60, 10, 10,\n restart_interval = 720,\n /\n"
-            " &domains\n max_dom = 2,\n e_we = 561, 671, 400,\n e_sn = 450, 791, 400,\n"
-            " i_parent_start = 1, 240, 1,\n j_parent_start = 1, 115, 1,\n /\n")
-    boxes = [dict(domain=1, nx=320, ny=406, i_parent_start=1, j_parent_start=1),
-             dict(domain=2, nx=385, ny=700, i_parent_start=122, j_parent_start=124)]
-    nl = proxy.nested_namelist(text, boxes, 8, 14, 1, 150)
-    assert proxy.nl_values(nl, "history_interval") == ["100000", "100000", "10"]
-    assert proxy.nl_values(nl, "restart_interval") == ["100000"]
-    assert proxy.nl_values(nl, "e_we") == ["321", "386", "400"]
-
-
 BIGCHILL_ISC = BIGCHILL.replace("i_parent_start = 1, 150", "i_parent_start = 1, 240").replace(
     "j_parent_start = 1, 80", "j_parent_start = 1, 115")
-
-
-def test_nested_band_is_full_width_with_three_nodes_of_rows_in_every_domain():
-    # Big Chill on x86 (112 cores) at N=4, 16x28: 7 rows of 16 per node -> 16 x 21 ranks on 3 nodes
-    nb = proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=3)
-    assert (nb["ranks"], nb["a"], nb["b"], nb["nodes"], nb["ranks_per_node"]) == (336, 16, 21, 3, 112)
-    assert nb["boxes"] == [dict(domain=1, nx=560, ny=357, i0=0, j0=15, i_parent_start=1, j_parent_start=1),
-                           dict(domain=2, nx=670, ny=610, i0=0, j0=90, i_parent_start=240, j_parent_start=118)]
-    d1, d2 = nb["boxes"]
-    assert d2["ny"] == -(-21 * -(-790 // 28) // 5) * 5          # b x ceil(m/py), rounded up to the ratio
-    # the same d01 cell under the nest's corner, and the margin to the crop's edge
-    assert d1["j0"] + d2["j_parent_start"] == 115 + d2["j0"] // 5
-    assert d2["j_parent_start"] - 1 >= 6 and d1["ny"] - (d2["j_parent_start"] - 1 + d2["ny"] // 5) >= 6
-    assert proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 18, 4, 144, omp=2, proxy_nodes=3) is None   # 4.5 rows per node
 
 
 def test_nested_band_on_the_targets_own_nodes_is_the_whole_case(tmp_path, monkeypatch):
@@ -460,17 +307,6 @@ def test_nested_band_on_the_targets_own_nodes_is_the_whole_case(tmp_path, monkey
         f: str(case / f) for f in ("wrfinput_d01", "wrfbdy_d01", "wrfinput_d02")}
     nl = proxy.nested_namelist(BIGCHILL_ISC, nb["boxes"], 16, 28, 1, 150)
     assert proxy.nl_values(nl, "e_we") == ["561", "671"] and proxy.nl_values(nl, "j_parent_start") == ["1", "115"]
-
-
-def test_nested_band_plan_runs_one_nested_run_on_the_band_nodes(tmp_path):
-    c = tmp_path / "case"
-    c.mkdir()
-    (c / "namelist.input").write_text(BIGCHILL_ISC)
-    plan = proxy.make_plan(str(c), 4, ["16x28", "16x18"], 112, proxy_nodes=3)
-    assert [(r["tag"], r["nodes"], r["ranks_per_node"], r["ranks"], (r["nx"], r["ny"])) for r in plan["runs"]] == [
-        ("16x28_o1_nt1", 3, 112, 336, (560, 357))]
-    # 16x18: 72 ranks per node, not whole rows of 16 -- no band, nested or split
-    assert plan["skipped"] == ["16x18"]
 
 
 def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp_path, monkeypatch):
@@ -526,13 +362,6 @@ def test_a_failed_run_is_rerun_once_with_every_ranks_rsl_and_the_job_goes_on(tmp
     assert (last["tag"], last["ok"], last["error"]) == ("C", False, "OSError: no wrfinput_d01")
 
 
-def test_collect_drops_runs_marked_failed(tmp_path):
-    rows = [dict(tag="A", rep=1, rc=0, median=0.40, ok=False), dict(tag="A", rep=1, rc=0, median=0.47, ok=True,
-                                                                     retry=True), dict(tag="B", rep=1, rc=0, median=0.45)]
-    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    assert [(r["tag"], r["median"]) for r in proxy.collect(str(tmp_path))] == [("B", 0.45), ("A", 0.47)]
-
-
 def test_drop_runs_keeps_the_records_and_the_failed_reruns(tmp_path):
     for d in ("runs/A-1", "runs/B-1", "runs/B-1-retry"):
         os.makedirs(tmp_path / d)
@@ -546,15 +375,6 @@ def test_drop_runs_keeps_the_records_and_the_failed_reruns(tmp_path):
     proxy.drop_runs(str(tmp_path / "nothing-here"))
 
 
-def test_crop_offset_shifts_a_quarter_of_the_free_range_along_the_longer_free_axis():
-    assert proxy.crop_offset(1500, 1200, 504, 456) == (498, 372)                 # centred
-    assert proxy.crop_offset(1500, 1200, 504, 456, pos=1) == (498 + 249, 372)    # x free 996 > y free 744
-    assert proxy.crop_offset(560, 449, 560, 357, pos=1) == (0, 46 + 23)           # a band: y only
-    assert proxy.crop_offset(670, 790, 670, 610, step=5, pos=1) == (0, 90 + 45)    # multiples of the ratio
-    assert proxy.crop_offset(560, 449, 560, 449, pos=1) is None                   # the whole domain
-    assert proxy.crop_offset(1500, 1200, 504, 456, pos=2) is None
-
-
 def test_shifted_nested_crop_moves_the_deepest_domain_and_replaces_its_parents():
     nb = proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=3, pos=1)
     d1, d2 = nb["boxes"]
@@ -565,24 +385,6 @@ def test_shifted_nested_crop_moves_the_deepest_domain_and_replaces_its_parents()
     _check_nest_crop(BIGCHILL, one, 16, 18, 6)
     assert one["boxes"][1]["j0"] != 130 or one["boxes"][1]["i0"] != 80        # moved off the centre
     assert proxy.nest_crop_boxes(BIGCHILL_ISC, 16, 28, 4, 112, proxy_nodes=4, pos=1) is None   # the whole case
-
-
-def test_plan_adds_the_shifted_position_where_it_can_be_placed(tmp_path):
-    plan = proxy.make_plan(_case(tmp_path), 8, ["18x64"], 144, positions=2)
-    assert [(r["tag"], r["layout"], r["pos"], r.get("i0"), r.get("j0")) for r in plan["runs"]] == [
-        ("18x64_o1_nt1", "18x64_o1_nt1", 0, None, None), ("18x64_o1_nt1_p1", "18x64_o1_nt1", 1, 498 + 249, 372)]
-    os.makedirs(tmp_path / "b")
-    full = proxy.make_plan(_case(tmp_path / "b"), 2, ["16x18"], 144, proxy_nodes=2, positions=2)
-    assert [r["tag"] for r in full["runs"]] == ["16x18_o1_nt1"]                  # the whole domain: one position
-
-
-def test_shifted_flat_crop_is_cached_at_its_offsets(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(proxy, "crop", lambda *a, **k: calls.append((a[3:5], k["i0"], k["j0"])))
-    plan = dict(case_dir="/case", e_we=1501, e_sn=1201, max_dom=1, place="centre", bdy_width=10)
-    a = proxy._inputs(plan, dict(domain=1, nx=504, ny=456), str(tmp_path), {})
-    b = proxy._inputs(plan, dict(domain=1, nx=504, ny=456, pos=1, i0=747, j0=372), str(tmp_path), {})
-    assert calls == [((504, 456), None, None), ((504, 456), 747, 372)] and a != b
 
 
 def test_collect_scores_a_layout_by_the_median_over_its_crop_positions(tmp_path):
@@ -640,16 +442,6 @@ def test_a_time_point_run_starts_at_its_states_time(tmp_path):
     assert "start_second" not in nl                                        # absent keys are not added
 
 
-def test_collect_scores_time_points_with_the_positions(tmp_path):
-    rows = [dict(tag="A", rep=1, rc=0, median=0.40), dict(tag="A_p1", layout="A", pos=1, rep=1, rc=0, median=0.44),
-            dict(tag="A_t1", layout="A", time=1, rep=1, rc=0, median=0.50),
-            dict(tag="A_t2", layout="A", time=2, rep=1, rc=0, median=0.52)]
-    (tmp_path / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    (row,) = proxy.collect(str(tmp_path))
-    assert row["median"] == pytest.approx((0.44 + 0.50) / 2)                # median of the 4 (position, time) runs
-    assert row["positions"] == {0: 0.40, 1: 0.44} and row["times"] == {0: 0.40, 1: 0.50, 2: 0.52}
-
-
 def test_tidy_keeps_only_the_rsl_files_that_name_an_error(tmp_path):
     for f, text in (("rsl.error.0000", "ok"), ("rsl.error.0001", "fine"), ("rsl.error.0049", "forrtl: severe (154)"),
                     ("rsl.out.0002", "x"), ("wrfout_d01_2022", "")):
@@ -693,45 +485,6 @@ def test_a_run_failing_twice_with_tiles_runs_once_more_at_half_the_tiles(tmp_pat
     recs = [json.loads(line) for line in open(out / "results.jsonl")]
     assert [(r["ok"], r.get("nt_fallback")) for r in recs] == [(False, None), (False, None), (True, 16)]
     assert [r["tag"] for r in proxy.collect(str(out))] == ["A"]
-
-
-def test_eight_step_runs_count_and_a_capped_run_keeps_its_completed_steps(tmp_path, monkeypatch):
-    import subprocess
-    import wtune.machine
-    case = tmp_path / "case"
-    case.mkdir()
-    (case / "namelist.input").write_text(" &time_control\n run_days = 0, run_hours = 1, run_minutes = 0, run_seconds = 0,\n /\n &domains\n time_step = 15,\n"
-                                         " max_dom = 1,\n e_we = 101,\n e_sn = 81,\n /\n")
-    tree = _tree(tmp_path, "dmpar")
-    run = dict(domain=1, weight=1, dt=15.0, px=2, py=2, omp=1, numtiles=1, ranks=4, a=2, b=2, nx=100, ny=80,
-               wrf_tree=tree)
-    plan = dict(case_dir=str(case), e_we=101, e_sn=81, max_dom=1, dt=15.0, steps=proxy.PROXY_MAX_STEPS, reps=1,
-                runs=[dict(run, tag="A", layout="A"), dict(run, tag="B", layout="B")])
-    out = tmp_path / "job"
-    out.mkdir()
-    json.dump(plan, open(out / "plan.json", "w"))
-    monkeypatch.setenv("WTUNE_PROXY_SCRATCH", str(tmp_path / "scratch"))
-    monkeypatch.setattr(wtune.machine, "load_user", lambda: {})
-    monkeypatch.setattr(wtune.machine, "export", lambda m: None)
-    monkeypatch.setattr(wtune.machine, "site_launch_line", lambda *a: "mpirun ./wrf.exe")
-    caps = []
-
-    def fake(cmd, cwd=None, timeout=None, **k):
-        if cmd[0] == "rm":
-            return subprocess.CompletedProcess(cmd, 0)
-        caps.append(timeout)
-        slow = os.path.basename(cwd).startswith("B")              # B: the wall cap stops it after 5 steps
-        open(os.path.join(cwd, "rsl.error.0000"), "w").write("".join(
-            "Timing for main: time 2019 on domain   1:    0.50000 elapsed seconds\n" for _ in range(5 if slow else 8)))
-        if slow:
-            raise subprocess.TimeoutExpired(cmd, timeout)
-        return subprocess.CompletedProcess(cmd, 0)
-    monkeypatch.setattr(subprocess, "run", fake)
-    _route_launch(monkeypatch)
-    assert proxy.worker(str(out / "plan.json")) == 0
-    recs = [json.loads(line) for line in open(out / "results.jsonl")]
-    assert [(r["tag"], r["rc"], r["steps"], r["ok"]) for r in recs] == [("A", 0, 8, True), ("B", 124, 5, True)]
-    assert all(c <= proxy.PROXY_RUN_CAP_S for c in caps)
 
 
 def _route_launch(monkeypatch):

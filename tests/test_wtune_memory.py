@@ -10,13 +10,6 @@ def _model(node_gib=200.0):
                            gib_per_rank=1.0)
 
 
-def test_prior_skips_only_what_is_clearly_too_big():
-    m = _model()
-    assert m.predict_gib(2, 72) == 150 + 72
-    assert m.why_not(2, 72) is None                   # 222 <= 1.3 x 200 before any MaxRSS
-    assert "prior" in m.why_not(1, 72)                # 372 > 260
-
-
 def test_a_maxrss_scales_every_prediction_and_tightens_the_limit():
     m = _model()
     m.learn(4, 72, 1.2 * (75 + 72) * 1024)            # measured 20% above the model

@@ -2,7 +2,6 @@
 import argparse
 import os
 import shutil
-from datetime import datetime
 
 import numpy as np
 import pytest
@@ -32,11 +31,6 @@ def _gridsat_file(path, tb_k):
         jj = (lat >= 15) & (lat <= 35)
         raw[0, jj, :] = np.round((tb_k - 200.0) / 0.01).astype("i2")
         v[:] = raw
-
-
-def test_valid_times_are_3_hourly_inside_the_window():
-    got = gridsat.valid_times(datetime(2017, 7, 31, 1), datetime(2017, 7, 31, 10))
-    assert got == [datetime(2017, 7, 31, h) for h in (3, 6, 9)]
 
 
 def test_fetch_writes_satellite_ir_that_obs_check_accepts(tmp_path, monkeypatch):

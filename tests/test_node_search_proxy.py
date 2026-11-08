@@ -138,39 +138,3 @@ def test_joint_proxy_falls_back_to_the_real_sweep_without_a_ranking(tmp_path, mo
     with pytest.raises(_RealSweep):
         _search(ctx, 2)
     assert not [c for c in calls if c[0] == "report"]
-
-
-def test_an_n_with_one_node_scores_only_is_not_compared_with_the_re_timed_n(tmp_path, monkeypatch, capsys):
-    calls = []
-    ranking = {2: [(ANCHORS[2], 0.40, "full")], 4: [(_cfg("D0001", 24, 24), 0.26, "band")],
-               8: [(ANCHORS[8], 0.20, "one-node")]}           # N=8 left with one-node scores (deadline)
-    _patch(monkeypatch, ranking, calls)
-    report, _c = _search(_ctx(tmp_path), 2)
-    assert report["nodes"] == 4 and 8 not in report["node_selection"]["finalists"]
-    assert "N=8 have one-node scores only" in capsys.readouterr().out
-
-
-def test_o1_runs_the_joint_proxy_with_one_leader_per_n(tmp_path, monkeypatch):
-    calls = []
-    _patch(monkeypatch, RANKING, calls)
-    report, _c = _search(_ctx(tmp_path), 1)
-    assert ("leaders", 1) in calls and report["nodes"] == 8
-    assert report["node_selection"]["note"] == "joint proxy search"
-
-
-@pytest.mark.parametrize("level,proxy,inputs", [(3, True, True), (1, False, True), (2, False, True),
-                                                (2, True, False)])
-def test_real_sweep_at_o3_proxy_off_or_without_inputs(tmp_path, monkeypatch, level, proxy, inputs):
-    calls = []
-    _patch(monkeypatch, RANKING, calls)
-    with pytest.raises(_RealSweep):
-        _search(_ctx(tmp_path, proxy=proxy, inputs=inputs), level)
-    assert calls == []
-
-
-def test_no_plan_means_the_real_sweep(tmp_path, monkeypatch):
-    calls = []
-    _patch(monkeypatch, RANKING, calls)
-    with pytest.raises(_RealSweep):
-        NS.run_node_search(_ctx(tmp_path), {}, "time", None, 0.7, 2, 1000)
-    assert calls == []

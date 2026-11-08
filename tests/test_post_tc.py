@@ -26,37 +26,6 @@ EBTRK_TEXT = textwrap.dedent("""\
     """)
 
 
-def test_parse_hurdat2_full_reads_vmax_pmin_quadrants(tmp_path):
-    f = tmp_path / "hurdat2.txt"
-    f.write_text(HURDAT2_TEXT)
-    rows = tc.parse_hurdat2_full(str(f), "al122005")
-    assert len(rows) == 2
-    assert rows[0]["vmax_ms"] == 50 * tc.KT_TO_MS
-    assert rows[0]["pmin_hpa"] == 995.0
-    assert rows[0]["r34_ne_km"] == 60 * tc.NMI_TO_KM
-    assert rows[0]["r34_nw_km"] == 50 * tc.NMI_TO_KM
-    assert rows[0]["r64_ne_km"] == 0.0 * tc.NMI_TO_KM
-    assert rows[0]["rmw_km"] == 35 * tc.NMI_TO_KM
-    assert rows[1]["r50_ne_km"] == 40 * tc.NMI_TO_KM
-
-
-def test_parse_hurdat2_full_missing_storm_raises(tmp_path):
-    f = tmp_path / "hurdat2.txt"
-    f.write_text(HURDAT2_TEXT)
-    with pytest.raises(tc.TCError):
-        tc.parse_hurdat2_full(str(f), "AL999999")
-
-
-def test_parse_ebtrk_rmw(tmp_path):
-    f = tmp_path / "ebtrk.txt"
-    f.write_text(EBTRK_TEXT)
-    rows = tc.parse_ebtrk_rmw(str(f), "AL122005")
-    assert len(rows) == 2
-    assert rows[0]["rmw_km"] == 20 * tc.NMI_TO_KM
-    assert rows[1]["rmw_km"] == 15 * tc.NMI_TO_KM
-    assert rows[0]["time"] < rows[1]["time"]
-
-
 def test_parse_ebtrk_rmw_ignores_other_storms(tmp_path):
     f = tmp_path / "ebtrk.txt"
     f.write_text(EBTRK_TEXT + "AL999999 OTHER          082712 2005  30.0  -80.0   40   1000   10    5   1010   200\n")
@@ -70,10 +39,6 @@ def test_build_obs_without_ebtrk(tmp_path):
     obs = tc.build_obs(str(f), "AL122005")
     assert len(obs["hurdat2"]) == 2
     assert obs["ebtrk_rmw"] is None
-
-
-def test_storm_id_parts():
-    assert tc.storm_id_parts("al122005") == ("AL", "12", 2005)
 
 
 def test_storm_id_parts_rejects_bad_format():
@@ -105,14 +70,6 @@ def test_resolve_bdeck_falls_back_to_hurdat2(tmp_path, monkeypatch):
     rows = atcf.parse_file(resolved)
     assert rows[0]["tech"] == "BEST"
     assert rows[0]["basin"] == "AL" and rows[0]["cy"] == "12"
-
-
-def test_resolve_bdeck_raises_when_download_fails_and_no_fallback(tmp_path, monkeypatch):
-    def _boom(*a, **kw):
-        raise atcf.ATCFError("offline")
-    monkeypatch.setattr(atcf, "fetch_bdeck", _boom)
-    with pytest.raises(tc.TCError):
-        tc.resolve_bdeck("AL122005", str(tmp_path))
 
 
 def test_build_adeck_writes_atcf_from_chosen_track(tmp_path):

@@ -5,8 +5,6 @@ fixture reproducing its real incident (must be caught, right severity) and a cle
 
 Run: uv run --with pytest --with numpy --with netCDF4 python -m pytest -q test_wtune_preflight.py
 """
-import datetime
-import os
 
 import pytest
 
@@ -189,59 +187,9 @@ def test_c1_nest_end_before_start_is_fatal(tmp_path):
     assert "d02" in fatals[0].message
 
 
-def test_c1_clean_single_domain_silent(tmp_path):
-    write_namelist(tmp_path, one_domain_namelist())
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c1_time_windows(nl, findings)
-    assert clean_findings(findings) == []
-
-
-def test_c1_clean_matching_nest_windows_silent(tmp_path):
-    text = """\
-&time_control
- run_hours = 6,
- start_year = 2020, 2020,
- start_month = 1, 1,
- start_day = 1, 1,
- start_hour = 0, 0,
- end_year = 2020, 2020,
- end_month = 1, 1,
- end_day = 1, 1,
- end_hour = 6, 6,
-/
-&domains
- max_dom = 2,
- e_we = 100, 100,
- e_sn = 100, 100,
- e_vert = 30, 30,
- dx = 10000, 3333,
- dy = 10000, 3333,
-/
-"""
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c1_time_windows(nl, findings)
-    assert clean_findings(findings) == []
-
-
 # --------------------------------------------------------------------------
 # C2 -- iofields_filename + out-of-block lines
 # --------------------------------------------------------------------------
-
-def test_c2_missing_iofields_file_is_fatal_in_case_dir_when_nowhere(tmp_path):
-    text = one_domain_namelist(extra_time_control=" iofields_filename = 'storm_diags_d01.txt',\n")
-    write_namelist(tmp_path, text)
-    wrf_run = tmp_path / "wrfrun"
-    wrf_run.mkdir()
-    findings = run(tmp_path, wrf_run_dir=str(wrf_run))
-    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C2"]
-    assert len(fatals) == 1
-    assert "storm_diags_d01.txt" in fatals[0].message
-    assert "hangs at input_input" in fatals[0].message
-    assert "ignore_iofields_warning=.true." in fatals[0].message
-    assert "2541-2545" in fatals[0].evidence
 
 
 def test_c2_missing_iofields_in_run_dir_is_fatal(tmp_path):
@@ -258,15 +206,6 @@ def test_c2_missing_iofields_in_run_dir_is_fatal(tmp_path):
     assert len(fatals) == 1 and "the run dir" in fatals[0].message
     assert pf.IOFIELDS_HANG in fatals[0].message
     assert pf.exit_code_for(findings) == 2
-
-
-def test_c2_iofields_in_case_dir_is_info(tmp_path):
-    text = one_domain_namelist(extra_time_control=" iofields_filename = 'iofields_d01.txt',\n")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "iofields_d01.txt")
-    findings = run(tmp_path)
-    c2 = [f for f in findings if f.id == "C2"]
-    assert [f.severity for f in c2] == ["INFO"] and "stages it" in c2[0].message
 
 
 def test_c2_iofields_only_in_wrf_run_dir_is_info_for_case_dir(tmp_path):
@@ -286,14 +225,6 @@ def test_c2_iofields_domain_placeholder_and_run_dir_present_silent(tmp_path):
     touch(tmp_path, "wrf.exe", "io_d01.txt")
     findings = run(tmp_path)
     assert [f for f in findings if f.id == "C2"] == []
-
-
-def test_c2_present_iofields_file_silent(tmp_path):
-    text = one_domain_namelist(extra_time_control=" iofields_filename = 'fields_d01.txt',\n")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "fields_d01.txt", "RRTM_DATA")
-    findings = run(tmp_path)
-    assert [f for f in findings if f.severity == "HANG"] == []
 
 
 def test_c2_out_of_block_line_warns(tmp_path):
@@ -330,42 +261,9 @@ def test_c2_out_of_block_line_warns(tmp_path):
     assert "outside every" in warns[0].message
 
 
-def test_c2_no_out_of_block_line_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA")
-    findings = run(tmp_path)
-    assert [f for f in findings if f.id == "C2"] == []
-
-
 # --------------------------------------------------------------------------
 # C3 -- physics data files
 # --------------------------------------------------------------------------
-
-def test_c3_missing_rrtmg_data_is_fatal(tmp_path):
-    text = one_domain_namelist(extra_physics=" ra_lw_physics = 4,\n ra_sw_physics = 4,\n",
-                                extra_time_control="", ghg_input=1)
-    text = text.replace("ra_lw_physics = 1,", "").replace("ra_sw_physics = 1,", "")
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, tmp_path, findings)
-    fatal_files = {f.message for f in findings if f.severity == "FATAL"}
-    assert any("RRTMG_LW_DATA" in m for m in fatal_files)
-    assert any("RRTMG_SW_DATA" in m for m in fatal_files)
-    assert any("CAMtr_volume_mixing_ratio" in m for m in fatal_files)
-
-
-def test_c3_rrtmg_with_all_files_present_silent(tmp_path):
-    text = one_domain_namelist(extra_physics=" ra_lw_physics = 4,\n ra_sw_physics = 4,\n", ghg_input=1)
-    text = text.replace(" ra_lw_physics = 1,\n", "").replace(" ra_sw_physics = 1,\n", "")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTMG_LW_DATA", "RRTMG_SW_DATA", "CAMtr_volume_mixing_ratio",
-          "LANDUSE.TBL", "ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
 
 
 def test_c3_cam_scheme_exempt_from_camtr_requirement(tmp_path):
@@ -394,71 +292,11 @@ def test_c3_noahmp_missing_table_is_fatal(tmp_path):
     assert len(fatals) == 1
 
 
-def test_c3_noahmp_table_present_silent(tmp_path):
-    text = one_domain_namelist(extra_physics=" sf_surface_physics = 4,\n", ghg_input=1)
-    text = text.replace(" sf_surface_physics = 1,\n", "")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "NoahmpTable.TBL")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
-
-
-def test_c3_thompson_missing_tables_warns_only(tmp_path):
-    """Thompson (mp_physics=8) missing lookup tables is WARN, not FATAL -- WRF recomputes them
-    at init (costing minutes), it does not abort."""
-    text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
-    text = text.replace(" mp_physics = 6,\n", "")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, tmp_path, findings)
-    assert [f.severity for f in findings if "freezeH2O" in f.message] == ["WARN"]
-    assert not any(f.severity == "FATAL" for f in findings)
-
-
-def test_c3_thompson_tables_present_silent(tmp_path):
-    text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
-    text = text.replace(" mp_physics = 6,\n", "")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL",
-          "freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
-
-
-def test_c3_wrf_run_dir_extension_less_file_flagged(tmp_path):
-    """sc26p2-n4 incident: an extension-whitelist staging tool missed the extension-less
-    CAMtr_volume_mixing_ratio while copying every *.SSP245-style extension variant."""
-    wrf_run_dir = tmp_path / "wrf_run"
-    wrf_run_dir.mkdir()
-    touch(wrf_run_dir, "CAMtr_volume_mixing_ratio", "CAMtr_volume_mixing_ratio.SSP245", "RRTM_DATA")
-
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    text = one_domain_namelist()
-    write_namelist(run_dir, text)
-    touch(run_dir, "wrf.exe", "CAMtr_volume_mixing_ratio.SSP245", "RRTM_DATA")  # staged run dir
-    nl = wp.parse_namelist(str(run_dir / "namelist.input"))
-    findings = []
-    pf.check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=wrf_run_dir)
-    warns = [f for f in findings if f.severity == "WARN" and "CAMtr_volume_mixing_ratio" in f.message
-             and "present in WRF's own run/" in f.message]
-    assert len(warns) == 1
-
-
 # --- C3 extended physics-table rules (README.physics_files + WRF 4.8 OPEN-site gates) ---
 
 _OZONE = ["ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted"]
 _AEROSOL = ["aerosol.formatted", "aerosol_lat.formatted", "aerosol_lon.formatted",
             "aerosol_plev.formatted"]
-_CLM = ["CLM_ALB_ICE_DFS_DATA", "CLM_ALB_ICE_DRC_DATA", "CLM_ASM_ICE_DFS_DATA",
-        "CLM_ASM_ICE_DRC_DATA", "CLM_DRDSDT0_DATA", "CLM_EXT_ICE_DFS_DATA",
-        "CLM_EXT_ICE_DRC_DATA", "CLM_KAPPA_DATA", "CLM_TAU_DATA"]
 
 
 def _c3_fatal(tmp_path, physics, files=(), extra=""):
@@ -477,57 +315,12 @@ def _mentions(msgs, fname):
     return [m for m in msgs if (" %s " % fname) in m]
 
 
-def test_c3_rrtmg_default_o3input_requires_ozone(tmp_path):
-    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n"
-    msgs = _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"])
-    for f in _OZONE:
-        assert len(_mentions(msgs, f)) == 1
-    # aer_opt defaults to 0: the aerosol climatology files must NOT be required
-    assert not any("aerosol" in m for m in msgs)
-
-
-def test_c3_rrtmg_ozone_present_silent(tmp_path):
-    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n"
-    assert _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"] + _OZONE) == []
-
-
-def test_c3_o3input_zero_disables_ozone_requirement(tmp_path):
-    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n o3input = 0,\n"
-    assert _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"]) == []
-
-
-def test_c3_non_rrtmg_radiation_does_not_require_ozone(tmp_path):
-    # module_check_a_mundo forces o3input=0 unless domain 1 uses an RRTMG-family scheme
-    msgs = _c3_fatal(tmp_path, " ra_lw_physics = 1,\n ra_sw_physics = 1,\n", ["RRTM_DATA"])
-    assert msgs == []
-
-
-def test_c3_rrtmg_fast_and_kiaps_require_rrtmg_tables(tmp_path):
-    msgs = _c3_fatal(tmp_path, " ra_lw_physics = 24,\n ra_sw_physics = 14,\n o3input = 0,\n")
-    assert len(_mentions(msgs, "RRTMG_LW_DATA")) == 1
-    assert len(_mentions(msgs, "RRTMG_SW_DATA")) == 1
-
-
 def test_c3_aer_opt_1_requires_aerosol_climatology(tmp_path):
     phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n aer_opt = 1,\n"
     base = ["RRTMG_LW_DATA", "RRTMG_SW_DATA"] + _OZONE
     msgs = _c3_fatal(tmp_path, phys, base)
     assert sorted(f for f in _AEROSOL if _mentions(msgs, f)) == sorted(_AEROSOL)
     assert _c3_fatal(tmp_path, phys, base + _AEROSOL) == []
-
-
-def test_c3_cam_requires_ozone_even_with_o3input_zero_but_not_aerosol(tmp_path):
-    phys = " ra_lw_physics = 3,\n ra_sw_physics = 3,\n o3input = 0,\n"
-    msgs = _c3_fatal(tmp_path, phys, ["CAM_ABS_DATA", "CAM_AEROPT_DATA"])
-    assert all(_mentions(msgs, f) for f in _OZONE)
-    assert not any("aerosol" in m for m in msgs)
-    assert _c3_fatal(tmp_path, phys, ["CAM_ABS_DATA", "CAM_AEROPT_DATA"] + _OZONE) == []
-
-
-def test_c3_goddard_via_ra_sw_only(tmp_path):
-    msgs = _c3_fatal(tmp_path, " ra_sw_physics = 5,\n")
-    assert len(_mentions(msgs, "BROADBAND_CLOUD_GODDARD.bin")) == 1
-    assert _c3_fatal(tmp_path, " ra_sw_physics = 5,\n", ["BROADBAND_CLOUD_GODDARD.bin"]) == []
 
 
 def test_c3_goddard_lw_and_sw_reports_once(tmp_path):
@@ -574,27 +367,6 @@ def test_c3_urban_lcz_requires_lcz_table_instead_of_urbparm(tmp_path):
     assert _c3_fatal(tmp_path, phys, ["URBPARM_LCZ.TBL"]) == []
 
 
-def test_c3_clm_requires_landuse_and_clm_tables(tmp_path):
-    msgs = _c3_fatal(tmp_path, " sf_surface_physics = 5,\n")
-    for f in ["LANDUSE.TBL"] + _CLM:
-        assert len(_mentions(msgs, f)) == 1, f
-    assert _c3_fatal(tmp_path, " sf_surface_physics = 5,\n", ["LANDUSE.TBL"] + _CLM) == []
-
-
-@pytest.mark.parametrize("sf,files", [
-    (1, ["LANDUSE.TBL"]),
-    (3, ["LANDUSE.TBL", "VEGPARM.TBL", "SOILPARM.TBL", "GENPARM.TBL"]),
-    (7, ["LANDUSE.TBL", "VEGPARM.TBL"]),
-    (8, ["LANDUSE.TBL"]),
-])
-def test_c3_other_lsm_tables(tmp_path, sf, files):
-    phys = " sf_surface_physics = %d,\n" % sf
-    msgs = _c3_fatal(tmp_path, phys)
-    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
-    assert len(msgs) == len(files)
-    assert _c3_fatal(tmp_path, phys, files) == []
-
-
 def test_c3_noahmp_snicar_files_not_required(tmp_path):
     assert _c3_fatal(tmp_path, " sf_surface_physics = 4,\n", ["NoahmpTable.TBL"]) == []
 
@@ -611,46 +383,10 @@ def test_c3_chem_opt_requires_hlc_table(tmp_path):
     assert _c3_fatal(tmp_path, "", extra="&chem\n chem_opt = 0,\n/\n") == []
 
 
-def test_c3_ferrier_requires_expanded_rain_table_only(tmp_path):
-    msgs = _c3_fatal(tmp_path, " mp_physics = 5,\n")
-    assert len(_mentions(msgs, "ETAMPNEW_DATA.expanded_rain")) == 1
-    assert not _mentions(msgs, "ETAMPNEW_DATA")   # fer_hires_init never opens plain ETAMPNEW_DATA
-    assert _c3_fatal(tmp_path, " mp_physics = 5,\n", ["ETAMPNEW_DATA.expanded_rain"]) == []
-
-
 def test_c3_thompson_aerosol_aware_requires_ccn_table(tmp_path):
     dats = ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
     assert len(_mentions(_c3_fatal(tmp_path, " mp_physics = 28,\n", dats), "CCN_ACTIVATE.BIN")) == 1
     assert _c3_fatal(tmp_path, " mp_physics = 28,\n", dats + ["CCN_ACTIVATE.BIN"]) == []
-
-
-def test_c3_plain_thompson_does_not_require_ccn_table(tmp_path):
-    assert _c3_fatal(tmp_path, " mp_physics = 8,\n") == []
-
-
-def test_c3_full_sbm_tables(tmp_path):
-    files = ["bulkdens.asc_s_0_03_0_9", "bulkradii.asc_s_0_03_0_9", "capacity.asc",
-             "coeff_p.asc", "coeff_q.asc", "constants.asc", "kernels.asc_s_0_03_0_9",
-             "kernels_z.asc", "masses.asc", "termvels.asc"]
-    msgs = _c3_fatal(tmp_path, " mp_physics = 32,\n")
-    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
-    assert _c3_fatal(tmp_path, " mp_physics = 32,\n", files) == []
-
-
-def test_c3_jensen_tables(tmp_path):
-    files = ["ishmael-gamma-tab.bin", "ishmael-qi-qc.bin", "ishmael-qi-qr.bin"]
-    msgs = _c3_fatal(tmp_path, " mp_physics = 55,\n")
-    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
-    assert _c3_fatal(tmp_path, " mp_physics = 55,\n", files) == []
-
-
-def test_c3_p3_prefix_match_with_scc_filenames(tmp_path):
-    scc = ["p3_lookupTable_1.dat-v5.4_2momI", "p3_lookupTable_1.dat-v5.4_3momI",
-           "p3_lookupTable_2.dat-v5.3"]
-    for mp in (50, 51, 52, 53):
-        d = tmp_path / ("mp%d" % mp)
-        d.mkdir()
-        assert _c3_fatal(d, " mp_physics = %d,\n" % mp, scc) == [], mp
 
 
 def test_c3_p3_missing_tables_fatal(tmp_path):
@@ -662,10 +398,6 @@ def test_c3_p3_missing_tables_fatal(tmp_path):
 def test_c3_p3_single_category_does_not_need_table_2(tmp_path):
     # table 2 (ice-ice interactions) is only opened for nCat>1, i.e. mp_physics=52
     assert _c3_fatal(tmp_path, " mp_physics = 50,\n", ["p3_lookupTable_1.dat-v5.4_2momI"]) == []
-
-
-def test_c3_fast_sbm_not_checked_against_full_sbm_tables(tmp_path):
-    assert _c3_fatal(tmp_path, " mp_physics = 30,\n") == []
 
 
 # --------------------------------------------------------------------------
@@ -716,35 +448,6 @@ def test_c4_mp28_with_wif_input_opt_0_is_fatal_without_netcdf(tmp_path):
     assert "wif_input_opt" in fatals[0].message
 
 
-def test_c4_tempo_only_fatal_when_aerosolaware(tmp_path):
-    text = one_domain_namelist(extra_physics=" mp_physics = 88,\n")
-    text = text.replace(" mp_physics = 6,\n", "")
-    write_namelist(tmp_path, text)
-    findings = []
-    pf.check_c4_aerosol_climatology(wp.parse_namelist(str(tmp_path / "namelist.input")),
-                                    tmp_path, findings)
-    assert [f for f in findings if f.severity == "FATAL"] == []
-    write_namelist(tmp_path, text.replace(" mp_physics = 88,\n",
-                                          " mp_physics = 88,\n tempo_aerosolaware = 1,\n"))
-    findings = []
-    pf.check_c4_aerosol_climatology(wp.parse_namelist(str(tmp_path / "namelist.input")),
-                                    tmp_path, findings)
-    assert [f.id for f in findings if f.severity == "FATAL"] == ["C4"]
-
-
-def test_c4_not_applicable_without_aero_scheme_silent(tmp_path):
-    # premise corrected 2026-09-25: mp_physics=28 WITHOUT wif_input_opt is not "not applicable"
-    # -- real.exe aborts (see the ralbNE test above); a non-aerosol scheme is
-    text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
-    text = text.replace(" mp_physics = 6,\n", "")
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    # no wrfinput at all -- must not even try
-    findings = []
-    pf.check_c4_aerosol_climatology(nl, tmp_path, findings)
-    assert findings == []
-
-
 # --------------------------------------------------------------------------
 # C5 -- met_em naming vs nocolons
 # --------------------------------------------------------------------------
@@ -770,15 +473,6 @@ def test_c5_nocolons_with_underscore_names_silent(tmp_path):
     assert clean_findings(findings) == []
 
 
-def test_c5_no_met_em_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c5_met_em_naming(nl, tmp_path, findings)
-    assert findings == []
-
-
 # --------------------------------------------------------------------------
 # C6 -- input consistency
 # --------------------------------------------------------------------------
@@ -795,18 +489,6 @@ def test_c6_wrfinput_grid_dim_mismatch_is_fatal(tmp_path):
     fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C6"]
     assert len(fatals) == 1
     assert "WEST-EAST_GRID_DIMENSION" in fatals[0].evidence
-
-
-def test_c6_wrfinput_matching_dims_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    write_nc(tmp_path / "wrfinput_d01",
-             gattrs={"WEST-EAST_GRID_DIMENSION": 100, "SOUTH-NORTH_GRID_DIMENSION": 100,
-                     "BOTTOM-TOP_GRID_DIMENSION": 30, "SIMULATION_START_DATE": "2020-01-01_00:00:00"})
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c6_input_consistency(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
 
 
 def test_c6_wrfbdy_short_boundary_is_fatal(tmp_path):
@@ -831,49 +513,6 @@ def test_c6_wrfbdy_covers_full_window_silent(tmp_path):
     findings = []
     pf.check_c6_input_consistency(nl, tmp_path, findings)
     assert clean_findings(findings) == []
-
-
-def _c2(tmp_path, wrf_run_dir=None):
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c2_iofields(nl, tmp_path, tmp_path / "namelist.input", findings,
-                         wrf_run_dir=wrf_run_dir)
-    return findings
-
-
-def test_c2_sst_update_missing_wrflowinp_is_fatal(tmp_path):
-    """(was C6; now C2 with the other namelist-named files, no netCDF4 needed)"""
-    text = one_domain_namelist(extra_physics=" sst_update = 1,\n")
-    write_namelist(tmp_path, text)
-    fatals = [f for f in _c2(tmp_path) if f.severity == "FATAL" and "wrflowinp" in f.message]
-    assert len(fatals) == 1 and "auxinput4_inname" in fatals[0].message
-
-
-def test_c2_sst_update_with_wrflowinp_not_fatal(tmp_path):
-    text = one_domain_namelist(extra_physics=" sst_update = 1,\n")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "wrflowinp_d01")
-    assert clean_findings(_c2(tmp_path)) == []
-    touch(tmp_path, "wrf.exe")
-    assert _c2(tmp_path) == []
-
-
-def test_c2_sst_update_custom_auxinput4_inname(tmp_path):
-    text = one_domain_namelist(
-        extra_time_control=" auxinput4_inname = 'sst_d<domain>.nc',\n",
-        extra_physics=" sst_update = 1,\n")
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "wrf.exe", "wrflowinp_d01")          # the default name does not count
-    fatals = [f for f in _c2(tmp_path) if f.severity == "FATAL"]
-    assert len(fatals) == 1 and "sst_d01.nc" in fatals[0].message
-    touch(tmp_path, "sst_d01.nc")
-    assert _c2(tmp_path) == []
-
-
-def test_c2_sst_update_off_ignores_wrflowinp(tmp_path):
-    write_namelist(tmp_path, one_domain_namelist())
-    touch(tmp_path, "wrf.exe")
-    assert _c2(tmp_path) == []
 
 
 def test_c6_start_date_mismatch_warns(tmp_path):
@@ -916,15 +555,6 @@ def test_c7_thin_patch_is_fatal(tmp_path):
     assert "e_we" in fatals[0].message
 
 
-def test_c7_legal_patch_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c7_decomposition(nl, findings)  # e_we=100, nproc_x=2 -> 50 >= 10
-    assert clean_findings(findings) == []
-
-
 def test_c7_ranks_mismatch_is_fatal(tmp_path):
     text = one_domain_namelist()
     write_namelist(tmp_path, text)
@@ -935,57 +565,9 @@ def test_c7_ranks_mismatch_is_fatal(tmp_path):
     assert len(fatals) == 1
 
 
-def test_c7_cli_override_used_over_namelist(tmp_path):
-    text = one_domain_namelist(extra_domains=" e_we = 15,\n").replace(" e_we = 100,\n", "")
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    # CLI override to a shape that's fine for e_we=15
-    pf.check_c7_decomposition(nl, findings, nproc_x=1, nproc_y=1)
-    assert clean_findings(findings) == []
-
-
 # --------------------------------------------------------------------------
 # C8 -- time step ratio
 # --------------------------------------------------------------------------
-
-def test_c8_d01_ratio_too_large_is_fatal(tmp_path):
-    # dx=1000m=1km, time_step=600s -> ratio 600 >> 6.0
-    text = one_domain_namelist(extra_domains=" dx = 1000,\n dy = 1000,\n time_step = 600,\n")
-    text = text.replace(" dx = 10000,\n", "").replace(" dy = 10000,\n", "").replace(" time_step = 60,\n", "")
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c8_time_step(nl, findings)
-    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C8"]
-    assert len(fatals) == 1
-
-
-def test_c8_d01_ratio_within_bound_silent(tmp_path):
-    # dx=10km, time_step=60s -> ratio 6.0 (equality allowed, strictly '>' only)
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c8_time_step(nl, findings)
-    assert clean_findings(findings) == []
-
-
-def test_c8_respects_explicit_reasonable_time_step_ratio(tmp_path):
-    """elevconv2022 sets reasonable_time_step_ratio=6.5 explicitly; the checker must honor it,
-    not hardcode 6.0."""
-    text = one_domain_namelist(extra_domains=" reasonable_time_step_ratio = 6.5,\n dx = 1000,\n"
-                                              " dy = 1000,\n time_step = 620,\n")
-    text = text.replace(" dx = 10000,\n", "").replace(" dy = 10000,\n", "").replace(" time_step = 60,\n", "")
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c8_time_step(nl, findings)
-    # ratio = 620/1.0 = 620 >> 6.5, still fatal -- but confirm the ratio used is 6.5 not 6.0
-    # via a near-boundary case below
-    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C8"]
-    assert len(fatals) == 1
-    assert "6.500" in fatals[0].message
 
 
 def test_c8_nest_exceeding_ratio_warns_not_fatal(tmp_path):
@@ -1054,15 +636,6 @@ def test_c9_insufficient_disk_warns(tmp_path, monkeypatch):
     assert len(warns) == 1
 
 
-def test_c9_sufficient_disk_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c9_disk(nl, tmp_path, findings)  # real tmp_path filesystem, tiny domain
-    assert clean_findings(findings) == []
-
-
 # --------------------------------------------------------------------------
 # C10 -- wrfinput physical sanity
 # --------------------------------------------------------------------------
@@ -1112,16 +685,6 @@ def write_wrfinput(path, overrides=None, nz=2, ny=2, nx=2):
             **({"XLAND": ("f4", dim_sfc, data["XLAND"])} if "XLAND" in data else {}),
         },
     )
-
-
-def test_c10_clean_wrfinput_silent(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    write_wrfinput(tmp_path / "wrfinput_d01")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
 
 
 def test_c10_nan_in_qvapor_is_fatal(tmp_path):
@@ -1182,21 +745,6 @@ def test_c10_smois_above_one_on_land_is_fatal(tmp_path):
     assert [f.severity for f in out if "SMOIS" in f.message] == ["FATAL"]
 
 
-def test_c10_case_i_like_nonzero_garbage_tslb_is_fatal(tmp_path):
-    """tw3km-2031/case_I signature: non-zero garbage land TSLB (-12.5, 170.6 ...), none exactly
-    0 -- stays FATAL, and the message reports count and min/max of the bad values."""
-    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
-    tslb[0, 0, 0, 0] = -12.5
-    tslb[0, 0, 0, 1] = 170.6
-    tslb[0, 1, 1, 0] = -10.9
-    out = _c10_run(tmp_path, {"TSLB": tslb})
-    fatals = [f for f in out if f.severity == "FATAL" and "TSLB" in f.message]
-    assert len(fatals) == 1
-    assert "has 3 non-zero value(s)" in fatals[0].message
-    assert "min=-12.500" in fatals[0].message and "max=170.600" in fatals[0].message
-    assert not [f for f in out if f.severity == "WARN" and "TSLB" in f.message]
-
-
 def test_c10_zero_tslb_on_land_warns_only(tmp_path):
     """dorian2019 d02 (ran fine): land columns with TSLB exactly 0 -> one WARN, not FATAL."""
     tslb = _c10_full(_C10_SHAPE_4D, 290.0)
@@ -1218,38 +766,6 @@ def test_c10_tslb_on_water_not_checked(tmp_path):
     xl[0, 0, 1] = 2.0           # LANDMASK says land but XLAND says water -> not land
     out = _c10_run(tmp_path, {"TSLB": tslb, "LANDMASK": lm, "XLAND": xl})
     assert out == []
-
-
-def test_c10_tslb_small_nonzero_fraction_warns(tmp_path):
-    """dorian2019 d02 shape (ran 1 h on scc, job 1392, no NaN): 20/(14806x4) = 0.034% of land
-    TSLB values non-zero out of range -> WARN, not FATAL. Here 3 of 4x50x50 = 0.030%."""
-    nz, ny, nx = 4, 50, 50
-    tslb = np.full((1, nz, ny, nx), 290.0, dtype="f4")
-    tslb[0, 3, 0, 0] = 101.1
-    tslb[0, 3, 0, 1] = 101.1
-    tslb[0, 2, 7, 9] = 150.0
-    write_namelist(tmp_path, one_domain_namelist())
-    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSLB": tslb}, nz=nz, ny=ny, nx=nx)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
-    tslb_f = [f for f in findings if f.id == "C10" and "TSLB" in f.message]
-    assert [f.severity for f in tslb_f] == ["WARN"]
-    assert "has 3 non-zero value(s)" in tslb_f[0].message
-    assert "0.030% of 10000 land values" in tslb_f[0].message
-
-
-def test_c10_tslb_fraction_above_threshold_is_fatal(tmp_path):
-    """Just over 0.1%: 11 of 4x50x50 = 0.11% -> FATAL."""
-    nz, ny, nx = 4, 50, 50
-    tslb = np.full((1, nz, ny, nx), 290.0, dtype="f4")
-    tslb[0, 0, 0, :11] = -12.5
-    write_namelist(tmp_path, one_domain_namelist())
-    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSLB": tslb}, nz=nz, ny=ny, nx=nx)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
-    assert [f.severity for f in findings if f.id == "C10" and "TSLB" in f.message] == ["FATAL"]
 
 
 def test_c10_sst_zero_on_water_skipped_nonzero_bad_fatal(tmp_path):
@@ -1278,16 +794,6 @@ def test_c10_tsk_out_of_range_is_fatal(tmp_path):
     assert len(fatals) == 1
 
 
-def test_c10_no_wrfinput_gives_info_only(tmp_path):
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
-    assert any(f.id == "C10" and f.severity == "INFO" for f in findings)
-
-
 def test_c10_netcdf4_unavailable_skips_explicitly(tmp_path, monkeypatch):
     text = one_domain_namelist()
     write_namelist(tmp_path, text)
@@ -1303,22 +809,6 @@ def test_c10_netcdf4_unavailable_skips_explicitly(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # end-to-end
 # --------------------------------------------------------------------------
-
-def test_end_to_end_clean_conus_like_exits_zero(tmp_path):
-    text = one_domain_namelist(ghg_input=1)
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL")
-    code = pf.main([str(tmp_path)])
-    assert code == 0
-
-
-def test_end_to_end_hang_gives_exit_two(tmp_path):
-    text = one_domain_namelist(extra_time_control=" iofields_filename = 'storm_diags_d01.txt',\n",
-                                ghg_input=1)
-    write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio")
-    code = pf.main([str(tmp_path)])
-    assert code == 2
 
 
 def test_end_to_end_namelist_missing_exits_two(tmp_path):

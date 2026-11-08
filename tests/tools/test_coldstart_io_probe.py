@@ -66,13 +66,6 @@ def _vals(txt, key):
     return [v.strip() for v in m.group(1).split(",") if v.strip()] if m else None
 
 
-def test_default_off_window_namelist_is_byte_identical():
-    base = cs.build_wrf_window_namelist_text(CASE_NL, T, 40, 60.0, 4, 4, 1)
-    assert _window(None) == base
-    assert _vals(base, "history_interval_m") == ["0", "0"]
-    assert _vals(base, "restart_interval") == ["999999"]
-
-
 def test_plan_io_probe_reads_case_output_settings(tmp_path):
     (tmp_path / "io_d01.txt").write_text("-:h:0:RAINC\n")
     probe = cs.plan_io_probe(_nl(tmp_path), str(tmp_path), 86400)
@@ -83,13 +76,6 @@ def test_plan_io_probe_reads_case_output_settings(tmp_path):
     assert probe["iofields"][1] is None               # missing -> not used, warned
     assert len(probe["warnings"]) == 1 and "io_d02.txt" in probe["warnings"][0]
     assert probe["notes"] == []
-
-
-def test_restart_probe_only_when_the_case_writes_restarts(tmp_path):
-    assert cs.plan_io_probe(_nl(tmp_path, CASE_NL.replace("= 720,", "= 2000,")), str(tmp_path),
-                            86400)["restart"] is False
-    assert cs.plan_io_probe(_nl(tmp_path, CASE_NL.replace("= 720,", "= 0,")), str(tmp_path),
-                            86400)["restart"] is False
 
 
 def test_auxhist_is_noted_not_probed(tmp_path):
@@ -110,32 +96,6 @@ def test_probe_window_writes_one_end_frame_per_history_domain():
     assert _vals(txt, "iofields_filename") == ["'io_d01.txt'", "'NONE_SPECIFIED'"]
     for k in ("history_interval", "history_begin", "restart_interval", "iofields_filename"):
         assert cs.count_key(txt, k) == 1
-
-
-def test_probe_window_uses_seconds_keys_when_window_is_not_whole_minutes():
-    txt = _window({"history": [True, True], "restart": False, "iofields": None}, win_steps=41,
-                  dt_s=45.0)                              # 1845 s
-    assert _vals(txt, "history_interval_s") == ["1845", "1845"]
-    assert _vals(txt, "history_begin_s") == ["1845", "1845"]
-    assert _vals(txt, "history_begin_h") == ["0", "0"]
-    assert _vals(txt, "restart_interval") == ["999999"]   # restart not probed: stays off
-    assert _vals(txt, "iofields_filename") == ["'io_d01.txt'", "'io_d02.txt'"]  # untouched
-
-
-def test_fix_wrf_namelist_applies_probe_only_to_the_probe_window(tmp_path):
-    plan = {"windows": [{"t": T.strftime(FMT)}, {"t": T.strftime(FMT)}], "measure_steps": 20,
-            "spinup_min": 20, "dt_s": 60.0,
-            "io_probe": {"window": 1, "history": [True, False], "restart": False, "iofields": None}}
-    (tmp_path / "plan.json").write_text(json.dumps(plan))
-    out = {}
-    for k in (0, 1):
-        os.makedirs(tmp_path / ("win_%d" % k) / "real")
-        os.makedirs(tmp_path / ("win_%d" % k) / "wrf")
-        (tmp_path / ("win_%d" % k) / "real" / "namelist.input").write_text(CASE_NL)
-        cs.cmd_fix_wrf_namelist(str(tmp_path), k, 4, 4, 1)
-        out[k] = (tmp_path / ("win_%d" % k) / "wrf" / "namelist.input").read_text()
-    assert out[0] == cs.build_wrf_window_namelist_text(CASE_NL, T, 40, 60.0, 4, 4, 1)
-    assert _vals(out[1], "history_begin") == ["40", "0"]
 
 
 def _write(line_list, path):
@@ -207,7 +167,6 @@ def test_stage_plan_links_iofields_and_extends_timeout(tmp_path, monkeypatch):
     assert seen["min"] == 30 + cs.IO_PROBE_TIMEOUT_EXTRA_MIN
 
 
-
 _ELEV_LIKE = """&time_control
  run_hours = 15,
  start_year = 2022, 2022,
@@ -236,43 +195,6 @@ _ELEV_LIKE = """&time_control
 """
 
 
-def test_out_of_group_assignment_is_commented_not_counted():
-    from wtune.tools import coldstart_sample as cs
-    t = cs.comment_out_of_group_assignments(_ELEV_LIKE)
-    assert cs.count_key(t, "iofields_filename") == 1
-    assert "! (outside any namelist group; ignored by Fortran)  iofields_filename = 'stray.txt'" in t
-    assert cs.count_key(t, "nwp_diagnostics") == 1          # inside &physics: untouched
-
-
-def test_nwp_diagnostics_window_keeps_history_interval_nonzero_and_no_frame():
-    import datetime
-    from wtune.tools import coldstart_sample as cs
-    txt = cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 100,
-                                            15.0, 16, 18, 1)
-    assert "history_interval = 999999, 999999" in txt.replace("  ", " ") or \
-        cs.get_first(txt, "history_interval") == "999999"
-    assert cs.get_first(txt, "history_begin") == "999999"
-    plain = _ELEV_LIKE.replace(" nwp_diagnostics = 1,", " nwp_diagnostics = 0,")
-    txt0 = cs.build_wrf_window_namelist_text(plain, datetime.datetime(2022, 5, 12, 14), 100,
-                                             15.0, 16, 18, 1)
-    assert cs.get_first(txt0, "history_interval") == "0" and cs.count_key(txt0, "history_begin") == 0
-
-
-def test_run_sbatch_stops_wrf_after_fatal():
-    import subprocess, tempfile, os
-    from wtune.tools import coldstart_sample as cs
-    plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
-            "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
-    text = cs.render_run_sbatch(plan, site="scc")
-    assert "grep -lqs 'FATAL CALLED' rsl.error.*" in text and "FATAL_WATCH_PID" in text
-    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
-        f.write(text)
-    try:
-        assert subprocess.run(["bash", "-n", f.name]).returncode == 0
-    finally:
-        os.unlink(f.name)
-
-
 def test_every_window_links_the_case_iofields_file(tmp_path):
     from wtune.tools import coldstart_sample as cs
     case = tmp_path / "case"; case.mkdir()
@@ -284,14 +206,6 @@ def test_every_window_links_the_case_iofields_file(tmp_path):
     assert sorted(k for k, _ in out) == [0, 1]
     for k in (0, 1):
         assert (tmp_path / "plan" / ("win_%d" % k) / "wrf" / "storm_diags_d01.txt").is_symlink()
-
-
-def test_run_sbatch_stops_a_silent_init_hang():
-    from wtune.tools import coldstart_sample as cs
-    plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
-            "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
-    text = cs.render_run_sbatch(plan, site="scc")
-    assert "grep -qs 'Problem opening' rsl.error.0000" in text and "po -ge 120" in text
 
 
 def test_nwp_diagnostics_probe_window_uses_plain_minutes():

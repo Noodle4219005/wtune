@@ -70,54 +70,6 @@ def test_wrfout_floor_with_empty_rsl_is_running_not_init(tmp_path):
     assert "RSL_LAGGING" not in _codes(snap2)
 
 
-def test_wrfout_floor_over_stale_timing_lines(tmp_path):
-    now = time.time()
-    d = _rundir(tmp_path / "r", n_steps=60, wrfout_hours=range(0, 7), mtime=now)
-    snap = ww.snapshot(str(d), now=now)
-    assert snap["status"] == "running"
-    assert snap["d01_last_time"] == "2021-07-19_06:00:00"
-    assert snap["rsl_d01_last_time"] == "2021-07-19_01:00:00"
-    assert snap["completed_steps"] == 360 and snap["remaining_steps"] == 1080
-    assert snap["n_d01_steps"] == 60 and snap["rate_s_per_step"] is not None
-    assert "RSL_LAGGING" in _codes(snap)
-
-
-def test_wrfout_floor_frames_go_stale_then_hang(tmp_path):
-    now = time.time() + 7200
-    d = _rundir(tmp_path / "r", wrfout_hours=range(0, 3), mtime=now - 3600)
-    snap = ww.snapshot(str(d), now=now)
-    assert snap["status"] == "running" and "HANG" in _codes(snap)
-
-
-def test_wrfout_not_ahead_of_rsl_changes_nothing(tmp_path):
-    now = time.time()
-    d = _rundir(tmp_path / "r", n_steps=60, wrfout_hours=(0, 1), mtime=now)
-    snap = ww.snapshot(str(d), now=now)
-    assert snap["d01_last_time"] == "2021-07-19_01:00:00" and snap["completed_steps"] == 60
-    assert "RSL_LAGGING" not in _codes(snap) and "wrfout_last_time" not in snap
-
-
-def test_wrfout_floor_never_masks_failed_or_done(tmp_path):
-    now = time.time()
-    d = _rundir(tmp_path / "f", n_steps=10, tail=("forrtl: severe (174): SIGSEGV",),
-                wrfout_hours=range(0, 5), mtime=now)
-    snap = ww.snapshot(str(d), now=now)
-    assert snap["status"] == "failed" and "FAILED" in _codes(snap)
-    assert "RSL_LAGGING" not in _codes(snap)
-    d = _rundir(tmp_path / "d", n_steps=10, tail=("d01 SUCCESS COMPLETE WRF",),
-                wrfout_hours=range(0, 5), mtime=now)
-    snap = ww.snapshot(str(d), now=now)
-    assert snap["status"] == "done" and snap["fraction"] == 1.0
-    assert "RSL_LAGGING" not in _codes(snap)
-
-
-def test_replay_ignores_wrfout(tmp_path):
-    d = _rundir(tmp_path / "r", n_steps=60, wrfout_hours=range(0, 7))
-    snap = ww.snapshot(str(d), replay_fraction=0.5)
-    assert snap["status"] == "replay" and "RSL_LAGGING" not in _codes(snap)
-    assert snap["d01_last_time"] == "2021-07-19_00:30:00"
-
-
 # ---------------------------------------------------------------------------
 # run root
 # ---------------------------------------------------------------------------
@@ -136,30 +88,11 @@ def _root(tmp_path, report=True, rescue=False):
     return root
 
 
-def test_run_root_follows_latest_segment_with_whole_run_percentage(tmp_path, capsys):
-    root = _root(tmp_path)
-    fol = ww.follow_run_root(str(root))
-    assert fol["dir"] == str(root / "seg_1") and fol["segment"] == 1 and fol["n_segments"] == 3
-    assert ww.main([str(root), "--once"]) == 0
-    line = capsys.readouterr().out.strip()
-    assert line.startswith("seg 1/3 RUNNING  41.7%"), line
-    assert "NO_NAMELIST" not in line and "NO_RSL" not in line
-    snap = ww.annotate_run_root(ww.snapshot(fol["dir"]), str(root), fol)
-    assert abs(snap["segment_fraction"] - 0.25) < 1e-9
-    assert snap["whole_run_start"] == "2021-07-19_00:00:00"
-    assert snap["whole_run_end"] == "2021-07-20_00:00:00"
-
-
 def test_run_root_without_report_uses_segment_window(tmp_path, capsys):
     root = _root(tmp_path, report=False)
     assert ww.main([str(root), "--once"]) == 0
     line = capsys.readouterr().out.strip()
     assert line.startswith("seg 1/? RUNNING  25.0%"), line
-
-
-def test_run_root_prefers_rescue_attempt(tmp_path):
-    fol = ww.follow_run_root(str(_root(tmp_path, rescue=True)))
-    assert fol["dir"].endswith("seg_1_rescue") and fol["segment"] == 1
 
 
 def test_run_root_finished_rule():

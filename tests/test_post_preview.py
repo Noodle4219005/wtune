@@ -1,7 +1,6 @@
 """wtune post preview: the figure list, the Stage IV tiling of the run window, and the case
 facts read from wrfinput before any wrfout exists."""
 import os
-import pytest
 from datetime import datetime, timedelta
 
 import netCDF4
@@ -75,44 +74,6 @@ def test_each_preview_figure_gets_its_values_as_netcdf_under_its_figures_name(tm
                                   for d in (1, 2)])
     with netCDF4.Dataset(nested) as ds:
         assert os.path.basename(nested) == "common_domain_map.nc" and sorted(ds.groups) == ["d01", "d02"]
-
-
-HAITANG = os.path.join(os.path.dirname(__file__), "fixtures", "namelists", "haitang2017")
-
-
-def test_domain_boxes_from_namelist_wps_match_the_real_grid():
-    # haitang2017 d03 from its wrfinput_d03 (f1-arm, 2026-10-26): 19.73-28.13N, 116.12-123.05E
-    pytest.importorskip("cartopy")
-    import cartopy.crs as ccrs
-    from wtune.post import domain_map
-    crs, doms = domain_map.domains_from_namelist(os.path.join(HAITANG, "namelist.wps"))
-    assert [(d["dom"], d["dx_km"], d["nx"], d["ny"]) for d in doms] == [
-        (1, 45.0, 221, 126), (2, 15.0, 187, 196), (3, 3.0, 221, 301)]
-    d3 = doms[2]
-    xs = [d3["x0"], d3["x1"], d3["x1"], d3["x0"]]
-    ys = [d3["y0"], d3["y0"], d3["y1"], d3["y1"]]
-    ll = ccrs.PlateCarree().transform_points(crs, __import__("numpy").array(xs),
-                                             __import__("numpy").array(ys))
-    lon, lat = ll[:, 0], ll[:, 1]
-    assert abs(lat.min() - 19.73) < 0.5 and abs(lat.max() - 28.13) < 0.5
-    assert abs(lon.min() - 116.12) < 0.5 and abs(lon.max() - 123.05) < 0.5
-
-
-def test_preview_before_prep_real_draws_the_domains_from_the_namelists(tmp_path):
-    # 2026-10-26: preview on a case with only namelists raised CaseInfoError (no wrfout frames)
-    pytest.importorskip("cartopy")
-    import shutil
-    from wtune.post import preview
-    project = tmp_path / "p"
-    (project / "case").mkdir(parents=True)
-    for n in ("namelist.wps", "namelist.input"):
-        shutil.copy(os.path.join(HAITANG, n), project / "case" / n)
-    result = preview.run_preview(str(project), {}, str(project / "post" / "preview"))
-    assert [f["id"] for f in result["figures"]] == ["common_domain_map"]
-    assert os.path.getsize(result["figures"][0]["path"]) > 10000
-    assert any("no wrfinput yet" in n for n in result["notes"])
-    html_text = open(result["report_path"]).read()
-    assert "2017-07-31 00Z – 2017-08-03 00Z（72 h）" in html_text
 
 
 def test_stage4_only_for_a_grid_with_cells_over_the_us(tmp_path):

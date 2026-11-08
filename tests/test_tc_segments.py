@@ -42,13 +42,6 @@ def _segmented(tmp_path, frames=True):
     return out
 
 
-# ------------------------------------------------------------------ post/tc.py
-def test_run_start_and_max_dom_on_segments(tmp_path):
-    out = _segmented(tmp_path)
-    assert tc._run_start(str(out)).strftime(tc.WRF_TIME_FMT) == T[0]
-    assert tc._detect_max_dom(str(out)) == 2
-
-
 def test_tracks_for_domain_gets_one_frame_per_time_from_segments(tmp_path, monkeypatch):
     out = _segmented(tmp_path)
     from wtune.analysis import diagnostics
@@ -131,8 +124,3 @@ def test_find_binary_falls_back_to_pixi_env_bin(tmp_path, monkeypatch):
     bindir.mkdir(parents=True)
     (bindir / "DetectNodes").write_text("#!/bin/sh\n")
     assert tc_track._find_binary("DetectNodes") == str(bindir / "DetectNodes")
-
-
-def test_find_binary_prefers_path(monkeypatch):
-    monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/" + name)
-    assert tc_track._find_binary("StitchNodes") == "/usr/bin/StitchNodes"

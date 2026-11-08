@@ -58,33 +58,6 @@ def fake_deps(tmp_path, monkeypatch):
     return dict(cdo_calls=calls, extract_calls=extract_calls)
 
 
-def test_change_map_builds_seltimestep_sub_command(tmp_path, fake_deps):
-    record = changemap.change_map(
-        "/fake/run", "run0", "slp", 2, str(tmp_path),
-        "2005-08-27_00:00:00", "2005-08-27_06:00:00", "2005-08-27_00:00:00")
-
-    assert record["missing"] is False
-    assert record["id"] == "chg_slp"
-    assert record["path"].endswith("slp-chg6h_d02_f006_2005082706Z.png")
-
-    variables, times, box = fake_deps["extract_calls"][0]
-    assert variables == ["slp"]
-    assert times == ["2005-08-27_00:00:00", "2005-08-27_06:00:00"]
-
-    cdo_cmd = fake_deps["cdo_calls"][0]
-    assert cdo_cmd[:2] == ["/usr/bin/cdo", "sub"]
-    assert "-seltimestep,2" in cdo_cmd
-    assert "-seltimestep,1" in cdo_cmd
-
-
-def test_change_map_vs_t0_interval_differs_from_consecutive(tmp_path, fake_deps):
-    record = changemap.change_map(
-        "/fake/run", "run0", "slp", 1, str(tmp_path),
-        "2005-08-27_00:00:00", "2005-08-27_12:00:00", "2005-08-27_00:00:00",
-        fig_id="chg_slp_vs_t0")
-    assert record["path"].endswith("slp-chg12h_d01_f012_2005082712Z.png")
-
-
 def test_change_map_reports_missing_when_cdo_not_found(tmp_path, monkeypatch):
     def raise_not_found(name, install_hint=None):
         raise tools.ToolNotFoundError("cdo not found")

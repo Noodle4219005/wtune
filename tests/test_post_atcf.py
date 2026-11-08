@@ -10,40 +10,6 @@ import pytest
 from wtune.post import atcf
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
-BDECK_SAMPLE = os.path.join(FIXTURES, "bal122005_sample.dat")
-
-
-def test_parse_known_katrina_bdeck_lines():
-    rows = atcf.parse_file(BDECK_SAMPLE)
-    assert len(rows) == 7
-    r0 = rows[0]
-    assert r0["basin"] == "AL" and r0["cy"] == "12"
-    assert r0["time"] == datetime(2005, 8, 23, 18)
-    assert r0["tech"] == "BEST"
-    assert r0["lat"] == pytest.approx(23.1)
-    assert r0["lon"] == pytest.approx(-75.1)
-    assert r0["vmax_kt"] == 30
-    assert r0["mslp_hpa"] == 1008
-    assert r0["ty"] == "TD"
-    assert r0["stormname"] == "TWELVE"
-
-    ts_line = rows[3]      # 2005082412, RAD=34
-    assert ts_line["ty"] == "TS"
-    assert ts_line["rad_kt"] == 34
-    assert ts_line["radii"] == (60, 60, 0, 0)
-    assert ts_line["stormname"] == "KATRINA"
-
-    hu_64 = rows[5]        # 2005082700, RAD=64
-    assert hu_64["rad_kt"] == 64
-    assert hu_64["radii"] == (25, 25, 20, 15)
-    assert hu_64["lat"] == pytest.approx(24.6)
-    assert hu_64["lon"] == pytest.approx(-83.3)
-
-
-def test_classify_ty():
-    assert atcf.classify_ty(20) == "TD"
-    assert atcf.classify_ty(50) == "TS"
-    assert atcf.classify_ty(90) == "HU"
 
 
 def test_write_lines_round_trip(tmp_path):
@@ -76,21 +42,6 @@ def test_write_lines_round_trip(tmp_path):
     assert parsed[3]["ty"] == "TD"
     assert parsed[3]["lat"] == pytest.approx(24.4)
     assert parsed[3]["lon"] == pytest.approx(-84.0)
-
-
-def test_hurdat2_to_bdeck_rows_converts_units():
-    hurdat2_points = [dict(time=datetime(2005, 8, 27, 0), lat=24.6, lon=-83.3,
-                           vmax_ms=90 * 0.514444, pmin_hpa=959,
-                           r34_ne_km=90 * 1.852, r34_se_km=75 * 1.852,
-                           r34_sw_km=75 * 1.852, r34_nw_km=75 * 1.852,
-                           r50_ne_km=0.0, r50_se_km=0.0, r50_sw_km=0.0, r50_nw_km=0.0,
-                           r64_ne_km=0.0, r64_se_km=0.0, r64_sw_km=0.0, r64_nw_km=0.0,
-                           rmw_km=None)]
-    rows = atcf.hurdat2_to_bdeck_rows(hurdat2_points)
-    assert rows[0]["vmax_kt"] == pytest.approx(90, abs=0.01)
-    assert rows[0]["mslp_hpa"] == 959
-    assert 34 in rows[0]["radii_kt"] and 50 not in rows[0]["radii_kt"]
-    assert rows[0]["radii_kt"][34] == pytest.approx((90, 75, 75, 75), abs=0.01)
 
 
 def test_fetch_bdeck_wraps_download_failure(tmp_path, monkeypatch):

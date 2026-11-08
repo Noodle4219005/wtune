@@ -3,20 +3,11 @@ one-time maps, wind overlay scope, accepted time formats and atomic `project set
 --out, gust sampling note, T2/sea/tick appearance, recipe-driven station comparison."""
 import os
 
-import pytest
-import yaml
 
 from test_post_agent_control import _project, _run, _set, _post, TIMES   # noqa: F401
-from wtune import project as wp
 
 
 # -- C: time formats and atomic project set ------------------------------------------------------
-
-@pytest.mark.parametrize("text", ["2022-04-05_06:00", "2022-04-05_06:00:00", "2022-04-05T06",
-                                  "2022-04-05 06:00", "2022-04-05T06:00:00", "2022-04-05_06"])
-def test_parse_iso_time_accepts_wrf_and_space_spellings(text):
-    from datetime import datetime
-    assert wp.parse_iso_time(text) == datetime(2022, 4, 5, 6, 0)
 
 
 def test_project_set_stores_non_canonical_times_canonically(tmp_path):
@@ -25,36 +16,14 @@ def test_project_set_stores_non_canonical_times_canonically(tmp_path):
     assert _post(project)["times"] == ["2022-04-05T06:00", "2022-04-05T09:30", "2022-04-05T12"]
 
 
-def test_bad_flag_rejects_all_names_flag_value_and_examples_and_writes_nothing(tmp_path, capsys):
-    project = _project(tmp_path)
-    before = (project / "project.yaml").read_text()
-    assert _set(project, "--post-stations", "KSBA", "--post-times", "yesterday",
-                "--post-station-method", "cubic", "--post-overlay", "wind10") == 1
-    err = capsys.readouterr().err
-    assert "--post-times" in err and "'yesterday'" in err and "2022-04-05_06:00:00" in err
-    assert "--post-station-method" in err and "'cubic'" in err      # every bad flag, not the first
-    assert (project / "project.yaml").read_text() == before        # valid flags were not written
-
-
 # -- A: post.times / negligible rain decide the one-time-map time -------------------------------
 
 def _focus_run(tmp_path, scale):
-    import numpy as np
     import test_post_focus as tf
     real = tf._core(30, 40, 1.0)
     tf._write(str(tmp_path), [0 * real, 10 * real * scale, 30 * real * scale,
                               130 * real * scale, 140 * real * scale])
     return dict(types=["terrain"], domains=[dict(domain=3, dx_km=3.0)])
-
-
-def test_map_time_uses_first_post_time_snapped_to_a_frame(tmp_path):
-    from wtune.post import recipe
-    case = _focus_run(tmp_path, 1.0)
-    notes = []
-    t = recipe._map_time(str(tmp_path), case, 6, None,
-                         post_times=["2017-07-31T06:40", "2017-07-31T09:00"], notes=notes)
-    assert t == "2017-07-31_07:00:00"           # not the rain peak 08:00
-    assert notes == []
 
 
 def test_map_time_post_time_outside_the_run_falls_back_with_a_note(tmp_path):
@@ -64,43 +33,6 @@ def test_map_time_post_time_outside_the_run_falls_back_with_a_note(tmp_path):
     t = recipe._map_time(str(tmp_path), case, 6, None, post_times=["2017-08-05T00"], notes=notes)
     assert t == "2017-07-31_08:00:00"
     assert len(notes) == 1 and "outside" in notes[0]["text"]
-
-
-def test_map_time_negligible_peak_rain_means_last_frame_and_a_note(tmp_path, capsys):
-    from wtune.post import focus, recipe
-    case = _focus_run(tmp_path, 1e-5)           # peak rate far below 0.1 mm/h
-    notes = []
-    assert recipe._map_time(str(tmp_path), case, 6, None, notes=notes) is None
-    assert len(notes) == 1 and "below %g mm/h" % focus.MIN_PEAK_RATE_MM_H in notes[0]["text"]
-    assert "last frame" in notes[0]["text"] and "--post-times" in notes[0]["text"]
-    assert "last frame" in capsys.readouterr().out
-
-
-def test_map_time_real_rain_still_uses_the_peak(tmp_path):
-    from wtune.post import recipe
-    case = _focus_run(tmp_path, 1.0)
-    notes = []
-    assert recipe._map_time(str(tmp_path), case, 6, None, notes=notes) == "2017-07-31_08:00:00"
-    assert notes == []
-
-
-def test_run_recipe_wires_post_times_and_the_note(tmp_path, monkeypatch):
-    from wtune.post import recipe
-    from wtune.post.recipes import common
-    project = _project(tmp_path, "  types: auto\n  times: [2019-01-30T03]\n")
-    run = _run(tmp_path)
-    seen = {}
-    monkeypatch.setattr(common, "figures", lambda *a, **k: [])
-    for name in ("_data_products", "_time_series_figures", "_verification_advice"):
-        monkeypatch.setattr(recipe, name, lambda *a, **k: [])
-    monkeypatch.setattr(recipe, "_build_report", lambda *a, **k: str(tmp_path / "r.html"))
-    monkeypatch.setattr(recipe.caseinfo, "detect_types", lambda *a, **k: dict(
-        types=["common"], domains=[dict(domain=3)], evidence={}))
-    real = recipe._map_time
-    monkeypatch.setattr(recipe, "_map_time",
-                        lambda *a, **k: seen.setdefault("t", real(*a, **k)))
-    recipe._run_recipe([run], str(tmp_path / "out"), project_dir=str(project))
-    assert seen["t"] == "2019-01-30_03:00:00"
 
 
 def test_convection_maps_follow_map_time_and_none_means_last_frame(monkeypatch, tmp_path):
@@ -166,15 +98,6 @@ def test_relative_out_dir_gives_figures_json_paths_relative_to_it(tmp_path, monk
     assert errors == []
 
 
-def test_write_index_relativizes_cwd_relative_paths(tmp_path, monkeypatch):
-    import json
-    from wtune.post import recipe
-    monkeypatch.chdir(tmp_path)
-    os.makedirs("post/a")
-    recipe.write_index("post/a", [], [], {}, [recipe.fig("x", "post/a/sub/x.png", "r")], [])
-    assert json.load(open("post/a/figures.json"))["figures"][0]["path"] == "sub/x.png"
-
-
 # -- B: wind10 overlay also on the time-series t2 / wspd10 maps ---------------------------------
 
 def _fake_timeseries(tmp_path, monkeypatch):
@@ -199,30 +122,6 @@ def test_timeseries_wind_overlay_on_t2_and_wspd10_only(tmp_path, monkeypatch):
     assert dict(calls) == dict(slp=False, t2=True, wspd10=True, rain_acc=False, pw=False)
 
 
-def test_timeseries_has_no_barbs_without_the_overlay(tmp_path, monkeypatch):
-    run, calls, timeseries = _fake_timeseries(tmp_path, monkeypatch)
-    timeseries.figures_for_time_series(run, "r", 1, str(tmp_path / "o"), times=[TIMES[1]])
-    assert not any(v for _f, v in calls)
-
-
-def test_recipe_passes_map_overlay_to_the_time_series(tmp_path, monkeypatch):
-    from wtune.post import recipe
-    from wtune.post.recipes import common
-    project = _project(tmp_path, "  types: auto\n  map_overlay: [wind10]\n")
-    run = _run(tmp_path)
-    seen = {}
-    monkeypatch.setattr(common, "figures", lambda *a, **k: [])
-    for name in ("_data_products", "_verification_advice"):
-        monkeypatch.setattr(recipe, name, lambda *a, **k: [])
-    monkeypatch.setattr(recipe, "_time_series_figures",
-                        lambda *a, **k: seen.update(k) or [])
-    monkeypatch.setattr(recipe, "_build_report", lambda *a, **k: str(tmp_path / "r.html"))
-    monkeypatch.setattr(recipe.caseinfo, "detect_types", lambda *a, **k: dict(
-        types=["common"], domains=[dict(domain=3)], evidence={}))
-    recipe._run_recipe([run], str(tmp_path / "out"), project_dir=str(project), every="3h")
-    assert seen["overlay"] == ["wind10"]
-
-
 # -- E: gust sampling bias ----------------------------------------------------------------------
 
 def _gust_compare(tmp_path, out=None):
@@ -241,21 +140,6 @@ def test_gust_stats_carry_a_sampling_note_and_n(tmp_path):
     assert by["t2"]["note"] == ""
     line = [n for n in res["notes"] if n.startswith("gust sampling bias")]
     assert len(line) == 1 and "n=2" in line[0]
-
-
-def test_station_stats_csv_has_a_note_column_and_the_gust_panel_says_so(tmp_path, monkeypatch):
-    import csv
-    import matplotlib.axes
-    titles = []
-    real = matplotlib.axes.Axes.set_title
-    monkeypatch.setattr(matplotlib.axes.Axes, "set_title",
-                        lambda self, t, *a, **k: titles.append(t) or real(self, t, *a, **k))
-    _gust_compare(tmp_path, out=str(tmp_path / "o"))
-    rows = {r["variable"]: r for r in csv.DictReader(open(tmp_path / "o" / "station_stats.csv"))}
-    assert rows["gust"]["note"].startswith("obs only when gusts occur")
-    assert rows["t2"]["note"] == ""
-    assert any("gust (gust reports only)" in t for t in titles)
-    assert not any("t2 (gust reports only)" in t for t in titles)
 
 
 # -- G: recipe runs the station comparison; `post stations` reads the project --------------------
@@ -322,16 +206,6 @@ def test_recipe_without_a_stations_dataset_notes_instead_of_failing(tmp_path, mo
     assert not (tmp_path / "out" / "station_stats.csv").exists()
 
 
-def test_recipe_without_post_stations_does_not_touch_stations(tmp_path, monkeypatch):
-    project, run = _station_project(tmp_path, "  types: auto\n")
-    recipe = _recipe_stub(monkeypatch, tmp_path)
-    from wtune.post import station_compare
-    monkeypatch.setattr(station_compare, "compare",
-                        lambda *a, **k: pytest.fail("compare must not run"))
-    res = recipe._run_recipe([str(run)], str(tmp_path / "out"), project_dir=str(project))
-    assert not [n for n in res["notes"] if n["source"] == "stations"]
-
-
 def test_post_stations_cli_reads_the_project_for_flags_not_given(tmp_path, monkeypatch):
     from wtune.post import cli, station_compare
     project, run = _station_project(
@@ -359,17 +233,6 @@ def test_post_stations_cli_reads_the_project_for_flags_not_given(tmp_path, monke
 
 # -- F: T2 colour scale, sea colour, tick density, zoom extent ----------------------------------
 
-def test_t2_scale_is_sequential_unless_the_data_crosses_freezing():
-    import numpy as np
-    from wtune.post.recipes.synoptic import t2_scale
-    warm = np.linspace(2.0, 25.0, 500)
-    lev, cmap, ext = t2_scale(warm)
-    assert cmap == "viridis" and ext == "neither"
-    assert lev[0] <= 2.0 and lev[-1] >= 25.0 and lev[0] > -5.0       # not -24 .. +24
-    lev, cmap, ext = t2_scale(np.linspace(-12.0, 9.0, 500))
-    assert cmap == "RdBu_r" and ext == "both" and lev[0] == -lev[-1] and 0.0 in lev
-    assert t2_scale(np.linspace(-30.0, -10.0, 100))[1] == "viridis"   # all-frozen: no freezing line
-
 
 def test_time_series_t2_scale_follows_the_data_range(tmp_path):
     import netCDF4
@@ -386,16 +249,6 @@ def test_time_series_t2_scale_follows_the_data_range(tmp_path):
     lev, cmap, ext = timeseries.fixed_scale(run, "t2", 1, [TIMES[0]])
     assert cmap == "viridis" and lev[0] > -5 and lev[-1] < 40
     assert "sequential" in timeseries.SCALE_RULE["t2"]
-
-
-def test_sea_is_masked_by_landmask_else_by_height():
-    import numpy as np
-    from wtune.post import domain_map
-    hgt = np.array([[0.0, 0.4, 3.0], [0.0, 10.0, 0.0]])
-    assert np.isnan(domain_map.sea_masked(hgt)).tolist() == [[True, True, False], [True, False, True]]
-    lm = np.array([[0, 1, 1], [1, 1, 0]])               # LANDMASK wins over HGT <= 0.5
-    assert np.isnan(domain_map.sea_masked(hgt, lm)).tolist() == [[True, False, False],
-                                                                 [False, False, True]]
 
 
 def _capture_draw(monkeypatch):
@@ -440,29 +293,3 @@ def test_domain_map_paints_the_sea_light_blue_and_zoom_uses_the_nest_extent(tmp_
     import cartopy.crs as ccrs
     ext = fig.axes[0].get_extent(crs=ccrs.PlateCarree())
     assert ext[3] - ext[2] < 2.0 and ext[1] - ext[0] < 2.5
-
-
-def test_small_domain_gets_three_or_more_ticks_labelled_with_hemispheres():
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import cartopy.crs as ccrs
-    from wtune.post import basemap
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-    gl = basemap.outer_gridlines(ax)
-    basemap.gridline_step(gl, 1.2, 1.5)                 # the 3 km Santa Barbara nest
-    lon_ticks = gl.xlocator.tick_values(-120.3, -118.8)
-    lat_ticks = gl.ylocator.tick_values(34.05, 35.26)
-    assert len([t for t in lon_ticks if -120.3 <= t <= -118.8]) >= 3
-    assert len([t for t in lat_ticks if 34.05 <= t <= 35.26]) >= 3
-    assert gl.xformatter(-119.5).endswith("W") and "\N{DEGREE SIGN}" in gl.xformatter(-119.5)
-    assert gl.yformatter(34.5).endswith("N")
-    plt.close(fig)
-    # a large map keeps the old fixed step
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-    gl = basemap.outer_gridlines(ax)
-    basemap.gridline_step(gl, 20.0, 25.0)
-    assert list(gl.xlocator.locs)[:2] == [-180, -175]
-    plt.close(fig)

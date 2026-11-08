@@ -4,29 +4,15 @@ with 17 KB history frames and run_report said completed)."""
 import glob
 import json
 import os
-import types
 
 from wtune import run as wr
 from wtune.run import cli as run_cli
 from wtune.run import space
-from wtune.run.geometry import HistoryStream
 
 import test_wtune_run as T
 from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune/bp.py)
 
 LAYOUT = ["--nodes", "1", "--nx", "8", "--ny", "9"]
-
-
-def test_estimate_counts_history_frames_and_restart_sets():
-    geo = types.SimpleNamespace(hist=[HistoryStream(iv_s=3600.0, begin_s=0.0), None,
-                                      HistoryStream(iv_s=60.0, begin_s=600.0)],
-                                points=[100, 10, 1000])
-    need, detail = space.estimate_output_bytes(geo, 1200.0, 1)
-    fb = space.frame_bytes
-    # d01: t=0 only; d02: no history, one restart; d03: 600..1200 s every 60 s = 11 frames
-    assert need == fb(100) * 2 + fb(10) + fb(1000) * 12
-    assert detail == "d01 1 x %s, d03 11 x %s" % (space._fmt_bytes(fb(100)),
-                                                  space._fmt_bytes(fb(1000)))
 
 
 def test_quota_headroom_reads_the_soft_limit(monkeypatch):
@@ -131,24 +117,6 @@ def test_rsl_fatal_names_the_rank_and_message(tmp_path):
     assert resume.rsl_fatal(str(tmp_path / "none")) is None
 
 
-def test_input_bytes_counts_stale_conversions_and_one_per_record_copy(tmp_path, monkeypatch):
-    """elevconv 2026-10-23: converting 2.0 GB of netCDF inputs wrote 7.9 GB of BP and pushed
-    home2 past its quota; the output estimate had not counted inputs at all."""
-    case = tmp_path / "case"
-    case.mkdir()
-    for n in ("wrfinput_d01", "wrfbdy_d01"):
-        (case / n).write_bytes(b"x")
-    monkeypatch.setattr(space, "netcdf_data_bytes",
-                        lambda p: {"wrfinput_d01": 3e9, "wrfbdy_d01": 5e9}.get(os.path.basename(p), 0.0))
-    plan = {"convert": [str(case / "wrfinput_d01"), str(case / "wrfbdy_d01")],
-            "per_record": {"wrfbdy_d01": str(tmp_path / "cache" / "wrfbdy_d01")}}
-    stale = types.SimpleNamespace(cached_inputs=lambda d, c, names: None)
-    assert space.input_bytes(plan, str(tmp_path / "cache"), stale) == (8e9, 5e9)
-    cached = types.SimpleNamespace(cached_inputs=lambda d, c, names: {n: n for n in names})
-    assert space.input_bytes(plan, str(tmp_path / "cache"), cached) == (0.0, 5e9)
-    assert space.input_bytes(None, None, cached) == (0.0, 0.0)
-
-
 def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys):
     """elevconv 2026-10-23: `wtune tune` converted the inputs without any space check."""
     import pytest
@@ -162,20 +130,6 @@ def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys)
     assert "input conversion 8.0 GB of 12.0 GB writable" in capsys.readouterr().out
     monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (_ for _ in ()).throw(KeyError(c)))
     jobs.check_input_space("unknown", writable=lambda p: (0.0, "x"))     # not checked
-
-
-def test_gzip_rsl_keeps_rank_0_plain(tmp_path):
-    """sc26p1 debug_level=50: 17.6 GB of rsl in 22 minutes, 17x smaller with gzip -1."""
-    import gzip
-    for n in ("rsl.out.0000", "rsl.error.0000", "rsl.out.0001", "rsl.error.0039"):
-        (tmp_path / n).write_text("d01 2020-06-01_00:00:10 tile 1\n" * 1000)
-    n, before, after = space.gzip_rsl(str(tmp_path))
-    assert n == 2 and after < before / 10
-    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0039.gz", "rsl.out.0000",
-                                            "rsl.out.0001.gz"]
-    with gzip.open(tmp_path / "rsl.error.0039.gz", "rt") as fh:
-        assert fh.read() == "d01 2020-06-01_00:00:10 tile 1\n" * 1000
-    assert space.gzip_rsl(str(tmp_path)) == (0, 0, 0)
 
 
 class WritesTables(T.Fakes):

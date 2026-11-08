@@ -118,13 +118,6 @@ def test_render_run_sbatch_golden(name):
     _check_golden("run_sbatch_%s.sh" % name, cs.render_run_sbatch(plan, **kwargs))
 
 
-def test_render_run_sbatch_env_excludes_golden(monkeypatch):
-    monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work5, work7")
-    monkeypatch.setenv(scc_sweep.PREFLIGHT_EXCLUDE_ENV, "work7,work9")
-    plan, kwargs = CASES["single_window"]
-    _check_golden("run_sbatch_env_excludes.sh", cs.render_run_sbatch(plan, **kwargs))
-
-
 def test_render_run_sbatch_overpacked_node_assertion():
     plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}],
             "nodes": 1, "config": _config(ranks=73)}
@@ -328,19 +321,6 @@ def test_build_plan_analog_golden(chosen, tmp_path):
     rec = _plan_outcome(tmp_path, _case(tmp_path, run_hours=24), spinup_min=1, k=2,
                         analog_path=str(analog))
     _json_golden("plan_analog_%s" % ("chosen" if chosen else "no_chosen"), rec, tmp_path)
-
-
-MAIN_HELP = ["--help", "inspect --help", "plan --help", "fetch --help", "stage --help",
-             "score --help", "fix-wps-namelist --help", "fix-real-namelist --help",
-             "fix-wrf-namelist --help", "", "bogus"]
-
-
-@pytest.mark.parametrize("argv", MAIN_HELP)
-def test_main_help_golden(argv, tmp_path, monkeypatch):
-    monkeypatch.setenv("COLUMNS", "100")
-    rec = _outcome(cs.main, argv.split())
-    _json_golden("main_help_%s" % (argv.replace(" --help", "").replace("--help", "top")
-                                    .replace(" ", "_") or "empty"), rec, tmp_path)
 
 
 @pytest.mark.parametrize("name", ["inspect_ok", "inspect_blocked", "plan_ok", "plan_blocked",

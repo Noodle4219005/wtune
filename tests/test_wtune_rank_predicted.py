@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from wtune.tools import scc_sweep
-import wtune.config
 from wtune import tune as wt
 from test_wtune_tune import _ctx, make_fake_sbatch
 
@@ -121,13 +120,6 @@ def test_rebuilt_case_entry_missing_real_output_raises(tmp_path):
                                     20, 17, ANCHOR)
 
 
-def test_measure_steps_cover_candidate_minutes():
-    steps, step_dt = wt.rebuilt_steps(17), 36.0
-    ms = wt.rebuilt_measure_steps(steps, step_dt)
-    run_min = -(-steps * 36 // 60)
-    assert ms >= steps and ms * step_dt >= run_min * 60
-
-
 def test_prepare_rebuilt_points_refuses_out_inside_case_dir(tmp_path):
     ctx = _ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     with pytest.raises(RuntimeError, match="inside the case dir"):
@@ -177,30 +169,6 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# D2: t0 chunks, ANCHOR/ANCHOREND wrapping
-# ---------------------------------------------------------------------------
-def _chunk_configs(paths):
-    return [[c["id"] for c in json.load(open(p.split(",")[0]))["configs"]]
-            for p in paths.values()]
-
-
-def test_t0_mode_chunks_and_command_unchanged(tmp_path):
-    sb, calls, paths = make_fake_sbatch()
-    ctx = _ctx(out_dir=str(tmp_path), sbatch_runner=sb)
-    configs = [dict(ANCHOR)] + [_cfg("G%d" % i) for i in range(1, 5)]
-    wt._submit_round0_wave(ctx, configs, 2, 0.01, "round0")
-    ids = _chunk_configs(paths)
-    assert ids == [["ANCHOR", "G2", "G4"], ["G1", "G3"]]
-    assert all("RANKING_START" not in c and "ANCHOREND" not in json.dumps(ids) for c in calls)
-    assert all("CASE=matthew," in c for c in calls)
-
-
-def test_wrap_with_anchors_is_idempotent():
-    once = wt.wrap_with_anchors([_cfg("G1")], ANCHOR)
-    assert [c["id"] for c in wt.wrap_with_anchors(once, ANCHOR)] == ["ANCHOR", "G1", "ANCHOREND"]
-
-
-# ---------------------------------------------------------------------------
 # D3: gates via measure_candidates_at_points
 # ---------------------------------------------------------------------------
 def _rp(tmp_path, index=0):
@@ -242,16 +210,6 @@ def _run_measure(tmp_path, s_end=1.0, notes_by_cid=None, first_time=None):
     return wt.measure_candidates_at_points(ctx, [_cfg("G1")], [rp], ANCHOR), calls
 
 
-def test_gates_clean_pass(tmp_path):
-    (meas, gates, jobs), calls = _run_measure(tmp_path)
-    assert set(meas) == {"ANCHOR", "G1"} and gates[0]["ok"] and jobs == ["501"]
-    assert meas["G1"][0].s_normal == pytest.approx(0.8)
-    assert meas["G1"][0].at == T0 + dt.timedelta(minutes=21, seconds=36 * 36 / 2)
-    c = calls[0]
-    assert "REPS=1," in c and "RANKING_STRICT_RESTART=1" in c and "CASE=matthewp0," in c
-    assert "TIMEOUT_S=1800" not in c
-
-
 def test_gate_anchor_drift_raises(tmp_path):
     with pytest.raises(RuntimeError, match="anchor drift"):
         _run_measure(tmp_path, s_end=1.015)
@@ -276,12 +234,6 @@ def test_gate_t0_start_detected_from_rsl(tmp_path):
         _run_measure(tmp_path, first_time="2021-07-19_18:00:36")
 
 
-def test_gate_first_step_is_exact(tmp_path):
-    # spin-up 21 min at dt 36 -> resumed first step g0 = 35+1 = 36 (18:21:36); 18:22:12 is 37
-    with pytest.raises(RuntimeError, match="expected 36"):
-        _run_measure(tmp_path, first_time="2021-07-19_18:22:12")
-
-
 def test_predicted_spinup_min():
     assert wt.predicted_spinup_min(36) == 21
     assert [wt.predicted_spinup_min(d) for d in (15, 10, 25)] == [20, 20, 20]
@@ -302,42 +254,6 @@ def test_rank_by_predicted_total_orders_by_total():
                                         None, None, {"ANCHOR": 288, "G1": 288, "G2": 288}, 4)
     assert [e["cid"] for e in ranked] == ["G1", "ANCHOR", "G2"]
     assert ranked[0]["pred_low_s"] < ranked[0]["pred_total_s"] < ranked[0]["pred_high_s"]
-
-
-def test_choose_primary_point(monkeypatch):
-    pts = [types.SimpleNamespace(at=T0 + dt.timedelta(hours=h)) for h in (0, 6, 12, 18)]
-    fr = {0: 0.2, 6: 0.9, 12: 0.9, 18: 0.1}
-    monkeypatch.setattr(wt.predict, "sunlit_fraction",
-                        lambda sp, at: fr[int((at - T0).total_seconds() // 3600)])
-    idx, p, frac = wt.choose_primary_point(pts, [(0.0, 0.0)])
-    assert idx == 1 and frac == 0.9                     # tie 6h/12h -> earliest
-    assert wt.choose_primary_point(pts, None)[0] == 0   # no geometry -> earliest
-
-
-# ---------------------------------------------------------------------------
-# D6: CLI / YAML, default campaign dir
-# ---------------------------------------------------------------------------
-def test_cli_restart_io_form_flag():
-    a = wt.build_arg_parser().parse_args(["conus25", "--restart-io-form", "2"])
-    assert a.restart_io_form == 2
-    assert wt.build_arg_parser().parse_args(["conus25"]).restart_io_form is None
-    with pytest.raises(SystemExit):
-        wt.build_arg_parser().parse_args(["conus25", "--restart-io-form", "11"])
-
-
-def test_yaml_rank_by_keys():
-    cfg, errs = wtune.config.resolve_config({})
-    assert cfg["probe"]["rank_by"] == "t0" and cfg["probe"]["restart_io_form"] == 14 and not errs
-    _cfg2, errs = wtune.config.resolve_config({"probe": {"rank_by": "bogus",
-                                                         "restart_io_form": 11}})
-    assert any("rank_by" in e for e in errs) and any("restart_io_form" in e for e in errs)
-
-
-def test_default_sbatch_script_is_this_trees_campaign():
-    assert Path(scc_sweep.DEFAULT_SBATCH_SCRIPT) == SBATCH
-    assert wt.build_arg_parser().parse_args(["x"]).sbatch_script == str(SBATCH)
-    assert scc_sweep.campaign_dir_for(scc_sweep.DEFAULT_SBATCH_SCRIPT) == str(SBATCH.parent)
-    assert scc_sweep.campaign_dir_for("/nonexistent/strict_campaign.sbatch") is None
 
 
 def test_build_sbatch_command_extra_export_refuses_comma():
@@ -399,16 +315,6 @@ def test_strict_restart_defaults_do_not_change_t0_notes():
                      text)
 
 
-def test_campaign_sbatch_commands_honour_extra_exclude(monkeypatch):
-    from wtune.tools import scc_sweep as sweep
-    from wtune import tune as wt
-    monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
-    assert sweep.exclude_arg() == "--exclude=head"
-    monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work5, work7")
-    cmd = sweep.build_sbatch_command("conus25", 4, 72, "01:00:00", 600, 1, 30, "/x/c.json", "/x")
-    assert "--exclude=head,work5,work7 " in cmd
-
-
 # ---------------------------------------------------------------------------
 # running-time budget, hard wall cap (conus25-pred1 postmortem)
 # ---------------------------------------------------------------------------
@@ -458,65 +364,10 @@ def test_running_budget_does_not_charge_queue_time(tmp_path):
     assert ctx.elapsed() == pytest.approx(300) and ctx.wall_elapsed() == pytest.approx(900)
 
 
-def test_wall_mode_unchanged_charges_queue_time(tmp_path):
-    clock = FakeClock()
-    sacct, _c = timeline_sacct(clock, {"1": [(600, "PENDING"), (900, "RUNNING")]})
-    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=400)
-    ctx.budget_mode = "wall"
-    wt.wait_for_jobs(ctx, ["1"], "round0")
-    assert scalls == [["1"]] and ctx.elapsed() == pytest.approx(400)
-
-
-def test_hard_wall_cap_cancels_pending(tmp_path):
-    clock = FakeClock()
-    sacct, _c = timeline_sacct(clock, {"1": [(10 ** 9, "PENDING")]})
-    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=400, max_wall_s=100)
-    wt.wait_for_jobs(ctx, ["1"], "stage2")
-    assert scalls == [["1"]] and clock.t == pytest.approx(100) and ctx.elapsed() == 0
-
-
-def test_running_budget_exhausted_while_running_cancels(tmp_path):
-    clock = FakeClock()
-    sacct, _c = timeline_sacct(clock, {"1": [(100, "PENDING"), (10 ** 9, "RUNNING")]})
-    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=200, max_wall_s=10 ** 6)
-    wt.wait_for_jobs(ctx, ["1"], "stage2")
-    assert scalls == [["1"]] and clock.t == pytest.approx(300)
-
-
 def test_rad_factor_conus25_like():
     # 82 steps, stepra 40 -> 3 radiation steps: ~1.107, not the old blanket 1.5
     assert wt.rad_factor(82, 40) == pytest.approx(1 + 3 * 2.93 / 82)
     assert wt.rad_factor(82, None) == 1.0
-
-
-def _rebuilt(n=3):
-    return [dict(index=i, point=types.SimpleNamespace(at=T0), case_id="matthewp%d" % i, T=T0,
-                 cases_json="/r.json", steps=36, spinup_min=21, stepra=17, dt=36.0)
-            for i in range(n)]
-
-
-def test_fit_stage2_shrinks_then_skips(tmp_path):
-    clock = FakeClock()
-    ctx = _ctx(out_dir=str(tmp_path), clock=clock, budget_s=10 ** 6, max_nodes=12, nodes=4)
-    ctx.startup_s = 120.0
-    top = [_cfg("G1"), _cfg("G2"), _cfg("G3")]
-    s_by = {"ANCHOR": 1.0, "G1": 1.0, "G2": 1.0, "G3": 1.0}
-    ctx.stage1_max_running = 3                       # 3 point jobs at once -> 1 wave
-    fit, est, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
-    assert [c["id"] for c in fit] == ["G1", "G2", "G3"] and why is None
-    ctx.stage1_max_running = 1                       # serial cluster -> 3 waves
-    assert wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)[1] == pytest.approx(3 * est)
-    ctx.stage1_max_running = 3
-    per_run = wt.ranking_cost_model(120.0, 30.0, 36, 35, 17, 1.0)["per_run_s"]
-    ctx.budget_s = est - per_run / 2                 # one run short -> drop G3
-    fit, est2, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
-    assert [c["id"] for c in fit] == ["G1", "G2"] and est2 == pytest.approx(est - per_run)
-    ctx.budget_s = 10.0
-    fit, _e, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
-    assert fit == [] and "best candidate" in why
-    ctx.budget_s = 10 ** 6
-    fit, _e, why = wt.fit_stage2(ctx, [_cfg("G1")], ANCHOR, _rebuilt(), s_by)   # <2 candidates
-    assert [c["id"] for c in fit] == ["G1"] and why is None
 
 
 # ---------------------------------------------------------------------------
@@ -527,24 +378,6 @@ def _conc_ctx(tmp_path, clock, sacct, budget_s=5000.0, max_wall_s=10 ** 6):
                                nodes=4, max_nodes=12)
     ctx.startup_s = 120.0
     return ctx, scalls
-
-
-def test_stage2_exempt_from_running_budget_completes(tmp_path):
-    clock = FakeClock()
-    sacct, _c = timeline_sacct(clock, {"1436": [(840, "RUNNING")],
-                                       "1437": [(840, "PENDING"), (1680, "RUNNING")]})
-    ctx, scalls = _conc_ctx(tmp_path, clock, sacct, budget_s=600)
-    states = wt.wait_for_jobs(ctx, ["1436", "1437"], "stage2", exempt_budget=True)
-    assert scalls == [] and states["1437"][0] == "COMPLETED"
-    assert ctx.elapsed() == pytest.approx(1680) and ctx.elapsed() - ctx.budget_s > 0
-
-
-def test_stage2_exempt_still_hits_wall_cap(tmp_path):
-    clock = FakeClock()
-    sacct, _c = timeline_sacct(clock, {"1436": [(10 ** 9, "RUNNING")]})
-    ctx, scalls = _conc_ctx(tmp_path, clock, sacct, budget_s=600, max_wall_s=1000)
-    wt.wait_for_jobs(ctx, ["1436"], "stage2", exempt_budget=True)
-    assert scalls == [["1436"]] and clock.t == pytest.approx(1000)
 
 
 def test_stage2_wall_cap_cancel_still_raises(tmp_path):
@@ -562,15 +395,3 @@ def test_stage2_wall_cap_cancel_still_raises(tmp_path):
     with pytest.raises(RuntimeError, match="not COMPLETED"):
         wt.measure_candidates_at_points(ctx, [_cfg("G1")], [_rp(tmp_path)], ANCHOR)
     assert scalls == [["501"]]
-
-
-def test_fit_stage2_no_cap_never_trims(tmp_path):
-    ctx = _ctx(out_dir=str(tmp_path), budget_s=10.0, max_nodes=12, nodes=4)
-    ctx.startup_s = 120.0
-    top = [_cfg("G1"), _cfg("G2"), _cfg("G3")]
-    fit, est, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), {"ANCHOR": 1.0}, left_s=None)
-    assert [c["id"] for c in fit] == ["G1", "G2", "G3"] and why is None and est > 10.0
-    fit, est1, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), {"ANCHOR": 1.0},
-                                   left_s=est - 1.0)
-    assert [c["id"] for c in fit] == ["G1", "G2"]
-

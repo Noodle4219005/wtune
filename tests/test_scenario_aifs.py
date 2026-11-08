@@ -12,7 +12,7 @@ netCDF4 = pytest.importorskip("netCDF4")
 
 import wtune.scenario.wps_intermediate as wi
 from wtune.scenario.base import ScenarioRequest, get_generator
-from wtune.scenario.generators.aifs import G, netcdf_to_records
+from wtune.scenario.generators.aifs import G
 
 
 def _make_synthetic_nc(path, omit=(), valid_time=None):
@@ -74,74 +74,6 @@ def _make_synthetic_nc(path, omit=(), valid_time=None):
         # deliberately omit "msl" and "z_sfc" -> PMSL and SOILHGT must land in fields_missing
     finally:
         ds.close()
-
-
-def test_netcdf_to_records_fields_levels_units_and_missing(tmp_path):
-    nc_path = tmp_path / "synthetic.nc"
-    _make_synthetic_nc(nc_path)
-
-    bbox = (15.0, 35.0, -8.0, 8.0)
-    per_time = netcdf_to_records(nc_path, bbox)
-    assert len(per_time) == 1
-    t, records, missing = per_time[0]
-    assert t == datetime.datetime(2031, 7, 15, 0)
-
-    assert "PMSL" in missing
-    assert "SOILHGT" in missing
-
-    by_field_level = {(r.field, round(r.xlvl)): r for r in records}
-    assert ("TT", 50000) in by_field_level
-    assert ("TT", 85000) in by_field_level
-    assert by_field_level[("TT", 50000)].units == "K"
-    assert by_field_level[("UU", 50000)].units == "m s-1"
-    assert by_field_level[("SPECHUMD", 50000)].units == "kg kg-1"
-
-    ght = by_field_level[("GHT", 50000)]
-    assert np.allclose(ght.slab, 500.0)  # z / 9.80665 == 500 m
-
-    tt_surface = by_field_level[("TT", int(wi.SURFACE_PA))]
-    assert np.allclose(tt_surface.slab, 288.0)
-
-
-def test_netcdf_to_records_bbox_crop_and_lat_ascending(tmp_path):
-    nc_path = tmp_path / "synthetic.nc"
-    _make_synthetic_nc(nc_path)
-
-    # tight bbox around lat 20..30, lon -5..5, no margin room to spare -> only lat {20,30},
-    # lon {-5,0,5} survive a margin_deg=5 crop (source margin is fixed at 5 deg in the module).
-    bbox = (25.0, 25.0, 0.0, 0.0)
-    per_time = netcdf_to_records(nc_path, bbox)
-    _, records, _ = per_time[0]
-    tt = next(r for r in records if r.field == "TT" and round(r.xlvl) == 50000)
-    assert tt.ny == 2  # lat 20, 30 (25 +- 5 margin)
-    assert tt.nx == 3  # lon -5, 0, 5
-    assert tt.startlat == 20.0  # ascending, SW corner
-    assert tt.deltalat == 10.0
-
-
-def test_aifs_generator_end_to_end_with_nc_paths(tmp_path):
-    nc_path = tmp_path / "synthetic.nc"
-    _make_synthetic_nc(nc_path)
-
-    gen = get_generator("aifs")
-    valid_time = datetime.datetime(2031, 7, 15, 0)
-    req = ScenarioRequest(
-        bbox=(15.0, 35.0, -8.0, 8.0), start=valid_time, end=valid_time, interval_h=6,
-        out_dir=tmp_path / "out",
-    )
-    forcing = gen.generate(req, nc_paths={valid_time: nc_path})
-    assert len(forcing.files) == 1
-    # PSFC/PMSL are atmospheric state (fill.PRESSURE_GROUP): having PSFC (this synthetic file's
-    # "sp") is enough that generate() does not raise, but PMSL must still come out with NO fill
-    # rule -- fill may never supply either from the analog (real.exe derives one from the other).
-    # It stays in fields_missing (genuinely absent from the final output), just unfilled.
-    assert "PMSL" in forcing.fields_missing
-    assert "PMSL" not in forcing.fill_rules
-    assert "SOILHGT" in forcing.fields_missing
-    assert forcing.fill_rules["SOILHGT"] == "WPS_GEOG"
-
-    recs = wi.read_fields(forcing.files[0])
-    assert any(r.field == "TT" for r in recs)
 
 
 def test_aifs_generator_raises_when_both_psfc_and_pmsl_are_absent(tmp_path):

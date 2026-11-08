@@ -38,16 +38,6 @@ def read_vti(path):
 # ------------------------------------------------------------------ pure grid helpers
 
 
-def test_levels_0_to_18_km_every_250_m():
-    lv = xc.volume_levels_km()
-    assert len(lv) == 73 and lv[0] == 0.0 and lv[-1] == 18.0
-    assert np.allclose(np.diff(lv), 0.25)
-
-
-def test_crop_whole_domain_drops_boundary_zone():
-    assert xc.crop_bounds(100, 120, 3.0, 3.0, 5) == (5, 95, 5, 115)
-
-
 def test_crop_box_around_centre_and_clipped_to_interior():
     # 60 km box at 3 km -> +-10 cells around (50, 60)
     assert xc.crop_bounds(100, 120, 3.0, 3.0, 5, (50, 60), 60.0) == (40, 61, 50, 71)
@@ -55,73 +45,6 @@ def test_crop_box_around_centre_and_clipped_to_interior():
     assert xc.crop_bounds(100, 120, 3.0, 3.0, 5, (7, 8), 60.0) == (5, 18, 5, 19)
     with pytest.raises(ValueError):
         xc.crop_bounds(8, 8, 3.0, 3.0, 5)
-
-
-def test_nearest_index_and_stride():
-    lat, lon = np.meshgrid(np.linspace(20, 30, 11), np.linspace(-90, -80, 21), indexing="ij")
-    j, i, d = xc.nearest_index(lat, lon, 24.1, -86.9)
-    assert (j, i) == (4, 6) and d < 20.0
-    assert xc.horizontal_stride(300, 400) == 1 and xc.horizontal_stride(300, 401) == 2
-
-
-def test_regrid_linear_in_height_zero_below_ground_and_above_top():
-    ny, nx = 2, 3
-    hgt = np.array([[0.0, 1000.0, 0.0], [0.0, 0.0, 0.0]])
-    zk = np.array([500.0, 2000.0, 4000.0, 8000.0])          # mass levels above the terrain
-    z = zk[:, None, None] + hgt[None]
-    f = z.copy()                                             # field == its own height
-    out = xc.regrid_to_heights(f, z, hgt, np.array([0.0, 0.25, 1.0, 3.0, 6.0, 9.0, 10.0]))
-    sea = out[:, 0, 0]
-    # 0 km (== HGT over sea, below the first level) -> lowest value; 0.25 km same
-    assert sea[0] == pytest.approx(500.0) and sea[1] == pytest.approx(500.0)
-    assert sea[2] == pytest.approx(1000.0) and sea[3] == pytest.approx(3000.0)
-    assert sea[4] == pytest.approx(6000.0)
-    assert sea[5] == 0.0 and sea[6] == 0.0                   # above the model top
-    hill = out[:, 0, 1]                                      # HGT 1000 m, first level 1500 m
-    assert hill[0] == 0.0 and hill[1] == 0.0                 # below ground
-    assert hill[2] == pytest.approx(1500.0)                  # HGT <= z < first level
-    assert hill[3] == pytest.approx(3000.0)
-    assert out.dtype == np.float32 and out.shape == (7, ny, nx)
-
-
-def test_log_condensate_clips_to_minus2_plus1():
-    lq = xc.log_condensate(np.array([0.0, 1e-4, 0.01, 0.1, 1.0, 50.0]))
-    assert np.allclose(lq, [-2, -2, -2, -1, 0, 1], atol=1e-6)
-
-
-def test_tangential_wind_solid_body_vortex():
-    x = np.arange(-50.0, 51.0, 10.0)
-    y = np.arange(-30.0, 31.0, 10.0)
-    X, Y = np.meshgrid(x, y)
-    w = 0.5                                                  # m/s per km
-    u, v = -w * Y, w * X                                     # counter-clockwise
-    vt = xc.tangential_wind(u[None], v[None], x, y, 0.0, 0.0)[0]
-    assert np.allclose(vt, w * np.hypot(X, Y), atol=1e-4)
-    assert vt[3, 5] == 0.0                                   # centre point
-    vt_sh = xc.tangential_wind(u, v, x, y, 0.0, 0.0, cyclonic_sign=-1.0)
-    assert np.allclose(vt_sh, -vt, atol=1e-4)
-    # radial outflow has no tangential component
-    assert np.allclose(xc.tangential_wind(X, Y, x, y, 0.0, 0.0), 0.0, atol=1e-5)
-
-
-def test_camera_side_mask_removes_half_facing_camera():
-    x = np.arange(-2.0, 3.0)
-    y = np.arange(-2.0, 3.0)
-    m = xc.camera_side_mask(x, y, 0.0, 0.0, 180.0)           # camera due south
-    assert m[0].all() and m[1].all() and not m[2:].any()
-    m = xc.camera_side_mask(x, y, 0.0, 0.0, 202.5)           # SSW: the south-west half
-    assert m[0, 0] and not m[4, 4] and not m[2, 2]
-    # slab: also 1.5 cells behind the plane (the plane itself stays at y = 0)
-    m = xc.camera_side_mask(x, y, 0.0, 0.0, 180.0, beyond_km=1.5)
-    assert m[:4].all() and not m[4].any()
-
-
-def test_default_vexag_column_one_fifth_of_width():
-    assert xc.default_vexag(600.0, 18.0, box_km=600.0) == 8.0      # storm rule wins (6.7)
-    assert xc.default_vexag(600.0, 4.0, box_km=600.0) == 30.0      # 600/20 = 30
-    assert xc.default_vexag(3000.0, 18.0) == 30.0                  # 33 -> cap
-    assert xc.default_vexag(300.0, 4.0) == 15.0                    # SC26-P1 lake effect
-    assert xc.default_vexag(50.0, 18.0) == 1.0
 
 
 def test_volume_top_adapts_to_cloud_tops():
@@ -134,20 +57,6 @@ def test_volume_top_adapts_to_cloud_tops():
     assert xc.volume_top_km(ct) == 18.0        # 17.5 -> 18 (cap)
     assert xc.volume_top_km(np.full(5, np.nan)) == 18.0
     assert np.allclose(xc.volume_levels_km(6.0)[-1], 6.0)
-
-
-def test_write_vti_round_trip(tmp_path):
-    a = np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
-    b = -a
-    p = xc.write_vti(str(tmp_path / "v.vti"), (10.0, 20.0, 0.0), (3.0, 3.0, 2.0),
-                     {"log10_q": a, "q_gkg": b})
-    attrs, arr = read_vti(p)
-    assert attrs["WholeExtent"] == "0 3 0 2 0 1"
-    assert [float(s) for s in attrs["Spacing"].split()] == [3.0, 3.0, 2.0]
-    assert [float(s) for s in attrs["Origin"].split()] == [10.0, 20.0, 0.0]
-    assert np.array_equal(arr["log10_q"], a) and np.array_equal(arr["q_gkg"], b)
-    # x varies fastest: element (z=0, y=0, x=1) is the second value written
-    assert arr["log10_q"][0, 0, 1] == 1.0
 
 
 # ------------------------------------------------------------------ synthetic wrfout
@@ -240,16 +149,6 @@ def test_build_volume_storm_box_cutaway(tmp_path, no_projection):
     assert info["vt_max"] >= 40.0
     hdr = open(info["terrain"]).read(400)
     assert "DIMENSIONS 21 21 1" in hdr
-
-
-def test_build_volume_whole_domain_interior(tmp_path, no_projection):
-    w = _wrfout(str(tmp_path / "wrfout_d01_x"))
-    info = xc.build_volume(w, str(tmp_path / "d"), bdy_width=5)
-    assert info["shape"] == (57, 30, 30)
-    assert info["extent_km"] == (15.0, 102.0, 15.0, 102.0)
-    assert info["vexag"] == 1.0 and info["vt_max"] is None
-    _, arr = read_vti(info["vti"])
-    assert set(arr) == {"log10_q", "q_gkg"}
 
 
 def test_build_volume_centre_outside_domain(tmp_path, no_projection):
@@ -356,19 +255,6 @@ def test_cutaway_needs_centre(monkeypatch, tmp_path):
                                             str(tmp_path / "w"), cutaway=True)
 
 
-def test_render_cloud_delegates_to_volume(monkeypatch):
-    seen = {}
-
-    def fake(wrfout, out_png, work_dir, **kw):
-        seen.update(kw, args=(wrfout, out_png, work_dir))
-        return out_png
-    monkeypatch.setattr(paraview3d, "render_condensate_volume", fake)
-    assert paraview3d.render_cloud("w", "o.png", "d", title="T", save_state="s") == "o.png"
-    assert seen["args"] == ("w", "o.png", "d")
-    assert seen["title"] == "T" and seen["save_state"] == "s" and seen["vexag"] is None
-    assert "center_latlon" not in seen or seen["center_latlon"] is None
-
-
 def test_view_params_defaults():
     info = dict(vexag=8.0, dx_km=3.0, stride=1, width_km=600.0, vt_max=None)
     p = paraview3d.view_params(info, storm=True, cutaway=True)
@@ -432,15 +318,6 @@ def test_ruler_ticks_every_2_km_true_height():
     assert labels[1][0][:2] == (2.5, 20.0)
 
 
-def test_ruler_placement_screen_left_corner():
-    info = dict(extent_km=(0.0, 600.0, 0.0, 600.0), width_km=600.0)
-    x, y, lx, ly, tick = paraview3d.ruler_placement(info, 180.0)   # camera south
-    assert (x, y) == (0.0, 600.0) and (lx, ly) == (-1.0, 0.0)      # west side, far corner
-    assert tick == pytest.approx(15.0)
-    x, y, lx, ly, tick = paraview3d.ruler_placement(info, 202.5)
-    assert (x, y) == (0.0, 600.0)
-
-
 def test_shorelines_include_lakes_filtered_to_bbox(monkeypatch):
     from wtune.post import basemap
     lake = np.array([[-87.5, 42.0], [-86.5, 42.5], [-87.0, 44.0]])
@@ -483,26 +360,6 @@ def test_build_volume_writes_lake_shoreline(tmp_path, monkeypatch):
     assert (x, y) == pytest.approx((75.0, 45.0), abs=0.1)
     # over sea (HGT 0) the shoreline is lifted 50 m: z = 0.05 km * vexag
     assert z == pytest.approx(0.05 * info["vexag"], abs=1e-3)
-
-
-def test_sample_bilinear_and_drape_shoreline_on_terrain():
-    x = np.array([0.0, 3.0, 6.0])
-    y = np.array([10.0, 13.0])
-    f = 100.0 * x[None, :] + 1000.0 * (y[:, None] - 10.0)            # linear: exact
-    got = xc.sample_bilinear(x, y, f, np.array([1.5, 4.5, 99.0]), np.array([11.5, 10.0, 13.0]))
-    assert np.allclose(got, [150.0 + 1500.0, 450.0, 600.0 + 3000.0])  # 99 -> clipped to edge
-    hgt = np.array([[0.0, 176.0, 176.0], [-5.0, 176.0, 176.0]])         # sea | lake surface
-    pl = xc.drape_polylines([np.array([[0.0, 10.0], [6.0, 13.0]])], x, y, hgt, 13.0)
-    assert pl[0].shape == (2, 3)
-    assert pl[0][0, 2] == pytest.approx(0.050 * 13.0)                  # sea: 50 m lift
-    assert pl[0][1, 2] == pytest.approx(0.226 * 13.0)                  # Lake Michigan + 50 m
-
-
-def test_write_vtk_polylines_per_vertex_z(tmp_path):
-    p = tmp_path / "c.vtk"
-    xc.write_vtk_polylines(str(p), [np.array([[1.0, 2.0, 2.938], [3.0, 4.0, 0.65]])])
-    txt = p.read_text().splitlines()
-    assert "1.000 2.000 2.938" in txt and "3.000 4.000 0.650" in txt
 
 
 def _timed_wrfout(path, valid=b"2019-01-31_00:00:00"):

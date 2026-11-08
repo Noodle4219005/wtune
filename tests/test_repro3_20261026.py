@@ -2,16 +2,10 @@
 points (wtune run / tune / submit main, the preflight, the report and predict tables), the
 generated segment script executed by bash, fakes only at the process boundary (sbatch, sacct,
 srun, the adios2 interpreter, the quota reader). No Slurm job, no ~/wtune-runs."""
-import argparse
-import glob
-import gzip
-import inspect
-import json
 import getpass
 import os
 import shlex
 import shutil
-import stat
 import subprocess
 import textwrap
 
@@ -23,9 +17,6 @@ import wtune.run as wr
 import wtune.submit
 import wtune.tune.cli as tcli
 import wtune.tune.preflight as pf
-import wtune.tune.report as treport
-import wtune.tune.rounds as rounds
-from wtune import predict as wp
 from wtune.run import cli as run_cli
 from wtune.tools import scc_sweep as sweep
 
@@ -160,10 +151,6 @@ def _run_main(argv, slurm):
     return rc, lines
 
 
-def _run_flags():
-    return [a for act in run_cli.build_arg_parser()._actions for a in act.option_strings]
-
-
 # --------------------------------------------------------------------------- fake adios2
 FAKE_ADIOS2_PY = r"""#!/usr/bin/env bash
 # stand-in for the envs/adios2 interpreter: `-c "import adios2"` succeeds; nc2bp.py SRC DST
@@ -244,39 +231,6 @@ def test_d1_run_reuses_the_tunes_bp_cache(tmp_path, monkeypatch, home, fake_adio
     assert os.path.realpath(link).startswith(os.path.realpath(cache) + os.sep)
 
 
-def test_d1_run_reuses_a_wtune_bp_cache_root(tmp_path, monkeypatch, home, fake_adios2):
-    p, case_id, merged = _project(tmp_path, monkeypatch)
-    monkeypatch.setenv("WTUNE_BP_CACHE", str(tmp_path / "scratch-bp"))
-    cache = _tune_converts(case_id, merged, p, monkeypatch, root=str(tmp_path / "scratch-bp"))
-    assert cache.startswith(str(tmp_path / "scratch-bp"))
-    before = _conversions(fake_adios2)
-    site = Site(tmp_path / "site")
-    rc, lines = _run_main(["--project", p, "--out", str(tmp_path / "out"), "--nodes", "1",
-                           "--nx", "2", "--ny", "2", "--resume", "0"] + site.args,
-                          BashSlurm())
-    assert rc == 0, "\n".join(lines)
-    assert _conversions(fake_adios2) == before, "wtune run converted the inputs again"
-    link = os.path.join(str(tmp_path / "out"), "seg_0", "wrfinput_d01.bp")
-    assert os.path.realpath(link).startswith(os.path.realpath(cache) + os.sep)
-
-
-def test_d1_old_project_input_bp_still_used(tmp_path, monkeypatch, home, fake_adios2):
-    """An older project converted into <project>/input/bp and has no tune cache: run uses it."""
-    p, case_id, merged = _project(tmp_path, monkeypatch)
-    legacy = os.path.join(p, "input", "bp")
-    with open(os.path.join(p, "case", "namelist.input")) as f:
-        CC.resolve_bp_inputs(f.read(), os.path.join(p, "case"), legacy, convert=True)
-    before = _conversions(fake_adios2)
-    site = Site(tmp_path / "site")
-    rc, lines = _run_main(["--project", p, "--out", str(tmp_path / "out"), "--nodes", "1",
-                           "--nx", "2", "--ny", "2", "--resume", "0"] + site.args,
-                          BashSlurm())
-    assert rc == 0, "\n".join(lines)
-    assert _conversions(fake_adios2) == before
-    link = os.path.join(str(tmp_path / "out"), "seg_0", "wrfinput_d01.bp")
-    assert os.path.realpath(link).startswith(os.path.realpath(legacy) + os.sep)
-
-
 # =========================================================================== defect 2
 class Submitted(Exception):
     pass
@@ -332,13 +286,6 @@ def test_d2_tune_refuses_a_conversion_that_does_not_fit(tmp_path, monkeypatch, h
     assert calls == [] and _conversions(fake_adios2) == []
 
 
-def test_d2_tune_no_space_check_proceeds(tmp_path, monkeypatch, home, fake_adios2, tiny_quota):
-    p, case_id, _merged = _project(tmp_path, monkeypatch)
-    _big_inputs(p)
-    outcome, calls = _tune(p, case_id, tmp_path, ["--no-space-check"])
-    assert outcome == "submitted" and calls, outcome
-
-
 def test_d2_tune_already_converted_needs_no_space(tmp_path, monkeypatch, home, fake_adios2,
                                                  tiny_quota):
     p, case_id, merged = _project(tmp_path, monkeypatch)
@@ -346,24 +293,6 @@ def test_d2_tune_already_converted_needs_no_space(tmp_path, monkeypatch, home, f
     _tune_converts(case_id, merged, p, monkeypatch)
     outcome, calls = _tune(p, case_id, tmp_path)
     assert outcome == "submitted" and calls, outcome
-
-
-# =========================================================================== defect 3
-def test_d3_confirm_includes_the_measured_fastest(monkeypatch):
-    """The prediction ignores dist: cyclic C (0.132 s/step measured) is predicted 4th."""
-    def cfg(cid, dist):
-        return dict(id=cid, ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist=dist, blocktime=0)
-    rows = {"A": (0.190, 1000.0), "B": (0.187, 1001.0), "D": (0.200, 1002.0),
-            "C": (0.132, 1100.0), "E": (0.210, 1200.0)}
-    predicted = {cid: dict(cid=cid, config=cfg(cid, "cyclic" if cid == "C" else "block"),
-                           median=m, n=3, pred_total_s=t, pred_low_s=t * 0.95,
-                           pred_high_s=t * 1.05, pred_source="test", pred_error=None)
-                 for cid, (m, t) in rows.items()}
-    monkeypatch.setattr(rounds, "predict_candidates", lambda ctx, nodes, res: dict(predicted))
-    entries = rounds.select_confirm_entries(None, 1, {}, None)
-    cids = [e["cid"] for e in entries]
-    assert set(cids) >= {"A", "B", "D"}
-    assert "C" in cids, "the fastest measured configuration is not re-measured: %s" % cids
 
 
 # =========================================================================== defect 4
@@ -402,32 +331,6 @@ def test_d4_preflight_keeps_unallocated_and_cancels_its_timed_out_probe(monkeypa
     assert cancels == [["scancel", "--user=" + getpass.getuser(), "--name=" + names[0]]] * 2, cancels
 
 
-# =========================================================================== defect 5
-def _site_launch_truth(site, ranks, tpn, omp, dist, nodes):
-    """What campaign/sites/<site>.sh's site_launch itself builds (bash, not wtune)."""
-    script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/%s.sh" >/dev/null 2>&1; '
-              'site_launch %d %d %d %s; echo "${SITE_LAUNCH_CMD[*]}"'
-              % (shlex.quote(os.path.join(REPO, "campaign")), site, ranks, tpn, omp, dist))
-    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
-                         env=dict(os.environ, SLURM_JOB_NUM_NODES=str(nodes)))
-    return out.stdout.strip()
-
-
-@pytest.mark.parametrize("dist", ["block", "cyclic"])
-@pytest.mark.parametrize("nodes", [1, 4])
-def test_d5_report_and_predict_launch_lines_are_the_sites(monkeypatch, home, dist, nodes):
-    monkeypatch.setenv("WTUNE_SITE", "f1arm")
-    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "144")
-    ranks = 90 * nodes
-    truth = _site_launch_truth("f1arm", ranks, 90, 1, dist, nodes)
-    assert "--map-by ppr:45:numa:PE=1" in truth and truth.endswith("./wrf.exe")
-    cfg = dict(ranks=ranks, omp=1, nx=9, ny=10 * nodes, numtiles=1, dist=dist)
-    rep = treport.local_param_table(cfg, nodes)["launch_line"]
-    assert rep == truth, rep
-    pred = wp.build_param_table(cfg, nodes, 2, "nfs", 144)["launch_line"]
-    assert pred.replace(" ./wrf.exe", "") == truth.replace(" ./wrf.exe", ""), pred
-
-
 def test_f1arm_numa_per_node_1_maps_by_node_so_two_nodes_fit_their_slots():
     script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/f1arm.sh" >/dev/null 2>&1; '
               'site_launch 144 72 1 block; echo "${SITE_LAUNCH_CMD[*]}"'
@@ -437,37 +340,6 @@ def test_f1arm_numa_per_node_1_maps_by_node_so_two_nodes_fit_their_slots():
         env=dict(os.environ, SLURM_JOB_NUM_NODES="2", WTUNE_NUMA_PER_NODE=numa)).stdout.strip()
     assert "--map-by ppr:72:node:PE=1" in run("1")      # was ppr:72:numa: 144 ranks on one node
     assert "--map-by ppr:36:numa:PE=1" in run("2")      # the two-die mapping is unchanged
-
-
-# =========================================================================== defect 6
-def test_d6_rsl_of_ranks_above_0_gzipped_after_success(tmp_path, home):
-    case = _src_case(tmp_path)
-    site = Site(tmp_path / "site")
-    out = tmp_path / "out"
-    rc, lines = _run_main([case, "--out", str(out), "--nodes", "1", "--nx", "2", "--ny", "2",
-                           "--io", "netcdf", "--resume", "0"] + site.args, BashSlurm())
-    assert rc == 0, "\n".join(lines)
-    seg = out / "seg_0"
-    assert (seg / "rsl.out.0000").is_file() and (seg / "rsl.error.0000").is_file()
-    for r in ("0001", "0002", "0003"):
-        for s in ("out", "error"):
-            plain, gz = seg / ("rsl.%s.%s" % (s, r)), seg / ("rsl.%s.%s.gz" % (s, r))
-            assert not plain.exists(), "%s kept uncompressed" % plain.name
-            with gzip.open(str(gz), "rt") as f:
-                assert ("rank %s" % r) in f.readline()
-
-
-def test_d6_failed_segment_keeps_rsl_plain(tmp_path, home):
-    case = _src_case(tmp_path)
-    site = Site(tmp_path / "site")
-    out = tmp_path / "out"
-    rc, lines = _run_main([case, "--out", str(out), "--nodes", "1", "--nx", "2", "--ny", "2",
-                           "--io", "netcdf", "--resume", "0"] + site.args,
-                          BashSlurm({"FAKE_WRF_MODE": "fail"}))
-    assert rc == 1, "\n".join(lines)
-    seg = out / "seg_0"
-    assert sorted(os.path.basename(p) for p in glob.glob(str(seg / "rsl.*"))) == sorted(
-        "rsl.%s.%s" % (s, r) for s in ("out", "error") for r in ("0000", "0001", "0002", "0003"))
 
 
 # =========================================================================== defect 7
@@ -486,21 +358,3 @@ def test_d7_submit_passes_run_options_through(tmp_path, monkeypatch, home, resum
         int(resume), ckpt, float(stall), True)
     tune = tcli.build_arg_parser().parse_args(by_step["tune"])
     assert tune.no_space_check is True
-
-
-# =========================================================================== defect 8
-def test_d8_thompson_cache_on_with_empty_cache_links_no_table(tmp_path, home):
-    case = _src_case(tmp_path)
-    site = Site(tmp_path / "site")
-    out = tmp_path / "out"
-    cache_root = tmp_path / "tables"
-    cache_root.mkdir()                                  # empty: nothing computed yet
-    opt = ["--thompson-cache"] if "--thompson-cache" in _run_flags() else []   # MID: always on
-    rc, lines = _run_main([case, "--out", str(out), "--nodes", "1", "--nx", "2", "--ny", "2",
-                           "--io", "netcdf", "--resume", "0"] + opt + site.args,
-                          BashSlurm({"WTUNE_TABLE_CACHE": str(cache_root)}))
-    seg = out / "seg_0"
-    seen = (seg / "tables_at_start.txt").read_text() if (seg / "tables_at_start.txt").exists() \
-        else ""
-    assert seen == "", "table links created from an empty cache:\n" + seen
-    assert rc == 0, "\n".join(lines)

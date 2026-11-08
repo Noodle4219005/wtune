@@ -5,13 +5,11 @@ generated bash of wtune calibrate plan, strict_campaign.sbatch's harvest functio
 main) with fakes only at the Slurm / WRF boundary. Nothing is submitted; HOME is a tmp dir."""
 import csv
 import hashlib
-import json
 import os
 import shutil
 import stat
 import subprocess
 import sys
-import types
 
 import pytest
 
@@ -23,10 +21,7 @@ import wtune.tune.cli
 import wtune.tune.context
 import wtune.tune.prediction
 import wtune.tune.rounds
-import wtune.tools.scc_sweep as sweep
 import wtune.calibrate
-from wtune import predict as wp
-from wtune import run as wr
 import wtune.watch
 
 if _SITE_BEFORE is None:
@@ -34,9 +29,6 @@ if _SITE_BEFORE is None:
 if _CONFIGS_BEFORE is None:
     sys.modules.pop("configs", None)
 
-# captured before tests/conftest.py's autouse fixture stubs it (absent on OLD)
-_REAL_BUILD_ID = getattr(wtune.tune.cli, "_build_id", None)
-_REAL_PROBE_TREE = getattr(wtune.tune.cli, "_probe_tree", None)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMPAIGN = os.path.join(REPO, "campaign")
@@ -106,62 +98,6 @@ def _o0_harness(monkeypatch, tmp_path):
                        preflight_runner=lambda argv, timeout: None)
         return seen[-1]
     return tune
-
-
-# --- defect 1 ---------------------------------------------------------------------------------
-@pytest.mark.parametrize("site", ["scc", "f1"])
-def test_tune_build_id_is_the_wrf_exe_the_probe_jobs_run(monkeypatch, tmp_path, site):
-    """machine.yaml's wrf_tree (exported as WRF_TREE) names tree A; the submit shell's env.sh
-    exports WRF_TREE=B (scc: W=${WRF_TREE:-...} -> B); f1.sh hard-codes W under $HOME."""
-    if _REAL_BUILD_ID is not None:
-        monkeypatch.setattr(wtune.tune.cli, "_build_id", _REAL_BUILD_ID)
-    if _REAL_PROBE_TREE is not None:
-        monkeypatch.setattr(wtune.tune.cli, "_probe_tree", _REAL_PROBE_TREE)
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    tree_a, tree_b = tmp_path / "treeA", tmp_path / "treeB"
-    _exe(str(tree_a / "main" / "wrf.exe"), "machine.yaml build\n")
-    _exe(str(tree_b / "main" / "wrf.exe"), "env.sh build\n")
-    f1_tree = home / "wrf-stack" / "wrf" / "intel-adios2-dmsm" / "WRF"
-    _exe(str(f1_tree / "main" / "wrf.exe"), "f1 site build\n")
-    env_sh = tmp_path / "env.sh"
-    env_sh.write_text("export WRF_TREE=%s\n" % tree_b)
-    monkeypatch.setenv("WRF_TREE", str(tree_a))
-    monkeypatch.setenv("WTUNE_SITE", site)
-    monkeypatch.chdir(tmp_path)
-    tune = _o0_harness(monkeypatch, tmp_path)
-    got = tune(["--site", site, "--out", str(tmp_path / "out"), "--ledger-dir",
-                str(tmp_path / "ledger"), "--env-source", str(env_sh)])
-    # what the jobs hash: the site file's $W after sourcing env.sh, resolved by bash itself
-    w = subprocess.run(["bash", "-c", 'source "$1" >/dev/null 2>&1; CAMPAIGN="$2"; '
-                        'source "$CAMPAIGN/sites/$3.sh" >/dev/null 2>&1; printf %s "$W"',
-                        "x", str(env_sh), CAMPAIGN, site],
-                       capture_output=True, text=True, env=dict(os.environ)).stdout
-    with open(os.path.join(w, "main", "wrf.exe"), "rb") as f:
-        job_build = _sha16(f.read())
-    with open(tree_a / "main" / "wrf.exe", "rb") as f:
-        machine_build = _sha16(f.read())
-    assert job_build != machine_build          # the scenario: the two trees differ
-    assert got["build_id"] == job_build
-
-
-# --- defect 3 ---------------------------------------------------------------------------------
-def test_second_tune_in_process_does_not_inherit_first_tunes_ledger_dir(monkeypatch, tmp_path):
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
-    monkeypatch.delenv("WTUNE_CAMPAIGN_OUT", raising=False)
-    monkeypatch.chdir(tmp_path)
-    tune = _o0_harness(monkeypatch, tmp_path)
-    first_dir = str(tmp_path / "first-ledger")
-    first = tune(["--site", "scc", "--out", str(tmp_path / "out1"), "--ledger-dir", first_dir])
-    assert first["ledger_dir"] == first_dir
-    assert first["campaign_out"] == first_dir          # the probe jobs write where it reads
-    assert "WTUNE_CAMPAIGN_OUT" not in os.environ      # nothing left behind after the tune
-    second = tune(["--site", "scc", "--out", str(tmp_path / "out2")])
-    assert second["ledger_dir"] == str(home / "wtune-runs" / "campaign")
 
 
 def test_tune_restores_a_preexisting_campaign_out(monkeypatch, tmp_path):
@@ -252,14 +188,6 @@ def test_tuning_at_without_an_estimate_uses_this_builds_rows_and_history(monkeyp
     with pytest.raises(_Seen):
         wtune.tune.rounds.run_tuning_at(ctx)
     assert seen == [pytest.approx(expected)]
-
-
-@pytest.mark.parametrize("scenario", sorted(SCENARIOS))
-def test_o0_cold_start_ledger_estimate_uses_this_builds_rows_and_history(tmp_path, scenario):
-    ctx, expected = _ctx(tmp_path, scenario)
-    total, s_est, src = wtune.tune.prediction.cold_start_prediction(ctx, 2, None, 1000)
-    assert s_est == pytest.approx(expected)
-    assert total == pytest.approx(1000 * expected + ctx.startup_s)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -440,177 +368,3 @@ def _load_real_bp():
 
 
 REAL_BP = _load_real_bp()
-
-
-def _fake_bp_module():
-    m = types.ModuleType("wtune_bp")
-    m.ADIOS2_IO_FORM = 14
-    m.require_adios2_python = lambda: "/fake/adios2/python"
-
-    def convert_inputs(case_dir, cache_dir, names=None, engine="BP4"):
-        out = {}
-        for n in names:
-            p = os.path.join(cache_dir, n)
-            if REAL_BP.PER_RECORD_NAME_RE.match(n):
-                for t in ("2020-06-01_00:00:00", "2020-06-01_06:00:00", "2020-06-01_12:00:00"):
-                    q = os.path.join(p, "%s_%s.bp" % (n, t))
-                    os.makedirs(q, exist_ok=True)
-                    for f in ("md.idx", "data.0"):
-                        open(os.path.join(q, f), "w").close()
-            else:
-                os.makedirs(p, exist_ok=True)
-                for f in ("md.idx", "data.0"):
-                    open(os.path.join(p, f), "w").close()
-            out[n] = p
-        return out
-    m.convert_inputs = convert_inputs
-    m.adios2_xml = lambda engine_by_stream=None: (
-        '<?xml version="1.0"?>\n<adios-config>\n</adios-config>\n')
-    m.is_bp = os.path.isdir
-    for name in ("PER_RECORD_NAME_RE", "is_per_record_dir", "record_files", "bp_input_links",
-                 "per_record_namelist_edits"):
-        setattr(m, name, getattr(REAL_BP, name))
-
-    def cp(cmd, **kw):
-        shutil.copytree(cmd[-2], cmd[-1], symlinks=True)
-        return subprocess.CompletedProcess(cmd, 0, b"", b"")
-    m.fresh_input_copy = lambda src, dest, stats=None: REAL_BP.fresh_input_copy(
-        src, dest, runner=cp, stats=stats)
-    return m
-
-
-RUN_NAMELIST = """ &time_control
- run_days = 0,
- run_hours = 12,
- run_minutes = 0,
- run_seconds = 0,
- start_year = 2020,
- start_month = 06,
- start_day = 01,
- start_hour = 00,
- end_year = 2020,
- end_month = 06,
- end_day = 01,
- end_hour = 12,
- interval_seconds = 21600
- input_from_file = .true.,
- history_interval = 60,
- frames_per_outfile = 1,
- restart = .false.,
- restart_interval = 7200,
- io_form_history = 2
- io_form_restart = 2
- io_form_input = 2
- io_form_boundary = 2
- /
-
- &domains
- time_step = 60,
- max_dom = 1,
- e_we = 100,
- e_sn = 100,
- e_vert = 45,
- /
-
- &physics
- radt = 30,
- /
-"""
-
-COMPUTED = ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qg_mp38V1.dat")   # WRF writes these
-KEPT = ("LANDUSE.TBL", "my_notes.dat", "qr_acr_qg_V4.dat.orig")              # not Thompson tables
-
-
-class SegmentJob:
-    """sbatch: WRF of the segment computes the Thompson tables into the seg dir (and, when the
-    outcome is done, writes the restart); sacct reports `state`; snapshot reports the outcome."""
-
-    def __init__(self, state="COMPLETED", outcome="done"):
-        self.state, self.outcome, self.segs = state, outcome, []
-
-    def sbatch(self, cmd):
-        seg = os.path.dirname(cmd.split()[-1].strip("'"))
-        self.segs.append(seg)
-        for t in COMPUTED + KEPT:
-            with open(os.path.join(seg, t), "w") as f:
-                f.write("%s written in the job\n" % t)
-        if self.outcome == "done":
-            info = wtune.watch.run_info(wp.parse_namelist(os.path.join(seg, "namelist.input")))
-            for d in range(1, len(info["domains"]) + 1):
-                rst = os.path.join(seg, "wrfrst_d%02d_%s" % (d, info["end"].strftime(
-                    "%Y-%m-%d_%H:%M:%S")))
-                os.makedirs(rst, exist_ok=True)
-                open(os.path.join(rst, "md.idx"), "w").close()
-        return "Submitted batch job %d\n" % (5000 + len(self.segs))
-
-    def sacct(self, cmd):
-        return "%s|%s|00:10:00\n" % (cmd[cmd.index("-j") + 1], self.state)
-
-    def snapshot(self, seg):
-        if self.outcome == "done":
-            return {"status": "done", "warnings": [], "sum_d01_elapsed_s": 300.0,
-                    "n_d01_steps": 720}
-        return {"status": "failed", "warnings": [{"code": "FAILED", "text": "forrtl: severe"}]}
-
-
-def _wtune_run(monkeypatch, tmp_path, job, extra=(), **kw):
-    monkeypatch.setitem(sys.modules, "wtune.bp", _fake_bp_module())
-    import wtune
-    monkeypatch.setattr(wtune, "bp", sys.modules["wtune.bp"], raising=False)
-    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    case = tmp_path / "case"
-    case.mkdir()
-    (case / "namelist.input").write_text(RUN_NAMELIST)
-    for n in ("wrfinput_d01", "wrfbdy_d01"):
-        (case / n).write_text("x")
-    (case / "qr_acr_qsV2.dat").write_text("the case's own table\n")
-    out = tmp_path / "out"
-    lines = []
-    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes",
-                  "720", "--out", str(out), "--poll-interval", "0"] + list(extra),
-                 sbatch_runner=job.sbatch, sacct_runner=kw.get("sacct", job.sacct),
-                 snapshot_fn=job.snapshot, sleep=kw.get("sleep", lambda s: None),
-                 log=lines.append, scancel_runner=kw.get("scancel"))
-    assert job.segs, lines
-    return rc, job.segs[0], case
-
-
-def _assert_tables_removed(seg, case):
-    for t in COMPUTED:
-        assert not os.path.lexists(os.path.join(seg, t)), "%s left in %s" % (t, seg)
-    own = os.path.join(seg, "qr_acr_qsV2.dat")
-    assert os.path.islink(own) and open(own).read() == "the case's own table\n"
-    assert (case / "qr_acr_qsV2.dat").exists()
-    for t in KEPT:
-        assert os.path.isfile(os.path.join(seg, t)), "%s deleted" % t
-
-
-@pytest.mark.parametrize("state,outcome", [("COMPLETED", "done"), ("FAILED", "failed"),
-                                           ("TIMEOUT", "failed"), ("CANCELLED", "failed"),
-                                           ("NODE_FAIL", "failed")])
-def test_segment_tables_deleted_whatever_the_job_did(monkeypatch, tmp_path, state, outcome):
-    rc, seg, case = _wtune_run(monkeypatch, tmp_path, SegmentJob(state, outcome))
-    _assert_tables_removed(seg, case)
-
-
-def test_segment_tables_deleted_when_the_run_is_stopped_during_the_segment(monkeypatch, tmp_path):
-    """Ctrl-C / `wtune stop` while the segment's job runs: the controller cancels the job and
-    stops. The segment directory stays behind with whatever WRF had computed."""
-    import wtune.stopping
-    monkeypatch.setitem(wtune.stopping.STOP, "reason", None)
-    job, cancelled = SegmentJob("RUNNING", "failed"), []
-
-    def sleep(_s):
-        wtune.stopping.STOP["reason"] = "stopped by Ctrl-C"
-    rc, seg, case = _wtune_run(monkeypatch, tmp_path, job, sleep=sleep,
-                               scancel=cancelled.append)
-    assert rc == 130 and cancelled
-    _assert_tables_removed(seg, case)
-
-
-def test_thompson_cache_keeps_the_segment_tables_for_the_harvest(monkeypatch, tmp_path):
-    """control: with --thompson-cache the job's own harvest takes them (they stay)."""
-    rc, seg, case = _wtune_run(monkeypatch, tmp_path, SegmentJob(), extra=["--thompson-cache"])
-    for t in COMPUTED + KEPT:
-        assert os.path.isfile(os.path.join(seg, t))

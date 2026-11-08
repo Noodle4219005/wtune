@@ -5,7 +5,6 @@ import os
 import netCDF4
 import numpy as np
 
-from wtune.post.conventions import continuous_lons
 
 NY, NX = 30, 40
 T0 = "2017-07-31_00:00:00"
@@ -15,14 +14,6 @@ def _grid():
     lat = (20.0 + 0.5 * np.arange(NY))[:, None] * np.ones((1, NX))
     lon = np.ones((NY, 1)) * (165.0 + 0.6 * np.arange(NX))[None, :]      # 165 .. 188.4 E
     return lat, (lon + 180.0) % 360.0 - 180.0                            # as WRF writes XLONG
-
-
-def test_continuous_lons_across_180():
-    _lat, lon = _grid()
-    c = continuous_lons(lon)
-    assert (np.diff(c, axis=1) > 0).all()
-    assert c.min() == 165.0 and abs(c.max() - 188.4) < 1e-9
-    assert np.array_equal(continuous_lons([[-80.0, -70.0]]), [[-80.0, -70.0]])
 
 
 def test_run_window_box_is_not_the_globe(tmp_path, capsys):

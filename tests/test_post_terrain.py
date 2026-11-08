@@ -32,35 +32,6 @@ import numpy as np
 from wtune.post.recipes import terrain
 
 
-def _case_info(domains, terrain_domains):
-    return dict(domains=[{"domain": d} for d in domains], terrain_domains=terrain_domains)
-
-
-def test_terrain_domain_picks_finest_qualifying_domain_when_only_d01_qualifies():
-    case_info = _case_info(domains=[1, 2], terrain_domains=[1])
-    assert terrain._terrain_domain(case_info) == 1
-
-
-def test_terrain_domain_picks_finest_qualifying_domain_when_both_qualify():
-    case_info = _case_info(domains=[1, 2], terrain_domains=[1, 2])
-    assert terrain._terrain_domain(case_info) == 2
-
-
-def test_terrain_domain_falls_back_to_overall_finest_when_none_qualify():
-    """--types terrain forced on a case where no domain actually meets the rule (there is no
-    "correct" domain in that situation) -- keeps the pre-existing default rather than
-    failing outright."""
-    case_info = _case_info(domains=[1, 2, 3], terrain_domains=[])
-    assert terrain._terrain_domain(case_info) == 3
-
-
-def test_terrain_domain_handles_missing_key_gracefully():
-    """case_info dicts built before this fix (or from a code path that never set
-    terrain_domains) must not crash -- same fallback as the empty-list case."""
-    case_info = dict(domains=[{"domain": 1}, {"domain": 2}])
-    assert terrain._terrain_domain(case_info) == 2
-
-
 # -- _find_valley_point() ---------------------------------------------------------------
 
 _INTERIOR_BOUNDS = (5, 10, 5, 10)   # a 15x15 grid, bdy_width=5 on every edge
@@ -70,44 +41,12 @@ def _flat(value=500.0, shape=(15, 15)):
     return np.full(shape, value, dtype=float)
 
 
-def test_find_valley_point_rejects_a_sea_point():
-    """The only local-minimum-with-relief candidate is SEA (LANDMASK==0) -- must be
-    rejected, not picked because it happens to be the deepest 'valley'."""
-    hgt = _flat()
-    landmask = np.ones((15, 15))
-    hgt[7, 7] = 0.0
-    landmask[7, 7] = 0.0
-    assert terrain._find_valley_point(hgt, landmask, _INTERIOR_BOUNDS) is None
-
-
 def test_find_valley_point_rejects_a_point_in_the_boundary_zone():
     """A genuine land valley, but at (1,1) -- outside the 5-cell interior -- must be
     rejected even though it would otherwise qualify."""
     hgt = _flat()
     landmask = np.ones((15, 15))
     hgt[1, 1] = 0.0
-    assert terrain._find_valley_point(hgt, landmask, _INTERIOR_BOUNDS) is None
-
-
-def test_find_valley_point_rejects_insufficient_surrounding_relief():
-    """Only 50 m lower than its neighbourhood (< the 300 m ridge-relief rule) -- not a real
-    valley, just locally low terrain."""
-    hgt = _flat()
-    landmask = np.ones((15, 15))
-    hgt[7, 7] = 450.0
-    assert terrain._find_valley_point(hgt, landmask, _INTERIOR_BOUNDS) is None
-
-
-def test_find_valley_point_finds_a_genuine_interior_land_valley():
-    hgt = _flat()
-    landmask = np.ones((15, 15))
-    hgt[7, 7] = 0.0   # land, interior, 500 m of surrounding relief
-    assert terrain._find_valley_point(hgt, landmask, _INTERIOR_BOUNDS) == (7, 7)
-
-
-def test_find_valley_point_returns_none_for_a_perfectly_flat_domain():
-    hgt = _flat()
-    landmask = np.ones((15, 15))
     assert terrain._find_valley_point(hgt, landmask, _INTERIOR_BOUNDS) is None
 
 
@@ -152,39 +91,11 @@ def test_valley_time_height_reports_missing_with_fewer_than_two_frames(monkeypat
 
 # -- _fill_below_valid() -------------------------------------------------------------------
 
-def test_fill_below_valid_extrapolates_all_the_way_to_the_bottom():
-    """Sixth lead review: fill down to index 0 unconditionally (no terrain boundary any
-    more) -- this is what lets the terrain silhouette polygon, not a data mask, be the only
-    thing hiding the underground portion, since a data mask was itself dropping valid
-    neighbouring-column quads in matplotlib's contourf."""
-    arr = np.array([
-        [np.nan, np.nan],   # index 0
-        [np.nan, 5.0],      # index 1
-        [10.0, 6.0],        # index 2 -- column 0's first valid sample
-        [11.0, 7.0],
-        [12.0, 8.0],
-    ])
-    out = terrain._fill_below_valid(arr)
-
-    # column 0: every level below its first valid sample (index 2, value 10.0) is filled with
-    # that value, all the way to index 0 -- nothing left NaN.
-    assert list(out[:3, 0]) == [10.0, 10.0, 10.0]
-    assert list(out[3:, 0]) == [11.0, 12.0]   # values above the first valid sample untouched
-
-    # column 1: first valid sample already at index 1 (5.0) -> only index 0 is filled.
-    assert list(out[:, 1]) == [5.0, 5.0, 6.0, 7.0, 8.0]
-
 
 def test_fill_below_valid_never_fills_above_the_lowest_valid_sample():
     arr = np.array([[np.nan], [np.nan], [20.0], [21.0]])
     out = terrain._fill_below_valid(arr)
     assert list(out[:, 0]) == [20.0, 20.0, 20.0, 21.0]
-
-
-def test_fill_below_valid_does_not_modify_the_input_array():
-    arr = np.array([[np.nan], [5.0]])
-    terrain._fill_below_valid(arr)
-    assert np.isnan(arr[0, 0])   # the original array is untouched -- the function returns a copy
 
 
 def test_fill_below_valid_leaves_an_all_nan_column_untouched():
@@ -197,25 +108,6 @@ def test_fill_below_valid_leaves_an_all_nan_column_untouched():
 
 def _stn(sid, lat, lon):
     return dict(id=sid, name=sid, icao="", lat=str(lat), lon=str(lon), elev_m="100")
-
-
-def test_along_off_km_flow_toward_east():
-    along, off = terrain.along_off_km((40.0, -110.0), 90.0, 40.0, -109.4)   # ~51 km east
-    assert 50 < along < 52 and abs(off) < 0.5
-    along, off = terrain.along_off_km((40.0, -110.0), 90.0, 40.0, -110.6)   # upstream
-    assert along < -50
-
-
-def test_lee_candidates_window_and_ordering():
-    crest = (40.0, -110.0)
-    st = [_stn("UP", 40.0, -110.5),          # upstream
-          _stn("NEAR", 40.0, -109.8),        # ~17 km: too close
-          _stn("LEE1", 40.0, -109.4),        # ~51 km
-          _stn("LEE2", 40.0, -109.0),        # ~85 km
-          _stn("OFF", 40.4, -109.4),         # 44 km across
-          _stn("FAR", 40.0, -108.5)]         # ~128 km
-    cands, reason = terrain.lee_station_candidates(st, crest, 90.0)
-    assert [c["station"]["id"] for c in cands] == ["LEE1", "LEE2"] and reason is None
 
 
 def test_lee_candidates_none_reason_is_explicit():

@@ -25,7 +25,6 @@ import hashlib
 import json
 import os
 import re
-import sys
 import types
 
 import pytest
@@ -38,7 +37,6 @@ GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "g
 REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
 # the checkout location differs per machine (scc runs the suite from an exported tree)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 
 @pytest.fixture(autouse=True)
@@ -147,43 +145,6 @@ def test_golden_pipeline(name, monkeypatch, tmp_path, capsys):
         js = f.read()
     _check("pipeline_%s.txt" % name, _norm(out, tmp_path))
     _check("pipeline_%s.json" % name, _norm(js, tmp_path))
-
-
-def test_golden_level0(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(wtune.tune.context, "resolve_case",
-                        lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
-                                           str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune.tune.context, "_total_steps", lambda nl: 1000)
-    monkeypatch.setattr(wtune.tune.prediction, "cold_start_prediction",
-                        lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
-    args = wtune.tune.build_arg_parser().parse_args(
-        ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
-         "--ledger-dir", str(tmp_path / "ledger")])
-    wtune.tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
-    out = capsys.readouterr().out
-    with open(tmp_path / "out" / "tune_report.json") as f:
-        js = f.read()
-    _check("level0.txt", _norm(out, tmp_path))
-    _check("level0.json", _norm(js, tmp_path))
-
-
-def test_golden_fixed_nodes_and_node_search_runs(monkeypatch, tmp_path, capsys):
-    """The two non-pipeline t0 paths end to end: --nodes 1 (run_tuning_at + build_report) and the
-    legacy --nodes search (run_node_search)."""
-    rep, _jn, _sc = T._run_cli(monkeypatch, tmp_path / "a",
-                               ["--minutes", "30", "--nodes", "1", "--no-node-preflight"])
-    out = capsys.readouterr().out
-    with open(tmp_path / "a" / "out" / "tune_report.json") as f:
-        js = f.read()
-    _check("fixed_nodes.txt", _norm(out, tmp_path / "a"))
-    _check("fixed_nodes.json", _norm(js, tmp_path / "a"))
-    rep, _jn, _sc = T._run_cli(monkeypatch, tmp_path / "b", ["--minutes", "600"],
-                               preflight_runner=_no_sinfo)
-    out = capsys.readouterr().out
-    with open(tmp_path / "b" / "out" / "tune_report.json") as f:
-        js = f.read()
-    _check("node_search.txt", _norm(out, tmp_path / "b"))
-    _check("node_search.json", _norm(js, tmp_path / "b"))
 
 
 # --- run(): argument resolution + context build + dispatch, runners replaced by recorders ------

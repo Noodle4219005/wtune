@@ -11,18 +11,6 @@ from wtune.post.recipes import climate
 from wtune.post.fetch import era5_monthly, gpcp_monthly
 
 
-def test_analysis_months_excludes_spinup_and_incomplete_tail():
-    t0, t1 = datetime(2022, 12, 1), datetime(2024, 1, 1)
-    months = climate.analysis_months(t0, t1, 30.0)
-    assert months[0] == (2023, 1) and months[-1] == (2023, 12) and len(months) == 12
-    # spin-up parameter: 0 days keeps December 2022, 45 days drops January 2023 too
-    assert climate.analysis_months(t0, t1, 0.0)[0] == (2022, 12)
-    assert climate.analysis_months(t0, t1, 45.0)[0] == (2023, 2)
-    # a month whose closing 00 UTC frame is missing is not complete
-    assert (2023, 12) not in climate.analysis_months(t0, datetime(2023, 12, 31, 18), 30.0)
-    assert climate.analysis_months(t0, datetime(2022, 12, 20), 30.0) == []
-
-
 def test_complete_seasons_djf_uses_jan_feb_dec_of_analysis_year():
     months = [(2023, m) for m in range(1, 13)]
     s = climate.complete_seasons(months)

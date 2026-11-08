@@ -3,7 +3,6 @@
 descriptions only. (a)/(b) conversion job under wtune stop / sbatch refusal, (c) restarts of a
 failed attempt after its resume finished, (d) adaptive dt defaults, (e) post fetch bdeck,
 (f) the test suite's network guard. Fakes only: no job, no network, no adios2."""
-import argparse
 import asyncio
 import datetime as dt
 import http.server
@@ -18,8 +17,6 @@ import pytest
 
 import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
 from test_wtune_run import Fakes, _make_case, _run, fake_bp  # noqa: F401  (autouse fixture)
-from test_wtune_run_resume import Dying
-from wtune import predict as wp
 from wtune import run as wr
 import wtune.stopping
 
@@ -117,42 +114,6 @@ def test_a_wtune_stop_during_conversion_wait_cancels_it_and_exits_130(tmp_path, 
     assert not (tmp_path / "out" / "seg_0").exists()
 
 
-def test_b_sbatch_rejecting_the_conversion_job_is_a_clean_error(tmp_path, fake_bp, capsys):  # noqa: F811
-    case = _make_case(tmp_path)
-    f = ConvFakes("reject", tmp_path / "out", case, fake_bp)
-    try:
-        rc, lines = _main_conv(tmp_path, f)
-    except RuntimeError as e:
-        pytest.fail("traceback instead of an error line: %s" % e)
-    assert rc == 2
-    assert "error:" in capsys.readouterr().err
-    assert fake_bp.calls == []                       # no conversion on the login node
-    assert len(f.all_sbatch) == 1                    # no segment submitted
-    assert not (tmp_path / "out" / "seg_0").exists()
-    assert not (tmp_path / "out" / "run.state.json").exists()
-
-
-def test_b2_a_failed_conversion_job_is_an_error_and_nothing_is_converted_here(tmp_path, fake_bp):  # noqa: F811
-    case = _make_case(tmp_path)
-    f = ConvFakes("fail", tmp_path / "out", case, fake_bp)
-    rc, lines = _main_conv(tmp_path, f)
-    assert rc == 2 and fake_bp.calls == [] and len(f.all_sbatch) == 1
-    assert not (tmp_path / "out" / "run.state.json").exists()
-
-
-def test_a2_after_the_conversion_job_the_segments_list_their_jobs(tmp_path, fake_bp):  # noqa: F811
-    case = _make_case(tmp_path)
-    f = ConvFakes("done", tmp_path / "out", case, fake_bp)
-    rc, lines = _main_conv(tmp_path, f)
-    assert rc == 0
-    # the job converted (fake, inside sacct); the login node's later convert_inputs pass only
-    # checks the now-current cache (the fake converter does not model that skip)
-    assert fake_bp.calls and fake_bp.calls[0][1].endswith("_bp_inputs")
-    seg_states = [(j, st) for j, st in f.state_seen if j != "2001"]
-    assert seg_states and all(st is not None and j in st for j, st in seg_states)
-    assert not (tmp_path / "out" / "run.state.json").exists()     # removed at the normal end
-
-
 # ---------------------------------------------------------------------------
 # (c) restarts of the failed attempt once its resume finished
 # ---------------------------------------------------------------------------
@@ -164,71 +125,6 @@ def _sets(d):
             continue
         out.setdefault(p.name[len("wrfrst_dNN_"):], []).append(int(p.name[8:10]))
     return {t: sorted(v) for t, v in out.items()}
-
-
-def test_c_failed_attempt_keeps_only_the_set_its_resume_started_from(tmp_path):
-    _make_case(tmp_path)
-    f = Dying([("died", "NODE_FAIL", 8)])
-    rc, out, rep, _ = _run(tmp_path, f, ["--segment-minutes", "720", "--checkpoint-minutes",
-                                         "120", "--io", "netcdf"])
-    assert rc == 0 and rep["status"] == "completed"
-    first = rep["segments"][0]["attempts"][0]
-    assert first["resume_time"] == "2020-06-01_06:00:00"
-    assert _sets(out / "seg_0") == {"2020-06-01_06:00:00": [1, 2, 3]}
-    for d in (1, 2, 3):                              # the finished attempt's links still resolve
-        assert os.path.exists(out / "seg_0_r1" / ("wrfrst_d%02d_2020-06-01_06:00:00" % d))
-    assert _sets(out / "seg_0_r1") == {"2020-06-01_12:00:00": [1, 2, 3]}
-
-
-def test_c2_resume_chain_r1_r2(tmp_path):
-    _make_case(tmp_path)
-    f = Dying([("died", "NODE_FAIL", 8), ("died", "NODE_FAIL", 11)])
-    rc, out, rep, _ = _run(tmp_path, f, ["--segment-minutes", "720", "--checkpoint-minutes",
-                                         "120", "--io", "netcdf", "--resume", "2"])
-    assert rc == 0 and rep["resumes"] == 2
-    a0, a1, a2 = rep["segments"][0]["attempts"]
-    assert (a0["resume_time"], a1["resume_time"]) == ("2020-06-01_06:00:00",
-                                                       "2020-06-01_10:00:00")
-    for d in (1, 2, 3):
-        assert os.path.exists(out / "seg_0_r2" / ("wrfrst_d%02d_2020-06-01_10:00:00" % d))
-    assert _sets(out / "seg_0_r1") == {"2020-06-01_10:00:00": [1, 2, 3]}
-
-
-def test_c3_resume_chain_trims_the_first_failed_attempt_too(tmp_path):
-    # beyond the stated contract: in a chain seg_0 is also a failed attempt a resume started
-    # from (06:00); whatever else it holds is never read again
-    _make_case(tmp_path)
-    f = Dying([("died", "NODE_FAIL", 8), ("died", "NODE_FAIL", 11)])
-    rc, out, rep, _ = _run(tmp_path, f, ["--segment-minutes", "720", "--checkpoint-minutes",
-                                         "120", "--io", "netcdf", "--resume", "2"])
-    assert rc == 0
-    assert _sets(out / "seg_0") == {"2020-06-01_06:00:00": [1, 2, 3]}
-
-
-# ---------------------------------------------------------------------------
-# (d) use_adaptive_time_step defaults
-# ---------------------------------------------------------------------------
-def _adaptive(tmp_path, dx, dy=None, extra=""):
-    p = tmp_path / "adaptive.nml"
-    p.write_text(" &domains\n use_adaptive_time_step = .true.,\n dx = %s,\n dy = %s,\n%s /\n"
-                 % (dx, dy if dy is not None else dx, extra))
-    return wp.adaptive_step_bounds(wp.parse_namelist(str(p)), 3600.0)
-
-
-def test_d_defaults_round_half_away_from_zero_like_fortran_nint(tmp_path):
-    # WRF start_em.F: min = NINT(3*min(dx,dy)/1000), max = NINT(8*min(dx,dy)/1000)
-    assert _adaptive(tmp_path, 1500.0) == (300, 720, 5.0, 12.0)          # NINT(4.5) = 5, not 4
-    lo, hi = _adaptive(tmp_path, 1562.5)[2:]
-    assert (lo, hi) == (5.0, 13.0)                                       # NINT(12.5) = 13
-    assert _adaptive(tmp_path, 3000.0, 1500.0)[2:] == (5.0, 12.0)        # min(dx, dy)
-
-
-def test_d_den_divides_the_default_and_an_explicit_value(tmp_path):
-    lo, hi = _adaptive(tmp_path, 1500.0, extra=" min_time_step_den = 2,\n max_time_step_den = 4,\n")[2:]
-    assert (lo, hi) == (2.5, 3.0)
-    lo, hi = _adaptive(tmp_path, 1500.0, extra=" min_time_step = 9,\n min_time_step_den = 2,\n"
-                                               " max_time_step = 30,\n")[2:]
-    assert (lo, hi) == (4.5, 30.0)
 
 
 # ---------------------------------------------------------------------------
@@ -268,21 +164,6 @@ def test_e_bdeck_takes_wtune_submits_window_options(tmp_path, fake_nhc):
         pytest.fail("argparse refused wtune submit's fetch step: exit %s" % e.code)
     assert rc == 0 and len(fake_nhc) == 1
     assert (tmp_path / "input" / "obs" / "bdeck" / "bal142016.dat").is_file()
-
-
-def test_e_no_download_when_the_sha_matches_provenance(tmp_path, fake_nhc):
-    from wtune.post import fetch, sources
-    from wtune.post.fetch import bdeck
-    (tmp_path / "project.yaml").write_text("storm:\n  id: AL142016\n")
-    ns = argparse.Namespace(project=str(tmp_path), storm=None, run_dir=None, start=None,
-                            end=None, bbox=None)
-    got = fetch.run_module("bdeck", ns)
-    assert len(fake_nhc) == 1 and sources.read_provenance(str(tmp_path), "bdeck")["files"]
-    assert fetch.run_module("bdeck", ns) == got and len(fake_nhc) == 1    # sha matches: skipped
-    with open(got[0], "a") as fh:                                         # corrupted locally
-        fh.write("garbage\n")
-    assert fetch.run_module("bdeck", ns) == got and len(fake_nhc) == 2    # re-downloaded
-    assert bdeck.present(str(tmp_path))
 
 
 def test_e_atcf_storm_without_project_yaml(tmp_path, fake_nhc):

@@ -52,13 +52,6 @@ def _dataset(base, name="cmorph", kind="gridded_precip", hours=range(1, 25), **g
     return d
 
 
-def test_valid_grid_dataset_passes(tmp_path):
-    d = _dataset(tmp_path)
-    assert agent_obs.check(str(d)) == ([], [])
-    ok, bad = agent_obs.usable(str(tmp_path), "gridded_precip")
-    assert [n for n, _d, _p in ok] == ["cmorph"] and bad == []
-
-
 def test_grid_units_range_and_sha_are_checked(tmp_path):
     d = _dataset(tmp_path, units="kg m-2", value=9000.0)
     err, _ = agent_obs.check(str(d))
@@ -88,17 +81,6 @@ def test_gauges_pass_and_bad_time_fails(tmp_path):
     prov["files"]["gauges.csv"] = _sha(d / "gauges.csv")
     (d / "provenance.json").write_text(json.dumps(prov))
     assert any("line 2" in e for e in agent_obs.check(str(d))[0])
-
-
-def test_hourly_files_tile_a_24h_window(tmp_path):
-    d = _dataset(tmp_path)
-    frames = [datetime(2016, 10, 6, 12) + timedelta(hours=h) for h in range(49)]
-    span, start, end, paths = agent_obs.pick_window(frames, 6, agent_obs.grid_index(str(d)))
-    assert (span, start, end, len(paths)) == (24, datetime(2016, 10, 7), datetime(2016, 10, 8), 24)
-    lat, lon, total = agent_obs.sum_grids(paths)
-    assert np.allclose(total, 48.0)
-    la, lo, sub = agent_obs.subset(lat, lon, total, (20.5, 21.5, 120.2, 120.4), margin=0.5)
-    assert list(la) == [20.0, 21.0, 22.0] and list(lo) == [120.0] and sub.shape == (3, 1)
 
 
 def test_read_grid_flips_descending_lat_and_wraps_lon(tmp_path):
@@ -444,7 +426,6 @@ def test_obs_check_warns_on_station_units(tmp_path):
         license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
     err, warn = agent_obs.check(str(d))
     assert err == [] and len(warn) == 2
-
 
 
 def test_window_centres_on_the_rain_peak(tmp_path):

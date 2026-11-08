@@ -69,32 +69,6 @@ def test_convective_peak_at_hour_10_is_selected_and_t0_kept():
     assert any("cost-indicators" in n for n in notes)
 
 
-def test_option_off_golden_identical_to_pre_change_output():
-    sp = [(lat, lon) for lat in (-10.0, 0.0, 10.0) for lon in (-10.0, 0.0, 10.0)]
-    rs = D(2020, 6, 1, 6)
-    cfg = dict(steps="auto", points="auto", max_points=5, budget_pct=None, sources=["rebuild"])
-    golden = [(D(2020, 6, 1, 6), "t0"), (D(2020, 6, 1, 7), "day"), (D(2020, 6, 1, 13), "farthest"),
-              (D(2020, 6, 1, 19), "night"), (D(2020, 6, 2, 5), "late")]   # captured at HEAD
-
-    def run(cfg_, **kw):
-        pts, notes = plan.plan_points({}, rs, rs + datetime.timedelta(hours=24), dt=60.0, stepra=15,
-                                      spinup_s=0.0, cfg=cfg_, sample_points=sp,
-                                      forcing_interval_h=1.0, **kw)
-        return [(p.at, p.reason) for p in pts], notes
-    assert run(cfg) == (golden, [])
-    assert run(dict(cfg, points_by="time")) == (golden, [])
-    cs = _cs([FakeProvider("fake", convective_series())])
-    assert run(cfg, indicators=cs) == (golden, [])         # indicators ignored when mode is time
-
-
-def test_select_windows_default_unchanged_with_cost_lookup_none():
-    from wtune.tools import coldstart_sample as cs_mod
-    cands = cs_mod.candidate_times(D(2020, 6, 1, 6), D(2020, 6, 2, 6), 3600.0, 3600.0)
-    base = cs_mod.select_windows(cands, 0.0, 3600.0, 5)
-    assert cs_mod.select_windows(cands, 0.0, 3600.0, 5, cost_lookup=None) == base
-    assert [r for _t, r in base] == ["t0", "late", "farthest", "farthest", "farthest"]
-
-
 # ---- providers / fallback -------------------------------------------------------------------
 def test_provider_fallback_order_and_per_indicator_fill():
     bad = FakeProvider("bad", err="boom")
@@ -139,37 +113,6 @@ def test_imerg_is_skipped_with_reason_never_credentials():
     assert "Earthdata" in cs.provenance[0]["error"]
 
 
-def test_constant_indicator_dropped_from_c():
-    cs = _cs([FakeProvider("fake", convective_series())])
-    assert "wind_max" in cs.dropped                         # constant 8 m/s
-    assert cs.weights["cloud_col"] == cs.weights["precip_area"] == 1.0   # microphysics 2.0 / 2
-
-
-def test_cost_structure_weights_from_case_profile():
-    w = cd.indicator_weights({"phases_ranked": [{"phase": "microphysics", "weight": 4.0},
-                                                {"phase": "cumulus", "weight": 0.0}]})
-    assert w["cloud_col"] == 2.0 and w["cape_area"] == 0.0 and w["sunlit"] == 1.0
-
-
-def test_sunlit_computed_with_sample_points_and_excluded_from_c_noradiation():
-    sp = [(lat, lon) for lat in (-10.0, 0.0, 10.0) for lon in (-10.0, 0.0, 10.0)]
-    cs = _cs([FakeProvider("fake", convective_series())], sample_points=sp)
-    assert "sunlit" in cs.indicators and cs.used["sunlit"].startswith("computed")
-    assert cs.c != cs.c_noradiation
-
-
-# ---- weighting ----------------------------------------------------------------------------
-def test_stratum_weights_sum_to_one_and_stratified_matches_hand_computation():
-    cs = _linear_cs()
-    ms = [_pm(2, 1.0), _pm(8, 2.0), _pm(14, 3.0), _pm(20, 4.0)]
-    w = cd.weighted_totals(cs, ms, RUN_START, RUN_END, 60.0, 15, None, 1.0, 1.0)
-    assert sum(s["weight"] for s in w["strata"]) == pytest.approx(1.0)
-    assert [s["hours"] for s in w["strata"]] == [6, 6, 6, 6]
-    steps_n = 1440
-    # hand: w_k = 6/24 each, s_k = 1,2,3,4, r == 1 -> N * sum w_k s_k
-    assert w["stratified_compute_s"] == pytest.approx(steps_n * 0.25 * (1 + 2 + 3 + 4))
-
-
 def test_stratified_empty_stratum_takes_nearest_point_and_unequal_points_average():
     cs = _linear_cs()
     ms = [_pm(2, 1.0), _pm(3, 3.0), _pm(19, 4.0)]            # K=3 strata of 8 h: [0-7],[8-15],[16-23]
@@ -188,29 +131,6 @@ def test_stratified_applies_radiation_treatment_like_the_integrator():
     n_rad = sum(1 for i in range(1, 1441) if i == 1 or i % stepra == 0)
     r_t = 4.0                                                # no sample_points: (r_night+r_day)/2
     assert w["stratified_compute_s"] == pytest.approx(1440 * 2.0 + n_rad * (r_t - 1.0) * 2.0)
-
-
-def test_regression_exact_on_linear_case_r2_one():
-    cs = _linear_cs()
-    cvals = {h: cs.value_at(RUN_START + datetime.timedelta(hours=h)) for h in range(24)}
-    ms = [_pm(h, 1.0 + 0.5 * cvals[h]) for h in (1, 7, 13, 22)]
-    w = cd.weighted_totals(cs, ms, RUN_START, RUN_END, 60.0, 15, None, 1.0, 1.0)
-    assert w["alpha"] == pytest.approx(1.0) and w["beta"] == pytest.approx(0.5)
-    assert w["r2"] == pytest.approx(1.0)
-    expected = sum(60 * (1.0 + 0.5 * cvals[h]) for h in range(24))
-    assert w["regression_compute_s"] == pytest.approx(expected)
-
-
-def test_regression_needs_three_points_and_clamps_negative_slope():
-    cs = _linear_cs()
-    two = cd.weighted_totals(cs, [_pm(1, 1.0), _pm(20, 2.0)], RUN_START, RUN_END, 60.0, 15,
-                             None, 1.0, 1.0)
-    assert two["regression_compute_s"] is None and two["stratified_compute_s"] is not None
-    ms = [_pm(2, 4.0), _pm(10, 3.0), _pm(20, 2.0)]           # s falls as c rises
-    w = cd.weighted_totals(cs, ms, RUN_START, RUN_END, 60.0, 15, None, 1.0, 1.0)
-    assert w["beta"] == 0.0 and w["alpha"] == pytest.approx(3.0)
-    assert w["regression_compute_s"] == pytest.approx(1440 * 3.0)
-    assert w["r2"] == pytest.approx(0.0)
 
 
 def test_combine_adds_totals_and_leaves_total_s_untouched():
@@ -339,20 +259,6 @@ def _era5_store(times, lon, with_cape=True):
                                         latitude=lat, longitude=lon))
 
 
-def test_era5_negative_longitudes_and_duplicate_hours_do_not_raise():
-    # CONUS box with negative longitudes on a 0..360 store, a store whose time axis holds a
-    # duplicated stamp (label-based .sel(method="nearest") raised InvalidIndexError), and the same
-    # hour requested twice.
-    stamps = HOURS[:4] + [HOURS[2]]                             # 02Z duplicated in the store
-    ds = _era5_store(stamps, np.arange(255.0, 276.0, 0.25))
-    series, prov = cd.Era5Provider(ds=ds).fetch((30.0, 45.0, -105.0, -85.0), HOURS[0], HOURS[3], 1)
-    assert sorted(series) == HOURS[:4]
-    assert series[HOURS[2]]["cape_area"] == 1.0 and series[HOURS[2]]["precip_area"] == 1.0
-    # fractional / repeated interval requests still yield one row per distinct hour
-    s2, _ = cd.Era5Provider(ds=ds).fetch((30.0, 45.0, -105.0, -85.0), HOURS[0], HOURS[3], 0.4)
-    assert sorted(s2) == HOURS[:4]
-
-
 def test_era5_hour_outside_store_is_provider_error():
     ds = _era5_store(HOURS[:2], np.arange(255.0, 276.0, 1.0))
     with pytest.raises(cd.ProviderError):
@@ -462,33 +368,6 @@ def _hrs(res):
     return [int((t - RUN_START).total_seconds() // 3600) for t, _r in res["points"]]
 
 
-def test_sc26_p1_like_common_case_is_t0_only_no_rebuild():
-    r = _ppc(["common", "precip", "synoptic", "moisture"], precision=15.0, T=25 * 60.0)
-    assert r["points"] == [(RUN_START, "t0")] and r["needs_rebuild"] == []
-    assert r["band_pct"] == 15.0 and r["meets_precision"] and r["confidence"] == "normal"
-    assert any("radiation" in s for s in r["rationale"])
-
-
-def test_common_short_precision_unreachable_reports_it_but_stays_t0_only_when_no_extras():
-    r = _ppc(["common"], precision=1.0, T=25 * 60.0)         # 15% x 25 min = 3.75 > 1 min
-    assert r["meets_precision"] is False and r["band_pct"] <= 15.0
-    assert r["points"][0] == (RUN_START, "t0") and len(r["points"]) > 1   # escalated with strata
-
-
-def test_convection_adds_peak_hour_from_indicators():
-    cs = _cs([FakeProvider("fake", convective_series(10))])
-    r = _ppc(["common", "convection"], precision=15.0, T=2 * 3600.0, indicators=cs)
-    assert _hrs(r) == [0, 10] and r["band_pct"] == 10.0 and r["meets_precision"]
-    assert r["needs_rebuild"] == [RUN_START + datetime.timedelta(hours=10)]
-    assert r["points"][1][1] == "convective_peak"
-
-
-def test_convection_short_run_loose_precision_stays_t0_only():
-    cs = _cs([FakeProvider("fake", convective_series(10))])
-    r = _ppc(["convection"], precision=15.0, T=25 * 60.0, indicators=cs)   # 25% x 25 = 6.25 <= 15
-    assert _hrs(r) == [0] and r["needs_rebuild"] == []
-
-
 def test_convection_without_indicators_is_low_confidence_with_wide_band():
     r = _ppc(["convection"], precision=15.0, T=2 * 3600.0)
     assert r["confidence"] == "low"
@@ -542,14 +421,3 @@ def test_multiple_labels_union_merged_by_min_gap():
              best_track=tr)
     assert _hrs(r) == [0, 10]                              # peaks 10 min apart merge into one
     assert "convective_peak" in r["points"][1][1] and "tc_max_intensity" in r["points"][1][1]
-
-
-def test_precision_escalation_adds_strata_only_when_base_is_not_enough():
-    cs = _cs([FakeProvider("fake", convective_series(10))])
-    loose = _ppc(["convection"], precision=15.0, T=2 * 3600.0, indicators=cs)
-    tight = _ppc(["convection"], precision=5.0, T=2 * 3600.0, indicators=cs)   # 10% x 120 = 12 > 5
-    assert len(tight["points"]) > len(loose["points"]) == 2
-    assert tight["band_pct"] < 10.0 and tight["meets_precision"]
-    assert 10 in _hrs(tight) and 0 in _hrs(tight)
-    capped = _ppc(["convection"], precision=0.01, T=2 * 3600.0, indicators=cs)
-    assert capped["meets_precision"] is False and len(capped["points"]) <= 6

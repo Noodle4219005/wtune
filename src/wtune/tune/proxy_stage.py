@@ -48,6 +48,7 @@ PROXY_BAND_KEEP = 4            # one-node leaders re-timed as band proxies
 PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interior node
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N
 PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
+PROXY_CLOSE_CALL = 0.03       # node pool: band leaders of one N this close to its best are re-timed once
 PROXY_JOINT_FINALISTS = 2      # node search: the N with the best proxy scores tuned for real
 
 
@@ -309,14 +310,17 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
     """Every N's one-node runs queued at once, the largest N first; an N's leaders queued as soon
     as its one-node runs are timed, ahead of the one-node runs still waiting. Stops at the
     --minutes deadline (the pool job is cancelled) or when the pool job ends; what finished is
-    ranked. (one, band, one_pos, band_pos)."""
+    ranked. Band leaders within PROXY_CLOSE_CALL of their N's best, at an N within
+    PROXY_FINALIST_MARGIN of the best band so far, are re-timed once on other nodes: one band run
+    varies 2-5 % run to run (isc-synth N=8, three tunes), more than the gap it must resolve.
+    (one, band, one_pos, band_pos)."""
     one_dir = lambda n: os.path.join(out_root, "one-N%d" % n)            # noqa: E731
     band_dir = lambda n: os.path.join(out_root, "band-N%d" % n)          # noqa: E731
     for n in sorted(plans, reverse=True):
         plan, got = plans[n]
         pool.add(one_dir(n), plan, got, 1, "1-%03d" % (999 - n))
     one, band, one_pos, band_pos, nt_used = {}, {}, {}, {}, {}
-    waiting, banding = sorted(plans, reverse=True), []
+    waiting, banding, retiming, queued = sorted(plans, reverse=True), [], [], {}
 
     def take_one(n):
         timed = _collect_jobs(dict(out_dirs=[one_dir(n)]), one_pos, nt_used)
@@ -325,8 +329,8 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
             one[n] = got
         return got
 
-    while waiting or banding:
-        dirs = [one_dir(n) for n in waiting] + [band_dir(n) for n in banding]
+    while waiting or banding or retiming:
+        dirs = [one_dir(n) for n in waiting] + [band_dir(n) for n in banding + retiming]
         if not pool.wait(lambda: any(pool.done(d) for d in dirs)):
             break
         for n in [n for n in waiting if pool.done(one_dir(n))]:
@@ -337,8 +341,20 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
                 size, plan, bruns = lp
                 pool.add(band_dir(n), plan, bruns, size, "0-%03d" % (999 - n))
                 banding.append(n)
+                queued[n] = lp
         for n in [n for n in banding if pool.done(band_dir(n))]:
             banding.remove(n)
+            band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
+            again = _close_calls(band, queued, n)
+            if again:
+                size, plan, _r = queued[n]
+                print("proxy: N=%d %s within %.0f%% of each other in one band run: re-timed once"
+                      % (n, ", ".join(sorted({r.get("layout", r["tag"])[len("N%d_" % n):] for r in again})),
+                         PROXY_CLOSE_CALL * 100))
+                pool.add(band_dir(n), plan, again, size, "0-r%03d" % (999 - n), rep0=2)
+                retiming.append(n)
+        for n in [n for n in retiming if pool.done(band_dir(n))]:
+            retiming.remove(n)
             band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
     if waiting or banding:
         print("proxy: stopped with N=%s not fully timed (%s): ranked from the runs that finished"
@@ -348,8 +364,23 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
             take_one(n)
         for n in banding:
             band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
-    pool.close(stopped=bool(waiting or banding))
+    for n in retiming:                     # the first runs count; finished re-runs join them
+        band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
+    pool.close(stopped=bool(waiting or banding or retiming))
     return one, band, one_pos, band_pos
+
+
+def _close_calls(band, queued, n):
+    """N=n's band runs (all its crop positions) of the layouts within PROXY_CLOSE_CALL of its
+    best, when there are two or more and n is within PROXY_FINALIST_MARGIN of the best band."""
+    lays = lambda m: {r.get("layout", r["tag"]) for r in queued[m][2]}      # noqa: E731
+    mine = {t: band[t] for t in lays(n) if t in band}
+    best_all = [min(v for t, v in band.items() if t in lays(m)) for m in queued
+                if any(t in band for t in lays(m))]
+    if len(mine) < 2 or min(mine.values()) > min(best_all) * (1 + PROXY_FINALIST_MARGIN):
+        return []
+    close = {t for t, v in mine.items() if v <= min(mine.values()) * (1 + PROXY_CLOSE_CALL)}
+    return [r for r in queued[n][2] if r.get("layout", r["tag"]) in close] if len(close) > 1 else []
 
 
 POOL_TIME_LIMIT_MIN = 180      # node pool's Slurm --time without a --minutes budget
@@ -398,13 +429,15 @@ class _Pool:
         print("proxy: node pool job %s, %d node(s)" % (job, nodes))
         return cls(ctx, root, nodes, job)
 
-    def add(self, batch_dir, plan, runs, nodes, first):
-        """Queue `runs` (plan.json in batch_dir), each on `nodes` nodes; tasks sort by `first`."""
+    def add(self, batch_dir, plan, runs, nodes, first, rep0=1):
+        """Queue `runs` (plan.json in batch_dir), each on `nodes` nodes; tasks sort by `first`.
+        rep0 > 1 queues further reps of runs already queued there."""
         os.makedirs(batch_dir, exist_ok=True)
-        with open(os.path.join(batch_dir, "plan.json"), "w") as f:
-            json.dump(dict(plan, runs=runs), f, indent=1)
+        if rep0 == 1:
+            with open(os.path.join(batch_dir, "plan.json"), "w") as f:
+                json.dump(dict(plan, runs=runs), f, indent=1)
         names = []
-        for rep in range(1, int(plan.get("reps", 1)) + 1):
+        for rep in range(rep0, rep0 + int(plan.get("reps", 1))):
             for r in runs:
                 self.seq += 1
                 name = "%s-%06d.json" % (first, self.seq)

@@ -423,19 +423,21 @@ class _FakePool:
 
     def __init__(self, stop_after=99):
         self.nodes, self.added, self.ran, self.closed, self.left = 8, [], set(), False, stop_after
+        self.ran_first = set()
 
-    def add(self, batch_dir, plan, runs, nodes, first):
+    def add(self, batch_dir, plan, runs, nodes, first, rep0=1):
         self.added.append((os.path.basename(batch_dir), first, nodes, sorted({r["layout"] for r in runs})))
 
     def done(self, d):
-        return os.path.basename(d) in self.ran
+        return [a for a in self.added if a[0] == os.path.basename(d)][-1][1] in self.ran_first
 
     def wait(self, pred):
         if self.left <= 0:
             return False
         self.left -= 1
-        todo = sorted((first, b) for b, first, _n, _l in self.added if b not in self.ran)
+        todo = sorted((first, b) for b, first, _n, _l in self.added if first not in self.ran_first)
         if todo:
+            self.ran_first.add(todo[0][0])
             self.ran.add(todo[0][1])
         return pred()
 
@@ -474,10 +476,14 @@ def test_the_node_pool_bands_an_n_as_soon_as_its_one_node_runs_are_timed(tmp_pat
     ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
     out, same = S.rank_across_nodes(ctx, [1, 2, 4, 5])
     # every N's one-node runs queued at once, the largest N first; each N's leaders as soon as its
-    # one-node runs are timed, ahead of the one-node runs still waiting
+    # one-node runs are timed, ahead of the one-node runs still waiting. N=4's two leaders, 2 %
+    # apart and within 5 % of the best band (N=5), are re-timed once ahead of the one-node runs;
+    # N=2's are as close, but 100 % slower than N=5
     assert [(b, f, k) for b, f, k, _l in fake.added] == [
         ("one-N5", "1-994", 1), ("one-N4", "1-995", 1), ("one-N2", "1-997", 1),
-        ("band-N5", "0-994", 3), ("band-N4", "0-995", 3), ("band-N2", "0-997", 2)]
+        ("band-N5", "0-994", 3), ("band-N4", "0-995", 3), ("band-N4", "0-r995", 3),
+        ("band-N2", "0-997", 2)]
+    assert fake.added[5][3] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
     assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N4"] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
     assert fake.closed and not fake.stopped
     # the same ranking as one batch of jobs per round
@@ -616,3 +622,17 @@ def test_a_pool_stopped_at_the_deadline_leaves_no_crops_behind(tmp_path):
     assert (tmp_path / "scratch").exists()
     pool.close(stopped=True)
     assert (tmp_path / "CLOSE").exists() and not (tmp_path / "scratch").exists()
+
+
+def test_a_pool_re_time_queues_further_reps_of_the_same_runs(tmp_path):
+    import json as _json
+    os.makedirs(tmp_path / "pool" / "tasks")
+    pool = S._Pool(None, str(tmp_path / "pool"), 8, "1")
+    batch, runs = str(tmp_path / "band-N8"), [dict(tag="N8_a"), dict(tag="N8_b")]
+    pool.add(batch, dict(reps=1), runs, 3, "0-991")
+    pool.add(batch, dict(reps=1, changed=True), runs[:1], 3, "0-r991", rep0=2)
+    tasks = sorted(os.listdir(tmp_path / "pool" / "tasks"))
+    reps = [_json.load(open(tmp_path / "pool" / "tasks" / t))["rep"] for t in tasks]
+    assert [t[:6] for t in tasks] == ["0-991-", "0-991-", "0-r991"] and reps == [1, 1, 2]
+    assert len(_json.load(open(os.path.join(batch, "plan.json")))["runs"]) == 2
+    assert pool.batches[batch] == [tasks[2]]

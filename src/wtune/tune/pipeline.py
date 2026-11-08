@@ -142,9 +142,9 @@ def run_pipeline_full(ctx: Ctx, profile: dict, *, minutes: float | None = None, 
     return _pipeline_finish(st, report, pred, pplan, band_eff, io_run, health_checks, keep_frames)
 
 
-def _pipeline_shares(physics: bool) -> tuple[dict, dict]:
+def _pipeline_shares(physics: bool, rebuild: bool = True) -> tuple[dict, dict]:
     """(fracs, cum) of B in PIPELINE_FRACS order; without physics advice its share goes to
-    layout and prediction 2:1."""
+    layout and prediction 2:1; with phase 2's rebuild unable to run, prediction's goes to layout."""
     fracs = dict(PIPELINE_FRACS)
     if not physics:
         extra = fracs.pop("physics")
@@ -152,6 +152,9 @@ def _pipeline_shares(physics: bool) -> tuple[dict, dict]:
         fracs["layout"] += extra * fracs["layout"] / total
         fracs["predict"] += extra * fracs["predict"] / total
         fracs["physics"] = 0.0
+        if not rebuild:
+            fracs["layout"] += fracs["predict"]
+            fracs["predict"] = 0.0
     cum, acc = {}, 0.0
     for name, _f in PIPELINE_FRACS:
         acc += fracs[name]
@@ -173,7 +176,11 @@ def _pipeline_start(ctx: Ctx, minutes: float | None, level: int, physics: bool,
     plan = dict(level=level_req)                  # the EFFECTIVE level; the guard may lower it
     physics = bool(physics and level_req >= 3)       # physics advice is opt-in (--physics-advice)
     guard = bool(stop_if_short)                      # the step-down guard is opt-in
-    fracs, cum = _pipeline_shares(physics)
+    missing = _prediction.rebuild_env_missing()
+    fracs, cum = _pipeline_shares(physics, rebuild=not missing)
+    if minutes is not None and missing and not physics:
+        print("pipeline: phase 2 rebuild cannot run (%s not set): its time goes to the layout "
+              "search" % ", ".join(missing))
     B = float(minutes) * 60.0 if minutes is not None else float("inf")
     pipe = PipelineSummary(
         total_steps=total_steps, B_s=(B if B != float("inf") else None),
@@ -368,6 +375,8 @@ def _pipeline_phase2_rebuild_winner(st: PipelineRun, layouts: list[dict], pplan:
         status = "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
     elif not layouts:
         status = "not run (no layout)"
+    elif _prediction.rebuild_env_missing():
+        status = "not run (%s not set)" % ", ".join(_prediction.rebuild_env_missing())
     elif pplan is None or not pplan["selected"]:
         status = ("not run (the t0 anchor suffices for this case at %s: %s, band ±%.0f%%)"
                   % (precision_label(precision_min), pplan["method"] if pplan else "-",

@@ -2155,7 +2155,7 @@ class _PipeEnv:
 
     def __init__(self, monkeypatch, tmp_path, clock, minutes, *, extension=False, physics=True,
                  runner_ok=True, phase2_cost_s=0.0, bump_after_first_read=0.0, steps=32,
-                 n_points=3, planner=None):
+                 n_points=3, planner=None, missing_env=()):
         self.events = []
         self.measure_modes = []
         self.planner_calls = []
@@ -2265,6 +2265,7 @@ class _PipeEnv:
             return ([_types.SimpleNamespace(at=p.at, s_normal=0.3) for p in points],
                     ",".join("77%02d" % i for i in range(len(points))))
         mp.setattr(wtune.tune.pipeline, "run_rebuild_points", rebuild_winner)
+        mp.setattr(wtune.tune.prediction, "rebuild_env_missing", lambda: list(missing_env))
         mp.setattr(_pp_mod, "combine",
                    lambda meas, *a, **k: dict(compute_total_s=1000.0, init_s=20.0, init_note="t",
                                               total_s=1020.0, range_low_s=950.0,
@@ -2494,6 +2495,16 @@ def test_pipeline_full_no_physics_advice_rolls_its_share_back(monkeypatch, tmp_p
     assert lims[2] == lims[3] == pytest.approx(6000 * 60.0)       # prediction runs to B
     assert not any(isinstance(e, tuple) and any(c.startswith("PH") for c in e[2])
                    for e in env.events)
+
+
+def test_pipeline_gives_the_rebuilds_share_to_the_layout_search_when_it_cannot_run(
+        monkeypatch, tmp_path, capsys):
+    report, _env = _pipe_run(monkeypatch, tmp_path, minutes=6000, physics_advice=False,
+                             missing_env=["WPS_DIR"])
+    sh = report["pipeline"]["shares"]
+    assert sh["layout"] == pytest.approx(0.95) and sh["predict"] == 0.0
+    assert "phase 2 rebuild cannot run (WPS_DIR not set)" in capsys.readouterr().out
+    assert _status(report)["predict"] == "not run (WPS_DIR not set)"
 
 
 def test_pipeline_full_budget_truncates_phases_2_and_3(monkeypatch, tmp_path):

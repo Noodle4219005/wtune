@@ -233,6 +233,11 @@ def rebuild_wave(nodes: int, max_nodes: int | None = None) -> int:
     return max(1, int(cap) // max(1, int(nodes)))
 
 
+def rebuild_env_missing() -> list[str]:
+    """The site env variables a rebuild point needs that are not set."""
+    return [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+
+
 def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, case_dir: str,
                        out_dir: str, run_start: Any, spinup_min: float = 60,
                        grib_dir: str | None = None, date_shift_to: Any = None,
@@ -244,7 +249,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     ([PointMeasurement], "job,job"); RuntimeError on any infrastructure failure."""
     if not points:
         return []
-    missing_env = [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+    missing_env = rebuild_env_missing()
     if missing_env:          # job 1236: staged without these, the windows died in 3 s
         raise RuntimeError("run_rebuild_points: %s not set -- source the site env (%s) before "
                            "running the driver"

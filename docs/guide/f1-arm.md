@@ -157,7 +157,7 @@ setsid nohup wtune tune -O2 --minutes 45 --max-queue-hours 10 > tune.log 2>&1 < 
 ```
 
 - `-O2 --minutes 45`：量測時間（job 實際在跑的時間）最多 45 分鐘。排隊不算。
-- `-O2` 預設用小區域代理聯合搜尋挑節點數與切法，不送真實的 N 節點探測（做法見 [tune](../tutorial/tune.md) 的「小區域代理聯合搜尋」一節）。個案目錄要有 netCDF 的 `wrfinput_d01` 與 `wrfbdy_d01`，沒有的話改走真實量測。代理 job 同時最多佔用 `--max-nodes` 的 4 倍節點；要限制同時佔用的節點數，加 `--proxy-max-nodes <N>`，調校時間會跟著變長。
+- `-O2` 預設用小區域代理聯合搜尋挑節點數與切法，不送真實的 N 節點探測（做法見 [tune](../tutorial/tune.md) 的「小區域代理聯合搜尋」一節）。個案目錄要有 netCDF 的 `wrfinput_d01` 與 `wrfbdy_d01`，沒有的話改走真實量測。代理只送一個節點池 job，節點數預設是 `--max-nodes` 的 4 倍；要限制節點數，加 `--proxy-max-nodes <N>`，調校時間會跟著變長。有 `--minutes` 時，時間一到就用已經量到的結果寫出報告。
 - `--max-queue-hours 10`：累積「我們的 job 一個都沒在跑」的時間到 10 小時就停，用已量到最快的節點數交出 ANCHOR 設定。預設 6 小時。
 - `setsid nohup ... &`：tune 本身在登入節點上等 job，要好幾個小時；這樣登出也不會中斷。
 - 結果寫在 `tune/<id>/tune_report.json`，怎麼讀見 [tune](../tutorial/tune.md) 的「報告」一節。`wtune run` 會自動用最新那份的 `WINNER`。

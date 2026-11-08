@@ -982,7 +982,14 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     skipped = sorted(skipped + [dict(nodes=n, reason="joint proxy search: no timing")
                                 for n in legal if n not in ranking], key=lambda s: s["nodes"])
     best = {n: rows[0] for n, rows in ranking.items()}
-    order = sorted(ranking, key=lambda n: (best[n][1], n))
+    # only re-timed scores compare across N (one node alone reads 0-18 % low); N=1's one-node run
+    # is the whole domain
+    retimed = [n for n in ranking if best[n][2] != "one-node" or n == 1]
+    loose = [n for n in ranking if n not in retimed] if retimed else []
+    if loose:
+        print("node search: N=%s have one-node scores only -- not compared with the re-timed N"
+              % ",".join(map(str, sorted(loose))))
+    order = sorted(retimed or ranking, key=lambda n: (best[n][1], n))
     finals = order[:proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)]
     if not consistent.get(order[0], True):
         print("node search: N=%d's crop positions disagree on its fastest layout -- one more finalist" % order[0])

@@ -104,7 +104,8 @@ def test_joint_proxy_picks_by_the_proxy_scores_with_no_real_probe(tmp_path, monk
 
 def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, monkeypatch):
     calls = []
-    _patch(monkeypatch, RANKING, calls, consistent={2: True, 4: True, 8: False})
+    ranking = {n: ([(ANCHORS[2], 0.262, "full")] if n == 2 else RANKING[n]) for n in RANKING}
+    _patch(monkeypatch, ranking, calls, consistent={2: True, 4: True, 8: False})
     report, collect = _search(_ctx(tmp_path), 2)
     ns = report["node_selection"]
     assert ns["finalists"] == [8, 4, 2] and ns["position_consistent"]["8"] is False
@@ -116,7 +117,7 @@ def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, mo
     assert report["node_selection"]["finalists"] == [8, 4]          # only the best N's flag counts
 
 
-@pytest.mark.parametrize("objective,lead,finals", [("time", "band", [8]), ("time", "one-node", [8, 4]),
+@pytest.mark.parametrize("objective,lead,finals", [("time", "band", [8]), ("time", "one-node", [4]),
                                                    ("cost", "band", [8, 4])])
 def test_a_finalist_beyond_the_margin_behind_an_accurate_leader_is_dropped(tmp_path, monkeypatch,
                                                                            objective, lead, finals):
@@ -137,6 +138,16 @@ def test_joint_proxy_falls_back_to_the_real_sweep_without_a_ranking(tmp_path, mo
     with pytest.raises(_RealSweep):
         _search(ctx, 2)
     assert not [c for c in calls if c[0] == "report"]
+
+
+def test_an_n_with_one_node_scores_only_is_not_compared_with_the_re_timed_n(tmp_path, monkeypatch, capsys):
+    calls = []
+    ranking = {2: [(ANCHORS[2], 0.40, "full")], 4: [(_cfg("D0001", 24, 24), 0.26, "band")],
+               8: [(ANCHORS[8], 0.20, "one-node")]}           # N=8 left with one-node scores (deadline)
+    _patch(monkeypatch, ranking, calls)
+    report, _c = _search(_ctx(tmp_path), 2)
+    assert report["nodes"] == 4 and 8 not in report["node_selection"]["finalists"]
+    assert "N=8 have one-node scores only" in capsys.readouterr().out
 
 
 def test_o1_runs_the_joint_proxy_with_one_leader_per_n(tmp_path, monkeypatch):

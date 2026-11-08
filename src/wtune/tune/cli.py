@@ -576,13 +576,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "the joint (N, layout) search times every legal N's layouts on one node "
                          "each, re-times the leaders as 3-node bands (N > 3) or the whole domain "
                          "(N <= 3) and picks (N, layout) from those scores with no real N-node "
-                         "probe; proxy jobs may hold up to 4 x --max-nodes nodes at once. --nodes N: "
+                         "probe, every run placed in one node pool (one job of --proxy-max-nodes "
+                         "nodes); at --minutes what was timed is ranked. --nodes N: "
                          "round0 sends only the proxy's picks to real probes. Needs netCDF "
                          "wrfinput/wrfbdy, else the real search runs (default on, or --config's "
                          "budget.proxy)")
     p.add_argument("--proxy-max-nodes", type=int, default=None, dest="proxy_max_nodes",
-                    help="nodes the proxy jobs may hold at once (default 4 x --max-nodes, or "
-                         "--config's budget.proxy_max_nodes); the tune takes longer when lower")
+                    help="nodes of the proxy's node pool, the nodes its runs hold at once "
+                         "(default 4 x --max-nodes, no more than the one-node runs, or --config's "
+                         "budget.proxy_max_nodes); the tune takes longer when lower")
     p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
                     help="--nodes search: measure untried N near the best one in the nodes a "
                          "sweep wave leaves idle, when no longer than the wave (default on, or "

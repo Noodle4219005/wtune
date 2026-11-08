@@ -36,6 +36,8 @@ import shlex
 import statistics
 import subprocess
 import sys
+import threading
+import time
 
 STEP_RE = re.compile(r"Timing for main:.*on domain\s+1:\s+([0-9.]+)\s+elapsed")
 
@@ -614,6 +616,20 @@ def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
     sb = os.path.join(out_dir, "proxy.sbatch")
     nodes = plan.get("proxy_nodes", 1)
     open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit, nodes))
+    return _submit_script(sb, nodes, sbatch)
+
+
+def submit_pool(queue_dir, nodes, time_limit, sbatch=("sbatch",)):
+    """Submit one job of `nodes` nodes serving queue_dir as a node pool (pool_worker); returns
+    (job_id or None, message)."""
+    os.makedirs(queue_dir, exist_ok=True)
+    sb = os.path.join(queue_dir, "pool.sbatch")
+    open(sb, "w").write(render_sbatch(queue_dir, sys.executable, campaign_dir(), time_limit, nodes,
+                                      mode="_pool"))
+    return _submit_script(sb, nodes, sbatch)
+
+
+def _submit_script(sb, nodes, sbatch):
     if nodes > 1 and tuple(sbatch) == ("sbatch",):
         # partitions are tiered by job size (f1-arm): try them in order as tune's probes do
         from wtune.tools import scc_sweep
@@ -643,38 +659,166 @@ def worker(plan_path):
     try:
         for rep in range(1, plan["reps"] + 1):
             for r in plan["runs"]:
-                # a failed run is re-run with every rank's rsl files; when that fails too and the run
-                # has tiles, once more at half the tiles: high numtiles crashed nested crops at their
-                # north edge (Big Chill 8x14 nt16 on f1: array index out of bounds; nt8 ran) while the
-                # real run did not, and losing the layout family loses the fastest layout
-                tries = [(r, False), (r, True)]
-                if int(r.get("numtiles") or 1) > 1:
-                    tries.append((dict(r, numtiles=max(1, int(r["numtiles"]) // 2), nt_fallback=int(r["numtiles"])), False))
-                for r, retry in tries:
-                    try:
-                        rec = _run(plan, r, rep, out, scratch, retry)
-                        if r.get("nt_fallback"):
-                            rec["nt_fallback"] = r["nt_fallback"]
-                    except Exception as e:      # noqa: BLE001 -- this run's setup (crop, namelist): recorded
-                        rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=r.get("domain", 1),
-                                   pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=-1, ok=False,
-                                   median=None, error="%s: %s" % (type(e).__name__, e))
-                    results.write(json.dumps(rec) + "\n")
-                    results.flush()
-                    if rec["ok"]:
-                        ok_runs += 1
-                        break
-                    if "error" in rec:          # no WRF ran: nothing for a re-run to show
-                        print("FAILED %s rep %d: %s" % (r["tag"], rep, rec["error"]), flush=True)
-                        break
-                    print("FAILED %s rep %d%s: see %s" % (r["tag"], rep, " (re-run)" if retry else
-                                                          " (half the tiles)" if r.get("nt_fallback") else
-                                                          ", re-running with every rank's rsl files",
-                                                          rec["run_dir"]), flush=True)
+                ok_runs += _run_tries(plan, r, rep, out, scratch, results.write)
     finally:
         results.close()
         subprocess.run(["rm", "-rf", scratch])
     return 0 if ok_runs else 4
+
+
+def _run_tries(plan, r, rep, out, scratch, write, hosts=None):
+    """Run r, writing each record through write(json line); 1 when a try timed it. A failed run is
+    re-run with every rank's rsl files; when that fails too and the run has tiles, once more at
+    half the tiles: high numtiles crashed nested crops at their north edge (Big Chill 8x14 nt16 on
+    f1: array index out of bounds; nt8 ran) while the real run did not, and losing the layout
+    family loses the fastest layout."""
+    tries = [(r, False), (r, True)]
+    if int(r.get("numtiles") or 1) > 1:
+        tries.append((dict(r, numtiles=max(1, int(r["numtiles"]) // 2), nt_fallback=int(r["numtiles"])), False))
+    for r, retry in tries:
+        try:
+            rec = _run(plan, r, rep, out, scratch, retry, hosts)
+            if r.get("nt_fallback"):
+                rec["nt_fallback"] = r["nt_fallback"]
+        except Exception as e:      # noqa: BLE001 -- this run's setup (crop, namelist): recorded
+            rec = dict(tag=r["tag"], layout=r.get("layout", r["tag"]), domain=r.get("domain", 1),
+                       pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=-1, ok=False,
+                       median=None, error="%s: %s" % (type(e).__name__, e))
+        write(json.dumps(rec) + "\n")
+        if rec["ok"]:
+            return 1
+        if "error" in rec:          # no WRF ran: nothing for a re-run to show
+            print("FAILED %s rep %d: %s" % (r["tag"], rep, rec["error"]), flush=True)
+            return 0
+        print("FAILED %s rep %d%s: see %s" % (r["tag"], rep, " (re-run)" if retry else
+                                              " (half the tiles)" if r.get("nt_fallback") else
+                                              ", re-running with every rank's rsl files",
+                                              rec["run_dir"]), flush=True)
+    return 0
+
+
+POOL_POLL_S = 2.0            # pool worker: how often it looks for finished runs and new tasks
+POOL_IDLE_EXIT_S = 900.0     # ... and exits after this long with nothing queued or running (no CLOSE)
+
+
+def pool_hosts():
+    """The nodes a pool worker places runs on: $WTUNE_POOL_HOSTS (comma separated), else the
+    Slurm allocation's nodes, else this host."""
+    env = os.environ.get("WTUNE_POOL_HOSTS", "").strip()
+    if env:
+        return [h for h in env.split(",") if h]
+    nl = os.environ.get("SLURM_JOB_NODELIST")
+    if nl:
+        try:
+            out = subprocess.run(["scontrol", "show", "hostnames", nl], capture_output=True,
+                                 text=True, timeout=30).stdout.split()
+            if out:
+                return out
+        except (OSError, subprocess.SubprocessError):
+            pass
+    import socket
+    return [socket.gethostname().split(".")[0]]
+
+
+def on_hosts(argv, hosts, cores_per_node):
+    """argv restricted to `hosts`: srun -N k -w <hosts> --exact (one step per run inside the
+    pool's allocation), mpirun --host <h:slots,...>; unchanged for any other launcher."""
+    if not hosts or not argv:
+        return list(argv)
+    if os.path.basename(argv[0]) == "srun":
+        return [argv[0], "-N", str(len(hosts)), "-w", ",".join(hosts), "--exact"] + list(argv[1:])
+    if os.path.basename(argv[0]) in ("mpirun", "mpiexec"):
+        return [argv[0], "--host", ",".join("%s:%d" % (h, cores_per_node) for h in hosts)] + list(argv[1:])
+    return list(argv)
+
+
+def _backfill_ok(head, free_after, running):
+    """Whether a task may take nodes ahead of a waiting task needing `head` nodes, leaving
+    `free_after` free: yes when the oldest running task (runs take about as long as each other, so
+    it ends first) frees enough for the waiting one without the backfilled task's nodes."""
+    if not running:
+        return False
+    oldest = min(running.values(), key=lambda v: v[2])
+    return free_after + len(oldest[1]) >= head
+
+
+def pool_worker(queue_dir, hosts=None, run_tries=None, poll_s=None, idle_exit_s=None, clock=time):
+    """Runs inside the node pool: takes queue_dir/tasks/*.json in name order (the controller names
+    them by priority), each {"batch": dir holding plan.json, "run": run, "rep", "nodes": k}, and
+    starts the first one whenever k nodes are free, each on its own nodes, no node shared by two
+    runs. A task behind one that does not fit starts only when it cannot delay it (_backfill_ok):
+    a waiting band is not starved, and the nodes it cannot use yet do not sit idle.
+    A finished task's records go to <batch>/results.jsonl, then the task moves to done/. Exits
+    on queue_dir/CLOSE once nothing is queued or running."""
+    import wtune.machine
+    if run_tries is None:
+        wtune.machine.export(wtune.machine.load_user())
+    run_tries = run_tries or _run_tries
+    poll_s = POOL_POLL_S if poll_s is None else poll_s
+    idle_exit_s = POOL_IDLE_EXIT_S if idle_exit_s is None else idle_exit_s
+    hosts = list(hosts or pool_hosts())
+    for d in ("tasks", "running", "done"):
+        os.makedirs(os.path.join(queue_dir, d), exist_ok=True)
+    # shared, not /dev/shm: a run's rank 0 may sit on any node of the pool; one per task, removed
+    # when it ends (a crop is ~1/N of the case's inputs: kept they reach tens of GB on isc-synth)
+    scratch = os.path.join(queue_dir, "scratch")
+    print("pool: %d node(s) %s" % (len(hosts), ",".join(hosts)), flush=True)
+    free, running, plans, lock = list(hosts), {}, {}, threading.Lock()
+    idle_since = clock.time()
+
+    def work(name, task, mine):
+        batch = task["batch"]
+        lines = []
+        mine_scratch = os.path.join(scratch, name[:-len(".json")])
+        print("pool: start %s %s on %s %.0f" % (name, task["run"].get("tag"), ",".join(mine), clock.time()), flush=True)
+        try:
+            run_tries(plans[batch], task["run"], task.get("rep", 1), batch, mine_scratch, lines.append, mine)
+        finally:
+            subprocess.run(["rm", "-rf", mine_scratch])
+            with lock:
+                with open(os.path.join(batch, "results.jsonl"), "a") as f:
+                    f.writelines(lines)
+                os.replace(os.path.join(queue_dir, "running", name), os.path.join(queue_dir, "done", name))
+            print("pool: end %s %.0f" % (name, clock.time()), flush=True)
+
+    while True:
+        for name, (th, mine, _t0) in list(running.items()):
+            if not th.is_alive():
+                th.join()
+                free.extend(mine)
+                del running[name]
+        head = None                        # nodes the first task that did not fit waits for
+        for name in sorted(os.listdir(os.path.join(queue_dir, "tasks"))):
+            path = os.path.join(queue_dir, "tasks", name)
+            try:
+                task = json.load(open(path))
+            except (OSError, ValueError):
+                break                      # half-written by the controller: next poll
+            k = max(1, int(task.get("nodes", 1)))
+            if k > len(hosts):
+                os.replace(path, os.path.join(queue_dir, "done", name))
+                print("pool: %s needs %d nodes, the pool has %d: skipped" % (name, k, len(hosts)), flush=True)
+                continue
+            if k > len(free):
+                if head is None:
+                    head = k
+                continue
+            if head is not None and not _backfill_ok(head, len(free) - k, running):
+                continue
+            if task["batch"] not in plans:
+                plans[task["batch"]] = json.load(open(os.path.join(task["batch"], "plan.json")))
+            mine, free[:] = free[:k], free[k:]
+            os.replace(path, os.path.join(queue_dir, "running", name))
+            th = threading.Thread(target=work, args=(name, task, mine), daemon=True)
+            running[name] = (th, mine, clock.time())
+            th.start()
+        if running or os.listdir(os.path.join(queue_dir, "tasks")):
+            idle_since = clock.time()
+        elif os.path.exists(os.path.join(queue_dir, "CLOSE")) or clock.time() - idle_since > idle_exit_s:
+            break
+        clock.sleep(poll_s)
+    subprocess.run(["rm", "-rf", scratch])
+    return 0
 
 
 def _launch(argv, d, env, cap):
@@ -695,8 +839,9 @@ def _launch(argv, d, env, cap):
             return 124
 
 
-def _run(plan, r, rep, out, scratch, retry=False):
-    """One run of r in runs/<tag>-<rep> (-retry: every rank's rsl files, kept); its record."""
+def _run(plan, r, rep, out, scratch, retry=False, hosts=None):
+    """One run of r in runs/<tag>-<rep> (-retry: every rank's rsl files, kept) on `hosts` (the
+    pool's nodes for it; None: the job's own); its record."""
     import wtune.machine
     case = plan["case_dir"]
     base_nl = open(os.path.join(case, "namelist.input")).read()
@@ -705,7 +850,7 @@ def _run(plan, r, rep, out, scratch, retry=False):
     dom = r.get("domain", 1)
     run_seconds = max(1, math.ceil(plan["steps"] * r.get("dt", plan["dt"])))
     bw = None if whole_domain(plan, r) else plan.get("bdy_width")
-    inputs = _inputs(plan, r, scratch, layers)
+    inputs = _inputs(plan, r, scratch, layers, hosts)
     d = os.path.join(out, "runs", "%s-%d%s" % (r["tag"], rep, "-retry" if retry else ""))
     os.makedirs(d, exist_ok=True)
     run_dir = os.path.join(r["wrf_tree"], "run")
@@ -742,7 +887,8 @@ def _run(plan, r, rep, out, scratch, retry=False):
     # leaving the others blocked in MPI until the wall cap
     env = dict(os.environ, OMP_NUM_THREADS=str(r["omp"]), SLURM_KILL_BAD_EXIT="1")
     env.setdefault("OMP_STACKSIZE", "1G")
-    rc = _launch(shlex.split(cmd), d, env, min(60 + 20 * run_seconds, PROXY_RUN_CAP_S))
+    argv = on_hosts(shlex.split(cmd), hosts, wtune.machine.cores_per_node())
+    rc = _launch(argv, d, env, min(60 + 20 * run_seconds, PROXY_RUN_CAP_S))
     steps = _step_times(os.path.join(d, "rsl.error.0000"))
     # enough steps for a median; a run the wall cap stopped counts when it has them: a slow layout
     # (a few steps of 12-16 s on isc-synth) is not the one to pick, so fewer steps still rank it
@@ -770,7 +916,41 @@ def whole_domain(plan, r):
     return r.get("domain", 1) == 1 and r["nx"] == plan["e_we"] - 1 and r["ny"] == plan["e_sn"] - 1
 
 
-def _inputs(plan, r, scratch, layers):
+_BOX_LOCKS: dict = {}
+_BOX_GUARD = threading.Lock()
+
+
+def _box_lock(box):
+    """One lock per crop box: the pool worker's runs crop concurrently into one scratch."""
+    with _BOX_GUARD:
+        return _BOX_LOCKS.setdefault(box, threading.Lock())
+
+
+_CROP_GUARD = threading.Lock()
+
+
+def _crop_on(hosts, *args, **kw):
+    """crop(*args, **kw) on the run's own first node, a one-task Slurm step inside the pool's
+    allocation: the pool's runs crop in parallel, each on the node it then runs on, not all in
+    the worker's process on the first node (GIL and HDF5 serialised 8 crops there: ~265 s per
+    run on isc-synth against ~97 s one job per node). Without Slurm (or hosts) in-process,
+    one crop at a time."""
+    if hosts and os.environ.get("SLURM_JOB_ID"):
+        import wtune.machine
+        # memory comes per CPU (f1 ct1k: 4308 MB, CR_CORE_MEMORY): a quarter node holds any crop
+        cpus = max(1, wtune.machine.cores_per_node() // 4)
+        argv = ["srun", "-N", "1", "-n", "1", "-w", hosts[0], "--exact", "-c", str(cpus),
+                sys.executable, "-m", "wtune.proxy", "_crop", json.dumps(dict(args=list(args), kw=kw))]
+        res = subprocess.run(argv, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError("crop step on %s failed (rc %d): %s" % (hosts[0], res.returncode,
+                                                                        (res.stderr or res.stdout)[-300:]))
+        return
+    with _CROP_GUARD:
+        crop(*args, **kw)
+
+
+def _inputs(plan, r, scratch, layers, hosts=None):
     """{file name in the run directory: path} for run r: the case's own d01 files for a whole
     domain 1, otherwise crops cached per box in `scratch`. A nested crop run (r["boxes"]) gets
     every domain's wrfinput (a nest without one in the case is interpolated by WRF; a whole nest
@@ -784,12 +964,13 @@ def _inputs(plan, r, scratch, layers):
     elif not r.get("boxes"):
         at = "%d_%d" % (r["i0"], r["j0"]) if r.get("i0") is not None else place
         box = os.path.join(scratch, "d%d_%dx%d_%s_bw%s%s" % (dom, r["nx"], r["ny"], at, bw or "src", tk))
-        if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
-            os.makedirs(box, exist_ok=True)
-            crop(os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
-                 box, r["nx"], r["ny"], as_top=dom > 1,
-                 dxdy=nest_dx(layers[dom]) if plan.get("max_dom", 1) > 1 and dom > 1 else None,
-                 place=place, bdy_width=bw, i0=r.get("i0"), j0=r.get("j0"))
+        with _box_lock(box):
+            if not os.path.exists(os.path.join(box, "wrfbdy_d01")):
+                os.makedirs(box, exist_ok=True)
+                _crop_on(hosts, os.path.join(case, "wrfinput_d%02d" % dom), os.path.join(case, "wrfbdy_d01"),
+                         box, r["nx"], r["ny"], as_top=dom > 1,
+                         dxdy=nest_dx(layers[dom]) if plan.get("max_dom", 1) > 1 and dom > 1 else None,
+                         place=place, bdy_width=bw, i0=r.get("i0"), j0=r.get("j0"))
         return {f: os.path.join(box, f) for f in ("wrfinput_d01", "wrfbdy_d01")}
     for bx in r.get("boxes") or []:
         d, name = bx["domain"], "wrfinput_d%02d" % bx["domain"]
@@ -803,11 +984,12 @@ def _inputs(plan, r, scratch, layers):
         box = os.path.join(scratch, "n%d_%dx%d_%d_%d_p%d_%d_bw%s%s" % (
             d, bx["nx"], bx["ny"], bx["i0"], bx["j0"], bx["i_parent_start"], bx["j_parent_start"], bw or "src", tk))
         last = os.path.join(box, "wrfbdy_d01" if d == 1 else name)
-        if not os.path.exists(last):
-            os.makedirs(box, exist_ok=True)
-            crop(src, os.path.join(case, "wrfbdy_d01") if d == 1 else None, box, bx["nx"], bx["ny"],
-                 bdy_width=bw, i0=bx["i0"], j0=bx["j0"],
-                 parent_start=(bx["i_parent_start"], bx["j_parent_start"]) if d > 1 else None)
+        with _box_lock(box):
+            if not os.path.exists(last):
+                os.makedirs(box, exist_ok=True)
+                _crop_on(hosts, src, os.path.join(case, "wrfbdy_d01") if d == 1 else None, box, bx["nx"], bx["ny"],
+                         bdy_width=bw, i0=bx["i0"], j0=bx["j0"],
+                         parent_start=(bx["i_parent_start"], bx["j_parent_start"]) if d > 1 else None)
         files[name] = os.path.join(box, name)
         if d == 1:
             files["wrfbdy_d01"] = os.path.join(box, "wrfbdy_d01")
@@ -928,10 +1110,12 @@ def _step_times(rsl):
 
 
 # ------------------------------------------------------------------------------------ sbatch
-def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=1):
+def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=1, mode="_worker"):
+    """The proxy job script: `mode` _worker runs plan_path's runs in order, _pool serves the
+    queue directory plan_path as a node pool."""
     import wtune.machine
     from wtune.tools import scc_sweep
-    out = os.path.dirname(os.path.abspath(plan_path))
+    out = plan_path if mode == "_pool" else os.path.dirname(os.path.abspath(plan_path))
     return "\n".join([
         "#!/usr/bin/env bash",
         "#SBATCH --job-name=wtune-proxy",
@@ -948,7 +1132,7 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=
         "site_env",
         "export SLURM_JOB_NUM_NODES=%d" % nodes,
         'echo "start $(date -Is) $(hostname)"',
-        "%s -m wtune.proxy _worker %s" % (shlex.quote(python), shlex.quote(os.path.abspath(plan_path))),
+        "%s -m wtune.proxy %s %s" % (shlex.quote(python), mode, shlex.quote(os.path.abspath(plan_path))),
         'rc=$?; echo "end $(date -Is) rc=$rc"; exit $rc']) + "\n"
 
 
@@ -1000,6 +1184,13 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["_worker"]:
         return worker(argv[1])
+    if argv[:1] == ["_pool"]:
+        return pool_worker(argv[1])
+    if argv[:1] == ["_crop"]:
+        a = json.loads(argv[1])
+        kw = dict(a["kw"], parent_start=tuple(a["kw"]["parent_start"]) if a["kw"].get("parent_start") else None)
+        crop(*a["args"], **kw)
+        return 0
     import wtune.machine
     ap = argparse.ArgumentParser(prog="wtune proxy", description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

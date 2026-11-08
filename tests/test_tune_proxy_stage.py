@@ -1,6 +1,7 @@
 import dataclasses
 import os
 import types
+import pytest
 
 from wtune import proxy as P
 from wtune.tune import proxy_stage as S
@@ -414,3 +415,195 @@ def test_a_layout_timed_at_the_tiles_fallback_is_ranked_and_band_timed_at_that_n
     bands = sorted({r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"]})
     assert "N5_12x60_o1_nt6" in bands and "N5_12x60_o1_nt12" not in bands
     assert [(S._tag(c), t, f) for c, t, f in out[5]][0] == ("12x60_o1_nt6", 0.42, "band")
+
+
+class _FakePool:
+    """_Pool stand-in: each wait() runs the first queued batch (by `first`) to completion;
+    after `stop_after` waits it reports the deadline instead."""
+
+    def __init__(self, stop_after=99):
+        self.nodes, self.added, self.ran, self.closed, self.left = 8, [], set(), False, stop_after
+
+    def add(self, batch_dir, plan, runs, nodes, first):
+        self.added.append((os.path.basename(batch_dir), first, nodes, sorted({r["layout"] for r in runs})))
+
+    def done(self, d):
+        return os.path.basename(d) in self.ran
+
+    def wait(self, pred):
+        if self.left <= 0:
+            return False
+        self.left -= 1
+        todo = sorted((first, b) for b, first, _n, _l in self.added if b not in self.ran)
+        if todo:
+            self.ran.add(todo[0][1])
+        return pred()
+
+    def close(self):
+        self.closed = True
+
+
+def _pool_joint(tmp_path, monkeypatch, timings, band, fake):
+    ctx, _ = _joint(tmp_path, monkeypatch, POOLS, timings, band)
+    ctx.budget_s = float("inf")
+    ctx.elapsed = lambda: 0.0
+    monkeypatch.setattr(S, "PROXY_JOINT_LEADERS", 2)
+    monkeypatch.setattr(S, "_pool_nodes", lambda c, k: 8)
+    monkeypatch.setattr(S._Pool, "start", classmethod(lambda cls, c, root, n: fake))
+
+    def collect(d):
+        b = os.path.basename(d)
+        src = band if b.startswith("band-") else timings
+        if b not in fake.ran:
+            return []
+        n = b.split("-N")[1]
+        return [dict(tag=t, median=m) for t, m in src.items() if t.startswith("N%s_" % n)]
+    monkeypatch.setattr(P, "collect", collect)
+    return ctx
+
+
+TIMINGS = {"N2_16x18_o1_nt1": 0.80, "N2_12x24_o1_nt1": 0.78, "N2_24x12_o1_nt1": 0.85,
+           "N4_24x24_o1_nt1": 0.45, "N4_12x24_o2_nt24": 0.40, "N4_18x32_o1_nt1": 0.47,
+           "N5_24x30_o1_nt1": 0.42, "N5_20x36_o1_nt1": 0.38, "N5_30x24_o1_nt1": 0.44}
+BAND = {"N4_24x24_o1_nt1": 0.46, "N4_12x24_o2_nt24": 0.47, "N5_24x30_o1_nt1": 0.44,
+        "N2_12x24_o1_nt1": 0.90, "N2_16x18_o1_nt1": 0.88}
+
+
+def test_the_node_pool_bands_an_n_as_soon_as_its_one_node_runs_are_timed(tmp_path, monkeypatch):
+    fake = _FakePool()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    out, same = S.rank_across_nodes(ctx, [1, 2, 4, 5])
+    # every N's one-node runs queued at once, the largest N first; each N's leaders as soon as its
+    # one-node runs are timed, ahead of the one-node runs still waiting
+    assert [(b, f, k) for b, f, k, _l in fake.added] == [
+        ("one-N5", "1-994", 1), ("one-N4", "1-995", 1), ("one-N2", "1-997", 1),
+        ("band-N5", "0-994", 3), ("band-N4", "0-995", 3), ("band-N2", "0-997", 2)]
+    assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N4"] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
+    assert fake.closed
+    # the same ranking as one batch of jobs per round
+    assert [(S._tag(c), t, f) for c, t, f in out[4]] == [
+        ("24x24_o1_nt1", 0.46, "band"), ("12x24_o2_nt24", 0.47, "band"), ("18x32_o1_nt1", 0.47, "one-node")]
+    assert [(c["id"], f) for c, _t, f in out[2]] == [("ANCHOR", "full"), ("D0001", "full"), ("D0002", "one-node")]
+
+
+def test_the_node_pool_ranks_what_finished_at_the_deadline(tmp_path, monkeypatch, capsys):
+    fake = _FakePool(stop_after=2)                      # N=5's one-node runs, then its band
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    out, _same = S.rank_across_nodes(ctx, [2, 4, 5])
+    assert sorted(out) == [5] and out[5][0][2] == "band" and fake.closed
+    assert "stopped with N=[2, 4] not fully timed" in capsys.readouterr().out
+
+
+def test_a_leader_that_cannot_be_banded_gives_way_to_the_next_shape(tmp_path, monkeypatch):
+    fake = _FakePool()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    monkeypatch.setattr(S, "PROXY_JOINT_LEADERS", 1)
+    S.rank_across_nodes(ctx, [5])
+    # N=5's fastest, 20x36, holds no whole rows per node: the next shape is banded instead
+    assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N5"] == ["N5_24x30_o1_nt1"]
+
+
+def test_pool_worker_runs_each_task_on_its_own_free_nodes_in_queue_order(tmp_path):
+    import json as _json
+    import threading as _th
+    import time as _time
+    q, batch = tmp_path / "pool", tmp_path / "b"
+    (q / "tasks").mkdir(parents=True)
+    batch.mkdir()
+    (batch / "plan.json").write_text(_json.dumps(dict(runs=[])))
+    tasks = [("0-001-000001", "BAND", 3)] + [("1-001-%06d" % i, "L%d" % i, 1) for i in range(2, 7)] + \
+            [("1-002-000007", "HUGE", 9)]
+    for name, tag, k in tasks:
+        (q / "tasks" / (name + ".json")).write_text(_json.dumps(dict(batch=str(batch), run=dict(tag=tag), nodes=k)))
+    (q / "CLOSE").write_text("")
+    spans, guard = [], _th.Lock()
+
+    def fake_tries(plan, r, rep, out, scratch, write, hosts):
+        t0 = _time.monotonic()
+        _time.sleep(0.05)
+        with guard:
+            spans.append((r["tag"], tuple(hosts), t0, _time.monotonic()))
+        write(_json.dumps(dict(tag=r["tag"])) + "\n")
+        return 1
+
+    assert P.pool_worker(str(q), hosts=["a", "b", "c", "d"], run_tries=fake_tries, poll_s=0.01) == 0
+    assert sorted(os.listdir(q / "done")) == sorted(n + ".json" for n, _t, _k in tasks)
+    assert sorted(_json.loads(l)["tag"] for l in open(batch / "results.jsonl")) == sorted(
+        t for _n, t, k in tasks if k <= 4)
+    first = min(spans, key=lambda s: s[2])
+    assert first[0] == "BAND" and len(set(first[1])) == 3
+    for i, (t1, h1, a1, b1) in enumerate(spans):            # no node holds two runs at once
+        for t2, h2, a2, b2 in spans[i + 1:]:
+            assert not (set(h1) & set(h2) and a1 < b2 and a2 < b1), (t1, t2)
+
+
+def test_on_hosts_restricts_the_launcher_to_the_pools_nodes():
+    assert P.on_hosts(["srun", "--mpi=pmi2", "-n", "56", "./wrf.exe"], ["n1", "n2"], 112) == [
+        "srun", "-N", "2", "-w", "n1,n2", "--exact", "--mpi=pmi2", "-n", "56", "./wrf.exe"]
+    assert P.on_hosts(["mpirun", "-np", "8", "./wrf.exe"], ["n1"], 144) == [
+        "mpirun", "--host", "n1:144", "-np", "8", "./wrf.exe"]
+    assert P.on_hosts(["./wrf.exe"], ["n1"], 1) == ["./wrf.exe"]
+    assert P.on_hosts(["srun", "./wrf.exe"], None, 1) == ["srun", "./wrf.exe"]
+
+
+def test_pool_size_and_time_limit(tmp_path):
+    import types as _types
+    real = S._jobs.sweep.default_sbatch_runner
+    ctx = _types.SimpleNamespace(sbatch_runner=real, max_nodes=8, proxy_max_nodes=0, budget_s=float("inf"),
+                                 elapsed=lambda: 0.0)
+    assert S._pool_nodes(ctx, 70) == 32 and S._pool_nodes(ctx, 2) == 3
+    ctx.proxy_max_nodes = 8
+    assert S._pool_nodes(ctx, 70) == 8
+    assert S._pool_nodes(_types.SimpleNamespace(sbatch_runner=lambda c: None), 70) == 0   # fake runner
+    assert S._pool_time_limit(ctx) == "03:00:00"
+    ctx.budget_s, ctx.elapsed = 15 * 60.0, lambda: 120.0
+    assert S._pool_time_limit(ctx) == "00:18:00"
+
+
+def test_a_pool_run_crops_on_its_own_first_node_as_a_slurm_step(tmp_path, monkeypatch):
+    calls = []
+
+    class _R:
+        returncode, stdout, stderr = 0, "", ""
+    monkeypatch.setattr(P.subprocess, "run", lambda argv, **k: calls.append(argv) or _R())
+    monkeypatch.setenv("SLURM_JOB_ID", "77")
+    monkeypatch.setattr(P, "crop", lambda *a, **k: pytest.fail("not in the worker's process"))
+    P._crop_on(["n5", "n6"], "/c/wrfinput_d01", "/c/wrfbdy_d01", "/s/box", 10, 20, place="centre", parent_start=(3, 4))
+    argv = calls[0]
+    assert argv[:8] == ["srun", "-N", "1", "-n", "1", "-w", "n5", "--exact"] and argv[-3:-1] == ["wtune.proxy", "_crop"]
+    got = []
+    monkeypatch.setattr(P, "crop", lambda *a, **k: got.append((a, k)))
+    assert P.main(["_crop", argv[-1]]) == 0
+    assert got == [(("/c/wrfinput_d01", "/c/wrfbdy_d01", "/s/box", 10, 20), dict(place="centre", parent_start=(3, 4)))]
+    monkeypatch.delenv("SLURM_JOB_ID")
+    P._crop_on(["n5"], "a", None, "b", 1, 2)                     # no Slurm: in-process
+    assert got[-1] == (("a", None, "b", 1, 2), {})
+
+
+def test_pool_worker_backfills_one_node_runs_that_cannot_delay_a_waiting_band(tmp_path):
+    import json as _json
+    import threading as _th
+    import time as _time
+    q, batch = tmp_path / "pool", tmp_path / "b"
+    (q / "tasks").mkdir(parents=True)
+    batch.mkdir()
+    (batch / "plan.json").write_text(_json.dumps(dict(runs=[])))
+    tasks = [("0-001-000001", "B1", 3), ("0-001-000002", "B2", 3)] + \
+            [("1-001-%06d" % i, "L%d" % i, 1) for i in range(3, 7)]
+    for name, tag, k in tasks:
+        (q / "tasks" / (name + ".json")).write_text(_json.dumps(dict(batch=str(batch), run=dict(tag=tag), nodes=k)))
+    (q / "CLOSE").write_text("")
+    starts, guard = {}, _th.Lock()
+
+    def fake_tries(plan, r, rep, out, scratch, write, hosts):
+        with guard:
+            starts[r["tag"]] = _time.monotonic()
+        _time.sleep(0.15)
+        return 1
+
+    P.pool_worker(str(q), hosts=list("abcde"), run_tries=fake_tries, poll_s=0.01)
+    order = sorted(starts, key=starts.get)
+    # B2 waits for 3 nodes; the 2 left beside B1 take L3 and L4 (B1 ending frees B2's 3 nodes alone)
+    assert order[:3] == ["B1", "L3", "L4"] and order.index("B2") < order.index("L5")
+    assert not P._backfill_ok(3, 0, {})                                 # nothing running: no backfill
+    assert not P._backfill_ok(3, 0, {"x": (None, ["a"], 0.0), "y": (None, list("bcd"), 1.0)})

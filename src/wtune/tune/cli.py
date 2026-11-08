@@ -70,6 +70,7 @@ class _NodeChoice:
     nodes: int
     nodes_note: str
     proxy: bool = False
+    proxy_max_nodes: int = 0
 
 
 def _precision_arg(text: str) -> str:
@@ -223,7 +224,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
                restart_io_form=int(o.restart_io_form), node_seeds=ns.node_seeds,
-               hotspot_fill=ns.hotspot_fill, proxy=bool(getattr(ns, "proxy", False)), wrf_tree=tree or "")
+               hotspot_fill=ns.hotspot_fill, proxy=bool(getattr(ns, "proxy", False)),
+               proxy_max_nodes=int(getattr(ns, "proxy_max_nodes", 0) or 0), wrf_tree=tree or "")
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -420,6 +422,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
     proxy = _nopt("proxy", True)
     proxy = proxy if isinstance(proxy, bool) else proxy == "on"
+    proxy_max_nodes = int(_nopt("proxy_max_nodes", 0) or 0)
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
     adaptive = _context.adaptive_steps_warning(namelist_path)
@@ -442,7 +445,8 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
                        deadline_minutes=deadline_minutes, min_efficiency=min_efficiency,
                        node_finalists=node_finalists, sweep_budget_frac=sweep_budget_frac,
                        node_seeds=node_seeds, hotspot_fill=hotspot_fill, core_options=core_options,
-                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note, proxy=proxy)
+                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note, proxy=proxy,
+                       proxy_max_nodes=proxy_max_nodes)
 
 
 def _run_out_dir(args: argparse.Namespace, case: str) -> str:
@@ -568,11 +572,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
     p.add_argument("--proxy", default=None, choices=("on", "off"), dest="proxy",
-                    help="round0: time a 3x wider pool of layouts on one node each (small-domain "
-                         "proxy, `wtune proxy`; a nested case per domain), re-time the 4 fastest as "
-                         "3-node band proxies when N > 3, and send only the ANCHOR plus the 2 fastest "
-                         "to the real N-node probes; needs netCDF wrfinput/wrfbdy, else round0 keeps "
-                         "its real probes (default on, or --config's budget.proxy)")
+                    help="small-domain proxy (`wtune proxy`; a nested case per domain). -O1/-O2: "
+                         "the joint (N, layout) search times every legal N's layouts on one node "
+                         "each, re-times the leaders as 3-node bands (N > 3) or the whole domain "
+                         "(N <= 3) and picks (N, layout) from those scores with no real N-node "
+                         "probe; proxy jobs may hold up to 4 x --max-nodes nodes at once. --nodes N: "
+                         "round0 sends only the proxy's picks to real probes. Needs netCDF "
+                         "wrfinput/wrfbdy, else the real search runs (default on, or --config's "
+                         "budget.proxy)")
+    p.add_argument("--proxy-max-nodes", type=int, default=None, dest="proxy_max_nodes",
+                    help="nodes the proxy jobs may hold at once (default 4 x --max-nodes, or "
+                         "--config's budget.proxy_max_nodes); the tune takes longer when lower")
     p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
                     help="--nodes search: measure untried N near the best one in the nodes a "
                          "sweep wave leaves idle, when no longer than the wave (default on, or "

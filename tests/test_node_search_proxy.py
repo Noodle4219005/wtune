@@ -42,9 +42,10 @@ def _patch(monkeypatch, ranking, calls, consistent=None):
     monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS[n], None) if n in ANCHORS
                         else (None, "no legal decomposition"))
 
-    def rank(ctx, legal, anchor_only_below=0):
+    def rank(ctx, legal, anchor_only_below=0, leaders=3):
         calls.append(("rank", legal))
         calls.append(("below", anchor_only_below))
+        calls.append(("leaders", leaders))
         ctx.owned_jobs += ["901", "902"]
         return ranking, (consistent if consistent is not None else {n: True for n in ranking})
     monkeypatch.setattr(PS, "rank_across_nodes", rank)
@@ -79,6 +80,7 @@ def test_joint_proxy_picks_by_the_proxy_scores_with_no_real_probe(tmp_path, monk
     ctx = _ctx(tmp_path)
     report, collect = _search(ctx, 2)
     assert calls[0] == ("rank", [2, 4, 8]) and calls[1] == ("below", 4)   # objective time: N < 8/2
+    assert calls[2] == ("leaders", None)              # O2: PROXY_JOINT_LEADERS
     # only the leader's fidelity ranks: N=8's one-node 0.20 reads low and must not win
     assert [c for c in calls if c[0] == "report"] == [("report", 8, ["ANCHOR"], "ANCHOR"),
                                                        ("report", 4, ["ANCHOR", "D0001"], "ANCHOR")]
@@ -94,7 +96,10 @@ def test_joint_proxy_picks_by_the_proxy_scores_with_no_real_probe(tmp_path, monk
     assert report["cores_used_per_node"] == 144 and report["full_run_prediction"] == dict(stub=True)
     assert ns["winner"]["nodes"] == 8 and ns["winner"]["median"] == 0.25
     assert ctx.owned_jobs == ["901", "902"]                             # nothing but the proxy jobs
-    assert wtune.tune.render_node_selection_text(ns)
+    text = wtune.tune.render_node_selection_text(ns)
+    assert "node selection (joint proxy" in text and "measured, ANCHOR" not in text
+    assert "proxy-timed layouts" in text and "proxy band" in text
+    assert "band     96x12_o1_nt1" in text and "one-node 24x24" not in text   # fidelity + layout per N
 
 
 def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, monkeypatch):
@@ -134,9 +139,17 @@ def test_joint_proxy_falls_back_to_the_real_sweep_without_a_ranking(tmp_path, mo
     assert not [c for c in calls if c[0] == "report"]
 
 
-@pytest.mark.parametrize("level,proxy,inputs", [(1, True, True), (3, True, True), (2, False, True),
+def test_o1_runs_the_joint_proxy_with_one_leader_per_n(tmp_path, monkeypatch):
+    calls = []
+    _patch(monkeypatch, RANKING, calls)
+    report, _c = _search(_ctx(tmp_path), 1)
+    assert ("leaders", 1) in calls and report["nodes"] == 8
+    assert report["node_selection"]["note"] == "joint proxy search"
+
+
+@pytest.mark.parametrize("level,proxy,inputs", [(3, True, True), (1, False, True), (2, False, True),
                                                 (2, True, False)])
-def test_real_sweep_at_o1_o3_proxy_off_or_without_inputs(tmp_path, monkeypatch, level, proxy, inputs):
+def test_real_sweep_at_o3_proxy_off_or_without_inputs(tmp_path, monkeypatch, level, proxy, inputs):
     calls = []
     _patch(monkeypatch, RANKING, calls)
     with pytest.raises(_RealSweep):

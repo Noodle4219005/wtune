@@ -18,7 +18,8 @@
     "sweep_budget_frac": null,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": null,
@@ -175,7 +176,8 @@
     "sweep_budget_frac": 1,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": null,
@@ -296,7 +298,8 @@
     "sweep_budget_frac": null,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": [
@@ -502,7 +505,8 @@
     "sweep_budget_frac": null,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": null,
@@ -609,7 +613,8 @@
     "sweep_budget_frac": null,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": null,
@@ -712,7 +717,8 @@
     "sweep_budget_frac": null,
     "node_seeds": null,
     "hotspot_fill": null,
-    "proxy": null
+    "proxy": null,
+    "proxy_max_nodes": null
    },
    "search": {
     "omp": null,

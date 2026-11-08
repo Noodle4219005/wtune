@@ -205,6 +205,23 @@ def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, mon
     assert dropped == ["job%d" % j for j in range(6)]               # one job per layout, max_nodes 8
 
 
+def test_proxy_max_nodes_caps_the_nodes_the_proxy_jobs_hold(tmp_path, monkeypatch):
+    submitted = _patch(monkeypatch, [], {})
+    runs = [dict(tag="L%02d" % i) for i in range(40)]
+    ctx = _ctx(tmp_path)
+    assert S.proxy_node_cap(ctx) == 32                              # default 4 x max_nodes 8
+    S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o"), "job", 1)
+    assert len(submitted) == S.PROXY_MAX_JOBS                       # 32 nodes, the QOS job cap first
+    submitted.clear()
+    ctx.proxy_max_nodes = 7
+    S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "o7"), "job", 1)
+    assert len(submitted) == 7 and sorted(r["tag"] for p in submitted for r in p["runs"]) == sorted(
+        r["tag"] for r in runs)
+    submitted.clear()
+    S._run_jobs(ctx, dict(runs=runs), runs, str(tmp_path / "b7"), "band", 3)
+    assert len(submitted) == 2                                      # 3-node jobs: 7 // 3
+
+
 def test_run_jobs_keeps_a_layouts_runs_in_one_job(tmp_path, monkeypatch):
     submitted = _patch(monkeypatch, [], {})
     runs = [dict(tag=t + s, layout=t) for t in "ABCDE" for s in ("", "_p1", "_t1")]

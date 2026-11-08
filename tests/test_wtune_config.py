@@ -407,11 +407,13 @@ def test_budget_nodes_accepts_auto_int_and_list():
 def test_budget_nodes_search_and_search_knobs_validate():
     cfg, errs = wcfg.resolve_config(_valid_raw(budget=dict(
         minutes=10, max_nodes=13, nodes="search", node_objective="cost", deadline_minutes=90,
-        min_efficiency=0.8, node_finalists=3, sweep_budget_frac=0.4)))
+        min_efficiency=0.8, node_finalists=3, sweep_budget_frac=0.4, proxy_max_nodes=8)))
     assert errs == []
     assert cfg["budget"]["nodes"] == "search" and cfg["budget"]["node_objective"] == "cost"
+    assert cfg["budget"]["proxy_max_nodes"] == 8
     for bad in (dict(node_objective="fastest"), dict(deadline_minutes=-1),
-                dict(node_finalists=0), dict(sweep_budget_frac=1.5), dict(min_efficiency="x")):
+                dict(node_finalists=0), dict(sweep_budget_frac=1.5), dict(min_efficiency="x"),
+                dict(proxy_max_nodes=0), dict(proxy_max_nodes=2.5)):
         _cfg, errs = wcfg.resolve_config(_valid_raw(budget=dict(minutes=10, nodes="search", **bad)))
         assert any("budget." in e for e in errs), bad
 

@@ -542,12 +542,12 @@ ROUND0_TWICE_NODES_FACTOR = 8   # round0 after the proxy: ANCHOR + 3 picks x 2 r
 
 def _proxy_slots(ctx: Ctx, slots: int) -> int:
     """Parallel jobs once the proxy ranked the layouts: one config per job, up to
-    PROXY_JOB_NODES_FACTOR x max_nodes nodes at once (queue wait is not tune time; a config takes
+    proxy_node_cap nodes at once (queue wait is not tune time; a config takes
     ~startup + probe steps, 4-5 min on an ISC-size case, so a job of 3 ran 14 min)."""
     if not ctx.proxy_used:
         return slots
-    from .proxy_stage import PROXY_JOB_NODES_FACTOR
-    return max(slots, PROXY_JOB_NODES_FACTOR * ctx.max_nodes // max(1, ctx.nodes))
+    from .proxy_stage import proxy_node_cap
+    return max(slots, proxy_node_cap(ctx) // max(1, ctx.nodes))
 
 
 def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:

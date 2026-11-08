@@ -1,7 +1,7 @@
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
 pipeline: 模擬本身只要約 5 分鐘（冷啟動估計），比 O3 的調校時間短；自動降為 O1（--stop-if-short / --minutes 啟用）
-pipeline: 預估調校時間 O1 ≈ 19 min <-  O2 ≈ 11 min  O3 ≈ 48 min  (running time; queue wait extra); whole run ~5:00 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 19 min <-  O2 ≈ 35 min  O3 ≈ 48 min  (running time; queue wait extra); whole run ~5:00 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
@@ -87,7 +87,7 @@ skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
 
 === wtune tune -O1 (decision 0059) ===
 level O1 (requested O3); time cap: none (no time cap)  whole run implied by the t0 anchor (info): 7:00
-tuning time, estimated at start: O1 ≈ 19 min <-  O2 ≈ 11 min  O3 ≈ 48 min  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O1 ≈ 19.3 min
+tuning time, estimated at start: O1 ≈ 19 min <-  O2 ≈ 35 min  O3 ≈ 48 min  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O1 ≈ 19.3 min
 STEPPED DOWN (pre-run) -> O1
 phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok

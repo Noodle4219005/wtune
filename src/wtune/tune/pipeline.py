@@ -232,7 +232,8 @@ def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         ce.est = level_estimates(s1=s_n0 * n0, steps_probe=ctx.steps,
                                  startup_s=ctx.startup_s, max_nodes=ctx.max_nodes,
                                  n_points=len(pplan0["selected"]), n_full=n_full,
-                                 proxy=bool(getattr(ctx, "proxy", False)))
+                                 proxy=_node_search.joint_proxy_usable(ctx),
+                                 proxy_node_cap=ctx.proxy_max_nodes)
         ce.est_info = dict(nodes=n0, s_per_step_n=s_n0, source=src, startup_s=ctx.startup_s,
                            prediction_points=len(pplan0["selected"]),
                            points_source=pplan0["source"], precision_min=precision_min)
@@ -432,7 +433,8 @@ def _pipeline_on_wave(st: PipelineRun, meas: dict) -> None:
     T = total_steps * vals + ctx.startup_s
     est2 = level_estimates(s1=vals * n_best, steps_probe=ctx.steps, startup_s=ctx.startup_s,
                            max_nodes=ctx.max_nodes, n_points=if_set(pipe.n_points_est, 0),
-                           n_full=if_set(pipe.n_full_est, 0), proxy=bool(getattr(ctx, "proxy", False)))
+                           n_full=if_set(pipe.n_full_est, 0), proxy=_node_search.joint_proxy_usable(ctx),
+                           proxy_node_cap=ctx.proxy_max_nodes)
     lv = highest_level_within(est2, T, plan["level"])
     if lv >= plan["level"]:
         return None
@@ -892,7 +894,7 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
 
     best = report.get("best") or {}
     if not pred and not pipe.T_updated_s and st.total_steps and best.get("median_s_per_step"):
-        # the joint proxy search has no node-sweep callback: the winner's measured s/step instead
+        # the joint proxy search has no node-sweep callback: the winner's proxy s/step instead
         # (phase 2 needs rebuilt points; with no WPS the report said "predicted real run 0:00")
         pipe.T_updated_compute_s = st.total_steps * best["median_s_per_step"]
         pipe.T_updated_s = pipe.T_updated_compute_s + ctx.startup_s
@@ -915,7 +917,10 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
     pipe.queue_cap_hit = st.cap_hit()
     pipe.total_controller_s = max(0.0, ctx.wall_elapsed() - running - ctx.queue_wait_s)
     pipe.predicted_real_s = predicted_real
-    pipe.predicted_real_source = (("phase 2 combine()" if pred else "phase-1 anchor s/step x steps")
+    joint = (report.get("node_selection") or {}).get("note") == "joint proxy search"
+    pipe.predicted_real_source = (("phase 2 combine()" if pred else
+                                   "winner's joint proxy s/step x steps" if joint else
+                                   "phase-1 anchor s/step x steps")
                                   + (" + run-length I/O" if io_run else ""))
     pipe.hard_deadline_s = (B if B != float("inf") else None)
     pipe.over_deadline_s = (max(0.0, running - B) if B != float("inf") else 0.0)

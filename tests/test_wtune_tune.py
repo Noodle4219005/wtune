@@ -3032,11 +3032,13 @@ def test_pipeline_phase2_not_run_only_when_even_the_smallest_plan_does_not_fit(
 def test_level_estimates_sc26p1_like_numbers_and_printout():
     # SC26-P1 live: N=1 0.1261 s/step; startup 120 s default; 30 probe steps; 10 healthy nodes
     lay = wtune.tune.layout_estimates(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10)
+    real = wtune.tune.layout_estimates(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10,
+                                       proxy=False)
     job = lambda n: 2 * (120.0 + 30 * 0.1261 / n)                       # noqa: E731
-    # t0 wave N in {1,2,4,8,10} packs into 3 waves ([1,2,4], [8], [10])
-    assert lay[1] == pytest.approx(job(1) + job(8) + job(10))
-    # with the proxy, O2 (the one-node joint search) can cost less running time than O1's real sweep
-    assert lay[0] == 0.0 and lay[1] < lay[3] and lay[2] < lay[3]
+    # without the proxy the O1 t0 wave N in {1,2,4,8,10} packs into 3 waves ([1,2,4], [8], [10])
+    assert real[1] == pytest.approx(job(1) + job(8) + job(10))
+    # with the proxy O1 is the joint search with one leader per N: never dearer than O2
+    assert lay[0] == 0.0 and lay[1] <= lay[2] < lay[3] and lay[1] < real[1]
     est = wtune.tune.level_estimates(s1=0.1261, steps_probe=30, startup_s=120.0, max_nodes=10,
                                      n_points=2)
     assert est[1] < est[3] and est[2] < est[3] and all(est[k] >= lay[k] for k in (1, 2, 3))
@@ -3069,6 +3071,12 @@ def test_o2_estimate_follows_the_proxy_rounds():
     # 2 time points: every band leader 4 runs, every whole-domain leader 3
     assert E.proxy_joint_s(120.0, 30, 0.1261, 10, time_points=2) == pytest.approx(
         2 * one + 2 * 4 * band + 3 * (st(2) + st(3)))
+    # O1: one leader per N -- 7 band leaders on 13 jobs, one round of 2 positions
+    assert prox[1] == pytest.approx(2 * one + 2 * band + st(2) + st(3))
+    # --proxy-max-nodes 8: 60 layouts on 8 nodes -> 8 rounds; 21 band leaders on 8 // 3 = 2 jobs ->
+    # 11 rounds of 2 positions; N=2's 3 leaders on 4 jobs -> 1 round, N=3's on 2 jobs -> 2
+    assert E.proxy_joint_s(120.0, 30, 0.1261, 10, node_cap=8) == pytest.approx(
+        8 * one + 22 * band + st(2) + 2 * st(3))
     # max_nodes 3: 18 layouts on 12 jobs -> 2 rounds, no band round, the whole-domain leaders of
     # N=2 and N=3
     assert E.proxy_joint_s(120.0, 30, 0.1261, 3) == pytest.approx(

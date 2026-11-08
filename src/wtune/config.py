@@ -52,7 +52,8 @@ DEFAULTS = {
         "sweep_budget_frac": None,
         "node_seeds": None,            # geometric | all
         "hotspot_fill": None,          # true | false
-        "proxy": None,                 # true | false (round0 picked by the one-node proxy)
+        "proxy": None,                 # true | false (the one-node proxy: O1/O2 joint search)
+        "proxy_max_nodes": None,       # nodes the proxy jobs may hold at once (None: 4 x max_nodes)
     },
     "search": {
         "omp": None,                   # None = unrestricted (decomp_space's own omp_options)
@@ -85,7 +86,7 @@ TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physi
             "probe", "prediction", "exclude"}
 BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy", "node_objective",
                "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac",
-               "node_seeds", "hotspot_fill", "proxy"}
+               "node_seeds", "hotspot_fill", "proxy", "proxy_max_nodes"}
 NODE_OBJECTIVE_CHOICES = ("time", "cost", "knee")
 NODE_SEEDS_CHOICES = ("geometric", "all")
 SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
@@ -325,6 +326,7 @@ _BUDGET_RULES = [
     ("node_seeds", *_choice(NODE_SEEDS_CHOICES, optional=True)),
     ("hotspot_fill", _optional(lambda v: isinstance(v, bool)), _BOOL),
     ("proxy", _optional(lambda v: isinstance(v, bool)), _BOOL),
+    ("proxy_max_nodes", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
 ]
 _SEARCH_RULES = [
     ("aspect_max", _optional(_positive_number), _POS_NUMBER),

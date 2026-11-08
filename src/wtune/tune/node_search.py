@@ -749,10 +749,11 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     search at each finalist (N, c) -> final (N, c, config) over the finalists' best tuned
     medians. `plan` ({"level"}) is read live; `collect` receives outcomes / final_n / sweep /
     cores_info for the pipeline. Falls back to the proxy (`profile`) when nothing was measured.
-    At O2 with ctx.proxy the joint proxy search (_run_node_search_proxy) replaces the sweep."""
+    At O1/O2 with ctx.proxy the joint proxy search (_run_node_search_proxy) replaces the sweep."""
     lvl = (lambda: plan["level"]) if plan else (lambda: 3)    # effort level, read live
-    if ctx.proxy and plan is not None and lvl() == 2 and ctx.wrf_tree and _proxy_inputs(ctx):
-        report = _run_node_search_proxy(ctx, objective, deadline_s, min_efficiency, total_steps, collect)
+    if plan is not None and lvl() in (1, 2) and joint_proxy_usable(ctx):
+        report = _run_node_search_proxy(ctx, objective, deadline_s, min_efficiency, total_steps, collect,
+                                        leaders=1 if lvl() == 1 else None)
         if report is not None:
             return report
     overhead_s = ctx.startup_s
@@ -915,6 +916,11 @@ def _proxy_inputs(ctx: Ctx) -> bool:
     return all(os.path.exists(os.path.join(case_dir, f)) for f in ("wrfinput_d01", "wrfbdy_d01"))
 
 
+def joint_proxy_usable(ctx: Ctx) -> bool:
+    """The joint proxy search can run: --proxy on (the default), a WRF tree and netCDF inputs."""
+    return bool(getattr(ctx, "proxy", False) and getattr(ctx, "wrf_tree", "") and _proxy_inputs(ctx))
+
+
 def _proxy_outcomes(ctx: Ctx, finals: list[int], ranking: dict, anchors: dict) -> dict:
     """{N: FinalistOutcome} from the joint proxy scores alone, no real N-node probe: each
     finalist's layouts timed at its leader's fidelity (band or whole domain; one-node scores read
@@ -948,12 +954,14 @@ def _proxy_outcomes(ctx: Ctx, finals: list[int], ranking: dict, anchors: dict) -
 
 
 def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, min_efficiency: float,
-                           total_steps: int | None, collect: dict | None) -> dict | None:
-    """-O2 with the proxy: proxy_stage.rank_across_nodes over every legal N replaces the real
+                           total_steps: int | None, collect: dict | None,
+                           leaders: int | None = None) -> dict | None:
+    """-O1/-O2 with the proxy: proxy_stage.rank_across_nodes over every legal N replaces the real
     ANCHOR sweep and the real N-node probes; the final N and layout come from the proxy scores of
     the PROXY_JOINT_FINALISTS best N (one more when the best N's crop positions disagree on its
-    fastest layout). No cores/node sweep. None (the real sweep runs instead) when nothing was
-    ranked."""
+    fastest layout). No cores/node sweep. `leaders` (default PROXY_JOINT_LEADERS; O1: 1) one-node
+    leaders per N are re-timed at band or whole-domain fidelity. None (the real sweep runs instead)
+    when nothing was ranked."""
     from . import proxy_stage
     legal, skipped = [], []
     for n in range(1, ctx.max_nodes + 1):
@@ -965,7 +973,8 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     first_job = len(ctx.owned_jobs)
     # objective time: N under half the largest legal N would need > 2x superlinear speedup to win
     ranking, consistent = proxy_stage.rank_across_nodes(
-        ctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0)
+        ctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0,
+        leaders=leaders)
     proxy_jobs = list(ctx.owned_jobs[first_job:])
     if not ranking:
         print("node search: the joint proxy search ranked nothing; running the real node sweep")
@@ -1074,7 +1083,8 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
             cfg = r.get("config")
             if not cfg or not r.get("s_values"):
                 continue
-            row = _layout_row("finalist search", n, o.cores, cfg, r["s_values"], r.get("dirty"))
+            row = _layout_row("proxy " + r["fidelity"] if r.get("fidelity") else "finalist search",
+                              n, o.cores, cfg, r["s_values"], r.get("dirty"))
             add(row, (n, o.cores, sweep._identity(cfg)))
             if cid in ranked:
                 tuned.append((n, o.cores, sweep._identity(cfg)))

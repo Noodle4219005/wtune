@@ -1,11 +1,11 @@
 usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
                   [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
-                  [--proxy {on,off}] [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
-                  [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
-                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check] [--no-node-preflight]
-                  [-O0] [-O1] [-O2] [-O3] [--precision PRECISION] [--level {0,1,2,3}]
-                  [--stop-if-short] [--physics-advice] [--keep-frames]
+                  [--proxy {on,off}] [--proxy-max-nodes PROXY_MAX_NODES] [--hotspot-fill {on,off}]
+                  [--node-seeds {geometric,all}] [--cores-per-node-options CORES_PER_NODE_OPTIONS]
+                  [--pipeline {full}] [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check]
+                  [--no-node-preflight] [-O0] [-O1] [-O2] [-O3] [--precision PRECISION]
+                  [--level {0,1,2,3}] [--stop-if-short] [--physics-advice] [--keep-frames]
                   [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
                   [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
                   [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
@@ -45,11 +45,16 @@ options:
                         --nodes search: share of --minutes the node sweep may use; once spent,
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
-  --proxy {on,off}      round0: time a 3x wider pool of layouts on one node each (small-domain
-                        proxy, `wtune proxy`; a nested case per domain), re-time the 4 fastest as
-                        3-node band proxies when N > 3, and send only the ANCHOR plus the 2
-                        fastest to the real N-node probes; needs netCDF wrfinput/wrfbdy, else
-                        round0 keeps its real probes (default on, or --config's budget.proxy)
+  --proxy {on,off}      small-domain proxy (`wtune proxy`; a nested case per domain). -O1/-O2: the
+                        joint (N, layout) search times every legal N's layouts on one node each,
+                        re-times the leaders as 3-node bands (N > 3) or the whole domain (N <= 3)
+                        and picks (N, layout) from those scores with no real N-node probe; proxy
+                        jobs may hold up to 4 x --max-nodes nodes at once. --nodes N: round0 sends
+                        only the proxy's picks to real probes. Needs netCDF wrfinput/wrfbdy, else
+                        the real search runs (default on, or --config's budget.proxy)
+  --proxy-max-nodes PROXY_MAX_NODES
+                        nodes the proxy jobs may hold at once (default 4 x --max-nodes, or
+                        --config's budget.proxy_max_nodes); the tune takes longer when lower
   --hotspot-fill {on,off}
                         --nodes search: measure untried N near the best one in the nodes a sweep
                         wave leaves idle, when no longer than the wave (default on, or --config's
@@ -79,12 +84,14 @@ options:
                         the healthy node count
   -O0                   effort level 0: no jobs: cold-start predict + proxy layout (layout search
                         effort + physics advice; the prediction points come from the case type)
-  -O1                   effort level 1: one t0 wave over N in {1,2,4,8,max healthy} (layout search
-                        effort + physics advice; the prediction points come from the case type)
-  -O2                   effort level 2: joint (N, layout) proxy search over every legal N, real
-                        ANCHOR + 2 at the 2 best N (the real node sweep when the proxy cannot run)
-                        (layout search effort + physics advice; the prediction points come from
-                        the case type)
+  -O1                   effort level 1: joint (N, layout) proxy search, one leader per N re-timed
+                        (without the proxy: one t0 wave over N in {1,2,4,8,max healthy}) (layout
+                        search effort + physics advice; the prediction points come from the case
+                        type)
+  -O2                   effort level 2: joint (N, layout) proxy search over every legal N, no real
+                        N-node probe (the real node sweep when the proxy cannot run) (layout
+                        search effort + physics advice; the prediction points come from the case
+                        type)
   -O3                   effort level 3: full layout search: every legal N (coarse-to-fine),
                         cores/node, ranks x omp, nx x ny, numtiles at the finalists + confirm reps
                         (layout search effort + physics advice; the prediction points come from

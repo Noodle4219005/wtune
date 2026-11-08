@@ -10,8 +10,9 @@ that does not fit (wtune/proxy.py). Configs the proxy cannot reproduce (2-D tile
 netCDF wrfinput/wrfbdy in the case directory, or no proxy timing at all, falls back to round0's own
 selection, with a note.
 
-At O2 the node search ranks (N, layout) jointly instead (rank_across_nodes): every legal N's pool in
-one batch, and the final (N, layout) is the proxy's fastest, with no real N-node probe.
+At O1/O2 (the default level) the node search ranks (N, layout) jointly instead (rank_across_nodes):
+every legal N's pool in one batch, and the final (N, layout) is the proxy's fastest, with no real
+N-node probe; O1 re-times one leader per N, O2 PROXY_JOINT_LEADERS.
 Every proxied layout is timed at wtune.proxy.PROXY_POSITIONS crop positions and scored by the
 median over them; the joint search also reports whether an N's positions agree on its fastest.
 """
@@ -46,6 +47,11 @@ PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interi
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N
 PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
 PROXY_JOINT_FINALISTS = 2      # node search: the N with the best proxy scores tuned for real
+
+
+def proxy_node_cap(ctx) -> int:
+    """Nodes the proxy jobs may hold at once: --proxy-max-nodes, else PROXY_JOB_NODES_FACTOR x max_nodes."""
+    return int(getattr(ctx, "proxy_max_nodes", 0) or 0) or PROXY_JOB_NODES_FACTOR * ctx.max_nodes
 
 
 def _spec(c: dict) -> str | None:
@@ -159,9 +165,10 @@ def _afford(ctx, chosen, anchor):
     return chosen
 
 
-def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0) -> tuple[dict, dict]:
+def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0,
+                      leaders: int | None = None) -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
-    layouts, one node each, every N in one batch of jobs; then the PROXY_JOINT_LEADERS one-node
+    layouts, one node each, every N in one batch of jobs; then the `leaders` (PROXY_JOINT_LEADERS) one-node
     leaders of each N re-timed so that N compare: as band proxies when N > PROXY_BAND_NODES, as the
     whole domain on N nodes when 1 < N <= PROXY_BAND_NODES. Every layout is timed at
     PROXY_POSITIONS crop positions where they can be placed (the whole domain has one). Returns
@@ -225,8 +232,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     points = _time_points(ctx, case_dir) if any(1 < z <= ctx.max_nodes for z in sizes) else []
     for n in sorted(one):
         size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
-        if size > 1 and ctx.max_nodes >= size:
-            lead = _distinct_shapes(sorted(one[n], key=one[n].get), PROXY_JOINT_LEADERS)
+        if size > 1 and min(ctx.max_nodes, proxy_node_cap(ctx)) >= size:
+            lead = _distinct_shapes(sorted(one[n], key=one[n].get), leaders or PROXY_JOINT_LEADERS)
             plan, got = _joint_plan(ctx, case_dir, n, {t: pools[n][t] for t in lead}, size, points)
             if got:
                 prev = by_size.get(size, (plan, []))
@@ -357,7 +364,7 @@ def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
     groups = sorted(groups.values(), key=lambda g: _layout_nodes(g[0].get("layout", g[0]["tag"])))
     # one job per layout up to the nodes there are: a nested or band run costs as much per step
     # as the real N-node run, so packing PROXY_RUNS_PER_JOB of them into a job serialises minutes
-    n_jobs = max(1, min(PROXY_JOB_NODES_FACTOR * ctx.max_nodes // nodes_per_job, len(groups),
+    n_jobs = max(1, min(proxy_node_cap(ctx) // nodes_per_job, len(groups),
                         PROXY_MAX_JOBS))
     # greedy, dearest first onto the least loaded job; a layout costs ~1/N (cells per rank)
     packed, load = [[] for _ in range(n_jobs)], [0.0] * n_jobs

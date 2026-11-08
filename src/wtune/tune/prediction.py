@@ -415,6 +415,10 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
         io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case,
         rsl_paths=rsl_paths or None, include_io=False)
     text = predict.render_text(pred)
+    if entry and entry.get("fidelity"):
+        text += ("\nNOTE: the s/step above is the joint proxy's (%s), not a real N-node run; on f1 "
+                 "x86 band scores read -1 to +6%% vs real (conus25, isc-synth, Big Chill)"
+                 % entry["fidelity"])
     if drift_note:
         text += "\n" + drift_note
     if ctx.prediction_cfg.get("measure_r_rad"):

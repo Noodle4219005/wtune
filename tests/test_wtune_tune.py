@@ -3060,21 +3060,19 @@ def test_o2_estimate_follows_the_proxy_rounds():
     st = lambda n: E.EST_PROXY_RUN_START_S + 8 * 0.1261 / n                            # noqa: E731
     one = E.EST_PROXY_RUN_START_S + 8 * 0.1261 * sum(1.0 / n for n in range(1, 11)) / 10
     band = E.EST_PROXY_RUN_START_S + 8 * 0.1261 * sum(1.0 / n for n in range(4, 11)) / 7
-    r_run = 120.0 + 30 * 0.1261 / 4                                                    # N* = 4
-    # 60 pool layouts on 40 jobs -> 2 rounds; 14 band leaders (2 x 7 N > 3) on min(40 // 3, 14) =
-    # 13 jobs -> 2 rounds of 2 positions; the 2 leaders of N=2 and of N=3 on their own nodes, one
-    # round; 2 finalists x (ANCHOR + 3) in 10 // 4 = 2 slots -> 2 rounds each
-    assert prox[2] == pytest.approx(2 * one + 2 * 2 * band + st(2) + st(3) + 2 * 2 * r_run)
+    # 60 pool layouts on 40 jobs -> 2 rounds; 21 band leaders (3 x 7 N > 3) on min(40 // 3, 21) =
+    # 13 jobs -> 2 rounds of 2 positions; the 3 leaders of N=2 and of N=3 on their own nodes, one
+    # round; no real probe after the proxy
+    assert prox[2] == pytest.approx(2 * one + 2 * 2 * band + st(2) + st(3))
     assert prox[2] < real[2]                       # no real t0 sweep before it
     assert prox[3] == real[3]                      # O3 enumerates the full space: no proxy
     # 2 time points: every band leader 4 runs, every whole-domain leader 3
     assert E.proxy_joint_s(120.0, 30, 0.1261, 10, time_points=2) == pytest.approx(
-        2 * one + 2 * 4 * band + 3 * (st(2) + st(3)) + 2 * 2 * r_run)
+        2 * one + 2 * 4 * band + 3 * (st(2) + st(3)))
     # max_nodes 3: 18 layouts on 12 jobs -> 2 rounds, no band round, the whole-domain leaders of
-    # N=2 and N=3, 2 finalists x 4 rounds in one slot
+    # N=2 and N=3
     assert E.proxy_joint_s(120.0, 30, 0.1261, 3) == pytest.approx(
-        2 * (E.EST_PROXY_RUN_START_S + 8 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3) + st(2) + st(3)
-        + 2 * 4 * (120.0 + 30 * 0.1261 / 3))
+        2 * (E.EST_PROXY_RUN_START_S + 8 * 0.1261 * (1 + 1 / 2 + 1 / 3) / 3) + st(2) + st(3))
     # round0 at N=3: 18 layouts on 12 jobs -> 2 rounds, no band round, 4 real probes in one slot
     assert E.proxy_round0_s(120.0, 30, 0.1261 / 3, 3, 3) == pytest.approx(2 * st(3) + 4 * (120.0 + 30 * 0.1261 / 3))
     # round0 at N=8: 18 layouts on 18 jobs, 4 band leaders x (2 positions + 1 time point) in one

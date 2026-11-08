@@ -84,9 +84,8 @@ def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int, time_
     layout, up to PROXY_JOB_NODES_FACTOR x max_nodes jobs at once (s/step the mean of s1/N); the
     PROXY_JOINT_LEADERS leaders of each N re-timed (PROXY_POSITIONS positions + `time_points` runs
     each) as bands when N > PROXY_BAND_NODES, as the whole domain on N nodes when 1 < N <=
-    PROXY_BAND_NODES (one position); every proxy run min(steps, PROXY_MAX_STEPS) steps; then
-    PROXY_JOINT_FINALISTS finalists one after the other, each ANCHOR + 2 real probes of `steps`
-    steps at N* = min(4, max_nodes) in max_nodes // N* slots."""
+    PROXY_BAND_NODES (one position); every proxy run min(steps, PROXY_MAX_STEPS) steps. No real
+    N-node probe follows."""
     from . import proxy_stage as P
     cap, ps, npos = P.PROXY_JOB_NODES_FACTOR * max_nodes, min(steps, _proxy.PROXY_MAX_STEPS), _proxy.PROXY_POSITIONS
     ns = range(1, max_nodes + 1)
@@ -100,9 +99,7 @@ def proxy_joint_s(startup_s: float, steps: int, s1: float, max_nodes: int, time_
     for n in range(2, min(P.PROXY_BAND_NODES, max_nodes) + 1):     # whole-domain leaders on n nodes
         lead = P.PROXY_JOINT_LEADERS
         t += math.ceil(lead / max(1, min(cap // n, lead))) * (1 + time_points) * (EST_PROXY_RUN_START_S + ps * s1 / n)
-    nstar = max(1, min(4, max_nodes))
-    finals = min(P.PROXY_JOINT_FINALISTS, max_nodes)
-    return t + finals * math.ceil(P.PROXY_REAL_KEEP / max(1, max_nodes // nstar)) * (startup_s + steps * s1 / nstar)
+    return t
 
 
 def points_estimate(*, s1: float, startup_s: float, max_nodes: int, n_points: int, layouts: int,

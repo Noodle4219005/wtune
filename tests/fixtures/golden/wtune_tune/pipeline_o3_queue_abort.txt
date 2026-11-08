@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=30.0 min max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap 30:00 of RUNNING time (queue wait not charged; queue cap 1:00:00); phase limits (cumulative): plan 1:30, layout 16:30, predict 24:00, physics 30:00
-pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 89 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 70 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
@@ -193,7 +193,7 @@ pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such
 
 === wtune tune -O3 (decision 0059) ===
 level O3; time cap: 30:00 (--minutes hard cap (job running time; queue wait and controller work excluded))  whole run implied by the t0 anchor (info): -
-tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 89 min  O3 ≈ 150 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 150.0 min
+tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 70 min  O3 ≈ 150 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 150.0 min
 phase plan     running 0:00     (limit 1:30    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase layout   running 0:00     (limit 16:30   ) wall 1:00:00  queue wait 1:00:00  controller 0:00      stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003,7004 cancelled
 phase predict  running 0:00     (limit 24:00   ) wall 0:00     queue wait 0:00     controller 0:00      not run (max queue wait exceeded)

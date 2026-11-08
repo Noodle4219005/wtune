@@ -11,7 +11,7 @@ netCDF wrfinput/wrfbdy in the case directory, or no proxy timing at all, falls b
 selection, with a note.
 
 At O2 the node search ranks (N, layout) jointly instead (rank_across_nodes): every legal N's pool in
-one batch, and the finalists' round0 takes that ranking (ctx.proxy_ranked) without new proxy jobs.
+one batch, and the final (N, layout) is the proxy's fastest, with no real N-node probe.
 Every proxied layout is timed at wtune.proxy.PROXY_POSITIONS crop positions and scored by the
 median over them; the joint search also reports whether an N's positions agree on its fastest.
 """
@@ -35,17 +35,16 @@ PROXY_MAX_JOBS = 28            # proxy jobs one batch submits: f1 ct112 QOS allo
 PROXY_POOL_OVERSAMPLE = 4      # joint pool: sample 4x and keep the first proxy-reproducible layouts
 PROXY_SEED_OMP = (1, 2, 4)     # joint pool: decomp_space.seed_design shapes at these thread counts
 PROXY_SEED_TILES = (12,)       # ... at the numtiles nearest these
-PROXY_SEED_X_WIDE = 2          # ... plus the 2 widest-in-x patch shapes per thread count
+PROXY_SEED_X_WIDE_OMP = (1, 2)  # ... plus, at these thread counts, the x-wide patch shapes (patch_x >= patch_y)
+PROXY_SEED_X_WIDE_MAX = 5      # ... the most balanced of them first, up to this many per thread count
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
-PROXY_REAL_KEEP = 4            # real N-node probes after the proxy: ANCHOR + the 3 fastest distinct shapes
-                               # (conus25 N=8: the band read omp1 14x64 5.6% low, it took one of 2 slots,
-                               # and 16x28 / 8x56 omp2, within 1.1% of the fastest, were never probed)
+PROXY_REAL_KEEP = 4            # select(): real N-node probes after the proxy, ANCHOR + the 3 fastest
 PROXY_BAND_KEEP = 4            # one-node leaders re-timed as band proxies
 PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interior node
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N
-PROXY_JOINT_LEADERS = 2        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
+PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
 PROXY_JOINT_FINALISTS = 2      # node search: the N with the best proxy scores tuned for real
 
 
@@ -95,8 +94,6 @@ def select(ctx: Ctx, configs: list[dict]) -> list[dict]:
     list unchanged when the proxy cannot run."""
     k = len(configs)
     keep = min(k, PROXY_REAL_KEEP)
-    if getattr(ctx, "proxy_ranked", None) is not None:
-        return _select_ranked(ctx, configs, keep)
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
     missing = [f for f in ("wrfinput_d01", "wrfbdy_d01") if not os.path.exists(os.path.join(case_dir, f))]
     if missing or not ctx.wrf_tree:
@@ -159,27 +156,6 @@ def _afford(ctx, chosen, anchor):
         picks = [c for c in chosen if c is not anchor] or [anchor]
         chosen = picks[:afford]
         print("proxy: budget left for %d real probe(s): %s" % (afford, ", ".join(_tag(c) for c in chosen)))
-    return chosen
-
-
-def _select_ranked(ctx, configs, keep):
-    """select() from rank_across_nodes' ranking at this N (ctx.proxy_ranked): nothing submitted."""
-    anchor = configs[0]
-    score = {_tag(c): (t, f) for c, t, f in ctx.proxy_ranked}
-    seen, ranked = {_tag(anchor)}, []
-    for c, _t, _f in ctx.proxy_ranked:
-        if _tag(c) not in seen:
-            seen.add(_tag(c))
-            ranked.append(c)
-    untimed = [c for c in configs[1:] if _tag(c) not in seen]
-    by_tag = {_tag(c): c for c in ranked}
-    ranked_picks = [by_tag[t] for t in _distinct_shapes([_tag(c) for c in ranked], keep - 1)]
-    chosen = _afford(ctx, [anchor] + (ranked_picks or untimed[:keep - 1]), anchor)
-    ctx.proxy_used = True
-    for i, c in enumerate([anchor] + ranked):
-        t, f = score.get(_tag(c), (None, ""))
-        print("proxy: %2d %-20s %s%s" % (i, _tag(c), "%.4f s/step %s" % (t, f) if t else "untimed",
-                                         "  -> real probe" if c in chosen else ""))
     return chosen
 
 
@@ -335,8 +311,9 @@ def _distinct_shapes(tags: list[str], k: int) -> list[str]:
 
 
 def _seed_layouts(ctx) -> list[dict]:
-    """decomp_space.seed_design at ctx.nodes over PROXY_SEED_OMP: the most balanced and the
-    widest-in-x patch per thread count, numtiles nearest PROXY_SEED_TILES, as campaign configs
+    """decomp_space.seed_design at ctx.nodes over PROXY_SEED_OMP (the most balanced and the
+    widest-in-x patch per thread count) plus up to PROXY_SEED_X_WIDE_MAX x-wide shapes per thread
+    count in PROXY_SEED_X_WIDE_OMP, numtiles nearest PROXY_SEED_TILES, as campaign configs
     (ids S0001..); [] when the space cannot be enumerated."""
     try:
         space, _axis = decomp_space.enumerate_space(ctx.case_json, ctx.nodes * cores_used(ctx), ctx.nodes,
@@ -345,14 +322,18 @@ def _seed_layouts(ctx) -> list[dict]:
         return []
     space = _apply_search_filter(ctx, [c for c in space if c.get("omp") in PROXY_SEED_OMP])
     picks = decomp_space.seed_design(space, numtiles_targets=PROXY_SEED_TILES, max_omp=max(PROXY_SEED_OMP))
-    # and the next x-wide shapes per thread count (x-wide patches vectorise better; isc-synth N=8:
-    # 8x56 omp2 2.712, the widest 7x64 omp2 2.814 s/step)
+    # and the x-wide shapes between those two ends: conus25 N=8's fastest omp2 patches, 14x32,
+    # 16x28 and 8x56 (0.371-0.375 s/step), lie between the balanced 28x16 (0.42) and the widest
+    # 4x112 and 7x64; isc-synth N=8's fastest is 8x56 omp2
     have = {(c["nx"], c["ny"], c["omp"]) for c in picks}
-    for omp in PROXY_SEED_OMP:
+    aspect = lambda c: c["patch_x"] / float(c["patch_y"])
+    for omp in PROXY_SEED_X_WIDE_OMP:
         group = [c for c in space if c["omp"] == omp and c.get("tile_shape", "1d_y") == "1d_y"
-                 and c.get("dist", "block") == "block" and str(c.get("blocktime", "0")) == "0"]
-        shapes = sorted({(c["nx"], c["ny"]) for c in group}, key=lambda xy: (xy[0], -xy[1]))
-        for xy in shapes[:PROXY_SEED_X_WIDE]:
+                 and c.get("dist", "block") == "block" and str(c.get("blocktime", "0")) == "0"
+                 and c.get("patch_x") and c.get("patch_y") and c["patch_x"] >= c["patch_y"]]
+        shapes = sorted({(c["nx"], c["ny"]) for c in group},
+                        key=lambda xy: min(aspect(c) for c in group if (c["nx"], c["ny"]) == xy))
+        for xy in shapes[:PROXY_SEED_X_WIDE_MAX]:
             if (xy[0], xy[1], omp) in have:
                 continue
             shape = [c for c in group if (c["nx"], c["ny"]) == xy]

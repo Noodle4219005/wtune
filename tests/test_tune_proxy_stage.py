@@ -159,6 +159,7 @@ def test_rank_across_nodes_times_every_n_in_one_plan_and_bands_the_leaders(tmp_p
     band = {"N4_24x24_o1_nt1": 0.46, "N4_12x24_o2_nt24": 0.47, "N5_24x30_o1_nt1": 0.44,
             "N2_12x24_o1_nt1": 0.90, "N2_16x18_o1_nt1": 0.88}          # N=2's leaders on 2 whole nodes
     ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, timings, band)
+    monkeypatch.setattr(S, "PROXY_JOINT_LEADERS", 2)                 # pools of 3: 2 leaders each
     out, same = S.rank_across_nodes(ctx, [1, 2, 4, 5])               # N=1: no ANCHOR, skipped
     one = [r for p in submitted if p["proxy_nodes"] == 1 for r in p["runs"]]
     tags = [r["tag"] for r in one if r["pos"] == 0]
@@ -192,17 +193,6 @@ def test_rank_across_nodes_keeps_the_domain_suffix_of_a_nested_case(tmp_path, mo
 def test_rank_across_nodes_is_empty_without_timings(tmp_path, monkeypatch):
     ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
     assert S.rank_across_nodes(ctx, [2, 4]) == ({}, {})
-
-
-def test_select_with_a_joint_ranking_submits_nothing(tmp_path, monkeypatch):
-    configs = [_cfg("ANCHOR", 24, 24), _cfg("G0001", 32, 18), _cfg("G0002", 16, 36)]
-    submitted = _patch(monkeypatch, [], {})
-    ctx = _ctx(tmp_path, with_inputs=False)
-    ctx.proxy_ranked = [(_cfg("D0001", 12, 24, omp=2, nt=24), 0.46, "band"), (_cfg("ANCHOR", 24, 24), 0.47, "band"),
-                        (_cfg("D0002", 18, 32), 0.47, "one-node"), (_cfg("D0003", 9, 64, nt=13), 0.49, "one-node")]
-    out = S.select(ctx, configs)
-    assert [c["id"] for c in out] == ["ANCHOR", "D0001", "D0002"] and ctx.proxy_used
-    assert submitted == [] and ctx.owned_jobs == []
 
 
 def test_run_jobs_drops_each_jobs_run_directories_after_collecting(tmp_path, monkeypatch):
@@ -368,21 +358,27 @@ def test_seed_layouts_take_the_balanced_and_the_x_wide_patch_per_thread_count(mo
     assert got == {(28, 32, 1, 12), (8, 112, 1, 12), (14, 64, 1, 12), (16, 28, 2, 12), (8, 56, 2, 12)}
 
 
+def test_seed_layouts_cover_the_x_wide_shapes_between_balanced_and_widest(monkeypatch):
+    import types
+    # conus25 N=8 omp2 (1500 x 1200): balanced 28x16, widest 4x112; the fastest are 14x32, 16x28, 8x56
+    space = [dict(nx=nx, ny=ny, ranks=nx * ny, omp=2, numtiles=nt, tile_shape="1d_y", dist="block",
+                  blocktime="0", patch_x=1500 // nx, patch_y=1200 // ny)
+             for nx, ny in ((4, 112), (7, 64), (8, 56), (14, 32), (16, 28), (28, 16), (32, 14), (56, 8))
+             for nt in (2, 12, 16)]
+    monkeypatch.setattr(S.decomp_space, "enumerate_space", lambda case, cores, n, hw: (space, None))
+    monkeypatch.setattr(S, "_apply_search_filter", lambda c, cs: cs)
+    monkeypatch.setattr(S, "cores_used", lambda c: 112)
+    ctx = types.SimpleNamespace(case_json={}, nodes=8, hardware_id="x")
+    got = {(c["nx"], c["ny"], c["numtiles"]) for c in S._seed_layouts(ctx)}
+    assert {(14, 32, 12), (16, 28, 12), (8, 56, 12), (7, 64, 12), (4, 112, 12), (28, 16, 12)} <= got
+    assert not {(32, 14, 12), (56, 8, 12)} & got                    # patch_x < patch_y: not seeded
+
+
 def test_band_leaders_are_distinct_patch_shapes():
     tags = ["7x64_o2_nt12", "7x64_o2_nt6", "16x28_o2_nt12", "14x64_o1_nt12"]
     assert S._distinct_shapes(tags, 2) == ["7x64_o2_nt12", "16x28_o2_nt12"]
     assert S._distinct_shapes(["7x64_o2_nt12", "7x64_o2_nt6"], 2) == ["7x64_o2_nt12", "7x64_o2_nt6"]
     assert S._distinct_shapes(["8x56_o2_nt14", "8x56_o1_nt14"], 2) == ["8x56_o2_nt14", "8x56_o1_nt14"]
-
-
-def test_select_with_a_joint_ranking_probes_distinct_shapes(tmp_path, monkeypatch):
-    configs = [_cfg("ANCHOR", 24, 24), _cfg("G0001", 32, 18), _cfg("G0002", 16, 36)]
-    _patch(monkeypatch, [], {})
-    ctx = _ctx(tmp_path, with_inputs=False)
-    ctx.proxy_ranked = [(_cfg("D0001", 12, 24, omp=2, nt=12), 0.40, "band"),
-                        (_cfg("D0002", 12, 24, omp=2, nt=6), 0.41, "band"),
-                        (_cfg("D0003", 18, 32), 0.45, "one-node")]
-    assert [c["id"] for c in S.select(ctx, configs)] == ["ANCHOR", "D0001", "D0003"]
 
 
 def test_a_layout_timed_at_the_tiles_fallback_is_ranked_and_band_timed_at_that_numtiles(tmp_path, monkeypatch):

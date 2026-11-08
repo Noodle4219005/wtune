@@ -960,7 +960,7 @@ def collect(out_dir):
     own (the median over its reps) and a layout's score is the median over them; "positions"
     holds {pos: score} at the case's own time, "times" {time: score} at position 0."""
     per = {}          # layout -> (pos, time) -> rep -> domain -> (weight, median)
-    domains, whole = {}, set()
+    domains, whole, fell_back = {}, set(), {}
     try:
         n_dom = json.load(open(os.path.join(out_dir, "plan.json"))).get("max_dom", 1)
     except (OSError, ValueError):
@@ -974,6 +974,8 @@ def collect(out_dir):
         if r["rc"] == 0 and r["median"] and r.get("ok", True):
             pt = (r.get("pos", 0), r.get("time", 0))
             per.setdefault(lay, {}).setdefault(pt, {}).setdefault(r["rep"], {})[dom] = (r.get("weight", 1), r["median"])
+            if r.get("nt_fallback"):
+                fell_back.setdefault(lay, []).append(int(r["numtiles"]))
     rows = []
     for lay, by_pt in per.items():
         want = {1} if lay in whole else set(range(1, n_dom + 1)) if n_dom else domains[lay]
@@ -988,6 +990,8 @@ def collect(out_dir):
             rows.append(dict(tag=lay, median=m, reps=scores, spread=(max(scores) - min(scores)) / m,
                              positions={p: v for (p, t), v in pts.items() if t == 0},
                              times={t: v for (p, t), v in pts.items() if p == 0}))
+            if lay in fell_back:     # timed at the half-tiles fallback: that numtiles is what ran
+                rows[-1]["numtiles"] = min(fell_back[lay])
     return sorted(rows, key=lambda r: r["median"])
 
 

@@ -383,3 +383,21 @@ def test_select_with_a_joint_ranking_probes_distinct_shapes(tmp_path, monkeypatc
                         (_cfg("D0002", 12, 24, omp=2, nt=6), 0.41, "band"),
                         (_cfg("D0003", 18, 32), 0.45, "one-node")]
     assert [c["id"] for c in S.select(ctx, configs)] == ["ANCHOR", "D0001", "D0003"]
+
+
+def test_a_layout_timed_at_the_tiles_fallback_is_ranked_and_band_timed_at_that_numtiles(tmp_path, monkeypatch):
+    pools = {5: [_cfg("ANCHOR", 24, 30), _cfg("D0001", 12, 60, omp=1, nt=12)]}
+    ctx, submitted = _joint(tmp_path, monkeypatch, pools, {}, {})
+    real = P.collect
+
+    def collect(d):
+        if d.endswith("jobs0") or d.endswith("jobs1"):
+            return [dict(tag="N5_24x30_o1_nt1", median=0.50), dict(tag="N5_12x60_o1_nt12", median=0.40, numtiles=6)]
+        if "band" in os.path.basename(d):
+            return [dict(tag="N5_12x60_o1_nt6", median=0.42), dict(tag="N5_24x30_o1_nt1", median=0.52)]
+        return real(d)
+    monkeypatch.setattr(P, "collect", collect)
+    out, _same = S.rank_across_nodes(ctx, [5])
+    bands = sorted({r["layout"] for p in submitted if p["proxy_nodes"] == 3 for r in p["runs"]})
+    assert "N5_12x60_o1_nt6" in bands and "N5_12x60_o1_nt12" not in bands
+    assert [(S._tag(c), t, f) for c, t, f in out[5]][0] == ("12x60_o1_nt6", 0.42, "band")

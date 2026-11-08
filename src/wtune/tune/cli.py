@@ -106,6 +106,10 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     a fixed node count -- then print the report and write <out>/tune_report.json. Returns the
     report; SystemExit for invalid options. The runners and clock default to the real ones."""
     STOP["reason"] = None
+    # every probe job inherits it (sbatch --export=ALL): a rank that aborts ends the srun step
+    # instead of leaving the others in MPI until the job's time limit (Big Chill N=5: 7x40 omp2
+    # nt12 hung 25 min in round0)
+    os.environ.setdefault("SLURM_KILL_BAD_EXIT", "1")
     o = _resolve_run_options(args)
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)

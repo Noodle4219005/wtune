@@ -219,9 +219,24 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     out_root = os.path.join(ctx.out_dir, "proxy-joint")
     print("proxy: joint search over N=%s: %d run(s) on one node each" % (sorted(pools), len(runs)))
     one_pos, band_pos = {}, {}
-    timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1, one_pos) or {}
+    nt_used = {}
+    timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1, one_pos, nt_used) or {}
     one = {}
     for n, pool in pools.items():
+        for t in list(pool):
+            nt = nt_used.get("N%d_%s" % (n, t))
+            if nt and int(pool[t].get("numtiles") or 1) != nt:
+                # timed at the half-tiles fallback: re-time and probe what ran, under its own tag
+                # (Big Chill N=5: 7x40 omp2 nt12 crashed, nt6 scored 2.40, the real nt12 probes hung)
+                c = dict(pool.pop(t), numtiles=nt)
+                if _tag(c) in pool:
+                    continue                       # that numtiles is in the pool already
+                pool[_tag(c)] = c
+                old, new = "N%d_%s" % (n, t), "N%d_%s" % (n, _tag(c))
+                timed[new] = timed.pop(old)
+                if old in one_pos:
+                    one_pos[new] = one_pos.pop(old)
+                print("proxy: N=%d %s timed at numtiles=%d (the fallback): ranked as %s" % (n, t, nt, _tag(c)))
         got = {t: timed["N%d_%s" % (n, t)] for t in pool if "N%d_%s" % (n, t) in timed}
         if got:
             one[n] = got
@@ -291,7 +306,7 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
                   for r in plan["runs"] if not any(e.startswith(r["tag"] + ":") for e in errors)]
 
 
-def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
+def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None, nt_used=None):
     """Spread `runs` over proxy jobs of nodes_per_job nodes each (as many as max_nodes holds), wait,
     and return {layout tag: score} (and fill by_pos with {layout tag: {crop position: score}});
     None when no job could be submitted. A layout's runs (domains, crop positions, time points)
@@ -300,7 +315,7 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None):
     if h is None:
         return None
     _jobs.wait_for_jobs(ctx, h["live"], "proxy")
-    return _collect_jobs(h, by_pos)
+    return _collect_jobs(h, by_pos, nt_used)
 
 
 def _distinct_shapes(tags: list[str], k: int) -> list[str]:
@@ -395,12 +410,14 @@ def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
     return dict(live=[x for x in job_ids if x not in ended], out_dirs=out_dirs)
 
 
-def _collect_jobs(h, by_pos=None):
+def _collect_jobs(h, by_pos=None, nt_used=None):
     timed = {}
     for d in h["out_dirs"]:
         try:
             for r in _proxy.collect(d):
                 timed[r["tag"]] = r["median"]
+                if nt_used is not None and r.get("numtiles"):
+                    nt_used[r["tag"]] = r["numtiles"]
                 if by_pos is not None:
                     by_pos[r["tag"]] = r.get("positions") or {}
         except OSError:

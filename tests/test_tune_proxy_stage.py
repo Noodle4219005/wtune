@@ -99,12 +99,12 @@ def test_a_cyclic_twin_does_not_inherit_the_block_timing(tmp_path, monkeypatch):
     assert [c["id"] for c in out] == ["ANCHOR", "D0001", "D0002"]
 
 
-def test_proxy_cuts_round0_to_anchor_plus_two(tmp_path, monkeypatch):
+def test_proxy_cuts_round0_to_anchor_plus_three(tmp_path, monkeypatch):
     configs = [_cfg("ANCHOR", 24, 24)] + [_cfg("G%04d" % i, 24, 24 * 0 + 24 - i, nt=i) for i in range(1, 6)]
     timings = {S._tag(c): 0.5 - 0.01 * i for i, c in enumerate(configs)}
     _patch(monkeypatch, [], timings)
     out = S.select(_ctx(tmp_path), configs)
-    assert len(out) == 3 and out[0]["id"] == "ANCHOR" and [c["id"] for c in out[1:]] == ["G0005", "G0004"]
+    assert len(out) == 4 and out[0]["id"] == "ANCHOR" and [c["id"] for c in out[1:]] == ["G0005", "G0004", "G0003"]
 
 
 def test_short_budget_drops_the_anchor_then_keeps_the_proxys_best(tmp_path, monkeypatch):

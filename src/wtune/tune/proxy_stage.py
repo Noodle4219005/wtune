@@ -39,7 +39,9 @@ PROXY_SEED_X_WIDE = 2          # ... plus the 2 widest-in-x patch shapes per thr
 PROXY_FINALIST_MARGIN = 0.05   # objective time: a finalist slower than the proxy leader by more is dropped
                                # (band and nested crop err <= 2%, run-to-run noise 3%)
 PROXY_RUNS_PER_JOB = 4         # ~40 s each on one node -> a few minutes per job
-PROXY_REAL_KEEP = 3            # real N-node probes after the proxy: ANCHOR + the 2 fastest
+PROXY_REAL_KEEP = 4            # real N-node probes after the proxy: ANCHOR + the 3 fastest distinct shapes
+                               # (conus25 N=8: the band read omp1 14x64 5.6% low, it took one of 2 slots,
+                               # and 16x28 / 8x56 omp2, within 1.1% of the fastest, were never probed)
 PROXY_BAND_KEEP = 4            # one-node leaders re-timed as band proxies
 PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interior node
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N

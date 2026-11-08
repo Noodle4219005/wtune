@@ -537,7 +537,7 @@ def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
     all_results[cid] = again
 
 
-ROUND0_TWICE_NODES_FACTOR = 6   # round0 after the proxy: ANCHOR + 2 picks x 2 runs at N = max_nodes
+ROUND0_TWICE_NODES_FACTOR = 8   # round0 after the proxy: ANCHOR + 3 picks x 2 runs at N = max_nodes
 
 
 def _proxy_slots(ctx: Ctx, slots: int) -> int:

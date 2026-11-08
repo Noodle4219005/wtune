@@ -636,3 +636,58 @@ def test_a_pool_re_time_queues_further_reps_of_the_same_runs(tmp_path):
     assert [t[:6] for t in tasks] == ["0-991-", "0-991-", "0-r991"] and reps == [1, 1, 2]
     assert len(_json.load(open(os.path.join(batch, "plan.json")))["runs"]) == 2
     assert pool.batches[batch] == [tasks[2]]
+
+
+def test_a_band_re_timed_in_the_pool_is_scored_over_both_runs(tmp_path):
+    # the controller's queue, the worker and collect() together: a re-time queued as rep 2 of the
+    # same runs runs on its own nodes and each crop position scores the median of its two runs
+    import json as _json
+    root, batch = tmp_path / "pool", str(tmp_path / "band-N8")
+    os.makedirs(root / "tasks")
+    pool = S._Pool(None, str(root), 6, "1")
+    runs = [dict(tag="N8_a", layout="N8_a", pos=0), dict(tag="N8_a_p1", layout="N8_a", pos=1),
+            dict(tag="N8_b", layout="N8_b", pos=0)]
+    secs = {("N8_a", 1): 2.0, ("N8_a_p1", 1): 2.2, ("N8_a", 2): 2.4, ("N8_a_p1", 2): 2.2, ("N8_b", 1): 3.0}
+
+    def run_tries(plan, r, rep, out, scratch, write, hosts):
+        assert len(hosts) == 3
+        write(_json.dumps(dict(tag=r["tag"], layout=r["layout"], pos=r["pos"], rep=rep, rc=0,
+                               median=secs[(r["tag"], rep)])) + "\n")
+        return 1
+
+    def drain():
+        open(root / "CLOSE", "w").close()
+        P.pool_worker(str(root), hosts=["h%d" % i for i in range(6)], run_tries=run_tries,
+                      poll_s=0.01, idle_exit_s=5)
+        os.remove(root / "CLOSE")
+
+    pool.add(batch, dict(reps=1, max_dom=1), runs, 3, "0-991")
+    drain()
+    assert pool.done(batch)
+    assert {r["tag"]: r["median"] for r in P.collect(batch)} == {"N8_a": 2.1, "N8_b": 3.0}
+    pool.add(batch, dict(reps=1, max_dom=1), runs[:2], 3, "0-r991", rep0=2)
+    assert not pool.done(batch)
+    drain()
+    got = {r["tag"]: r for r in P.collect(batch)}
+    assert pool.done(batch) and got["N8_a"]["positions"] == {0: 2.2, 1: 2.2}
+    assert got["N8_a"]["median"] == pytest.approx(2.2) and len(got["N8_a"]["reps"]) == 4
+    assert not os.path.exists(root / "scratch") and len(os.listdir(root / "done")) == 5
+
+
+def test_a_pool_run_that_raises_frees_its_nodes_and_the_queue_goes_on(tmp_path, capsys):
+    import json as _json
+    root, batch = tmp_path / "pool", str(tmp_path / "one-N8")
+    os.makedirs(root / "tasks")
+    pool = S._Pool(None, str(root), 1, "1")
+    pool.add(batch, dict(reps=1, max_dom=1), [dict(tag="N8_bad"), dict(tag="N8_ok")], 1, "1-991")
+
+    def run_tries(plan, r, rep, out, scratch, write, hosts):
+        if r["tag"] == "N8_bad":
+            raise OSError("crop failed")
+        write(_json.dumps(dict(tag=r["tag"], rep=rep, rc=0, median=1.0)) + "\n")
+        return 1
+
+    open(root / "CLOSE", "w").close()
+    P.pool_worker(str(root), hosts=["h0"], run_tries=run_tries, poll_s=0.01, idle_exit_s=5)
+    assert pool.done(batch) and [r["tag"] for r in P.collect(batch)] == ["N8_ok"]
+    assert "failed: OSError: crop failed" in capsys.readouterr().out

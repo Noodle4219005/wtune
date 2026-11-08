@@ -773,6 +773,8 @@ def pool_worker(queue_dir, hosts=None, run_tries=None, poll_s=None, idle_exit_s=
         print("pool: start %s %s on %s %.0f" % (name, task["run"].get("tag"), ",".join(mine), clock.time()), flush=True)
         try:
             run_tries(plans[batch], task["run"], task.get("rep", 1), batch, mine_scratch, lines.append, mine)
+        except Exception as e:             # the run is lost, not the pool: its nodes go back
+            print("pool: %s failed: %s: %s" % (name, type(e).__name__, e), flush=True)
         finally:
             subprocess.run(["rm", "-rf", mine_scratch])
             with lock:

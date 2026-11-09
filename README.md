@@ -19,6 +19,12 @@ wtune submit      # 調校 → 執行 → 後處理，一次做完
 
 完整指令表在 [`docs/reference/cli.md`](docs/reference/cli.md)。
 
+## 結構
+
+![WTune 結構圖：指令、五個階段、模組與站點層](docs/figures/wtune-structure.svg)
+
+實線是階段內的流程，虛線是階段之間交接的資料；每個 job 都經過 `campaign/sites/<site>.sh` 與 Slurm（或 `mpirun --host`）啟動未修改的 WRF。原始檔是 [`docs/figures/wtune-structure.tex`](docs/figures/wtune-structure.tex)，用 `pdflatex` 重編。
+
 ## 不改什麼
 
 WTune 只動三樣東西：namelist、啟動方式（`mpirun` 參數）、環境變數。它不修改 WRF 原始檔，也不用 `LD_PRELOAD`、`--wrap`、PMPI 介入 `wrf.exe`。

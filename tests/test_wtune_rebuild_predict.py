@@ -261,3 +261,18 @@ def test_rebuild_points_predict_from_the_points_that_ran_and_clean_up(monkeypatc
     for i in range(3):
         d = tmp_path / "out" / ("pt_%d" % i)
         assert not (d / "grib").exists() and not (d / "wps").exists() and (d / "win_0").exists()
+
+
+def test_rebuild_jobs_cancelled_at_the_budget_are_not_called_an_infrastructure_failure(monkeypatch, tmp_path):
+    # Sundowner tune on f1-arm (2026-11-09): job 2031879 was still RUNNING when the --minutes
+    # budget cancelled it, and phase 2 reported "infrastructure failure, stop and diagnose"
+    import datetime as _dt
+    import wtune.tune
+    _rebuild_env(monkeypatch, tmp_path, lambda plan, sp, cal: ([], None, []))
+    monkeypatch.setattr(wtune.tune.jobs, "wait_for_jobs", lambda ctx, jobs, stage, **k: {j: ("RUNNING", "") for j in jobs})
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=8,
+                                elapsed=lambda: 900.0, budget_s=900.0)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, 6))]
+    with pytest.raises(RuntimeError, match="cancelled at the time budget"):
+        wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
+                                      str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31))

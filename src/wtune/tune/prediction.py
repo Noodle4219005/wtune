@@ -297,6 +297,10 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     states = _jobs.wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    if bad and hasattr(ctx, "elapsed") and ctx.elapsed() >= getattr(ctx, "budget_s", float("inf")):
+        # wait_for_jobs cancelled them at the --minutes budget: not a failure of the jobs
+        raise RuntimeError("C3 rebuild job(s) %s cancelled at the time budget before they finished"
+                           % ",".join(bad))
     if bad:
         raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
                            "and diagnose read-only" % bad)

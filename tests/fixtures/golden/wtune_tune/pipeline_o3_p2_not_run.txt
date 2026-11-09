@@ -76,9 +76,9 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
    1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
 WINNER:    N=4 c/n=72 ranks=288 omp=1 16x18 tiles=1 0.3000 s/step
-NOT TRIED: 17 (reasons below; full list in node_selection.untried)
+NOT TRIED: 19 (reasons below; full list in node_selection.untried)
+    10 x core sweep budget cap: used 0:00 >= 20% of the budget
      9 x sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
-     8 x core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=3: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
 not run N=5: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
 not run N=7: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
@@ -90,10 +90,12 @@ not run N=12: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
 not run N=13: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)
 not run N=4 c=70: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=64: core sweep budget cap: used 0:00 >= 20% of the budget
+not run N=4 c=54: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=48: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=36: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=70: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=64: core sweep budget cap: used 0:00 >= 20% of the budget
+not run N=6 c=54: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=48: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=36: core sweep budget cap: used 0:00 >= 20% of the budget
 

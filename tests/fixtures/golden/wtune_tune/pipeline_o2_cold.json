@@ -61,7 +61,8 @@
     "7021",
     "7022",
     "7023",
-    "7024"
+    "7024",
+    "7025"
   ],
   "layout_table": {
     "comparison": {
@@ -202,6 +203,21 @@
         "omp": 1,
         "ranks": 256,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -501,6 +517,7 @@
       72,
       70,
       64,
+      54,
       48,
       36
     ],
@@ -543,6 +560,19 @@
           "omp": 1,
           "ranks": 256,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.3,
+          "n": 2,
+          "nx": 12,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 216,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -717,6 +747,21 @@
         "omp": 1,
         "ranks": 256,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -1211,7 +1256,8 @@
           "7021",
           "7022",
           "7023",
-          "7024"
+          "7024",
+          "7025"
         ],
         "limit_s": Infinity,
         "name": "layout",

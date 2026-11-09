@@ -201,6 +201,7 @@
       72,
       70,
       64,
+      54,
       48,
       36
     ],
@@ -366,6 +367,11 @@
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       },
       {
+        "cores": 54,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
         "cores": 48,
         "nodes": 4,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
@@ -382,6 +388,11 @@
       },
       {
         "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 54,
         "nodes": 6,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       },
@@ -497,6 +508,11 @@
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       },
       {
+        "cores": 54,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
         "cores": 48,
         "nodes": 4,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
@@ -513,6 +529,11 @@
       },
       {
         "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 54,
         "nodes": 6,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       },

@@ -32,8 +32,8 @@ def test_value_errors():
 
 
 def test_default_core_options_and_choose_cores():
-    assert wn.default_core_options(72) == [72, 70, 64, 48, 36]
-    assert wn.default_core_options(112) == [112, 110, 100, 75, 56]
+    assert wn.default_core_options(72) == [72, 70, 64, 54, 48, 36]
+    assert wn.default_core_options(112) == [112, 110, 100, 84, 75, 56]
     rows = [dict(cores=72, median=0.300), dict(cores=64, median=0.270), dict(cores=48, median=0.40)]
     assert wn.choose_cores(rows)[0] == 64                         # 64 faster beyond noise
     tie = [dict(cores=72, median=0.300), dict(cores=64, median=0.296), dict(cores=48, median=0.40)]

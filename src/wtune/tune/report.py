@@ -233,7 +233,10 @@ def _core_table_lines(ns: dict) -> list[str]:
     lines = []
     for n, rows in sorted((ns.get("core_tables") or {}).items(), key=lambda kv: int(kv[0])):
         lines.append("")
-        lines.append("--- cores per node at N=%s (ANCHOR; idle cores = hardware - c) ---" % n)
+        lines.append(("--- cores per node at N=%s (joint proxy: each count's fastest layout, %s; "
+                      "idle cores = hardware - c) ---" % (n, rows[0]["fidelity"]))
+                     if rows and rows[0].get("fidelity") else
+                     "--- cores per node at N=%s (ANCHOR; idle cores = hardware - c) ---" % n)
         lines.append("%7s %10s %4s %11s %6s %8s %9s"
                      % ("cores", "ranks/node", "omp", "median_s", "reps", "spread", "maxrss_MB"))
         for r in rows:

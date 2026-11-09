@@ -51,26 +51,28 @@ node sweep: N=12 median=0.3840 s/step n=2 spread=0.0% speedup=2.60 eff=0.22
 node sweep: N=13 median=0.4000 s/step n=2 spread=0.0% speedup=2.50 eff=0.19
 node sweep: cores-n4-c70 submitted job 7017 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
 node sweep: cores-n4-c64 submitted job 7018 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c48 submitted job 7019 (ANCHOR ranks=192 omp=1 12x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c54 submitted job 7019 (ANCHOR ranks=216 omp=1 12x18, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n4-c36 submitted job 7020 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n5-c70 submitted job 7021 (ANCHOR ranks=350 omp=1 14x25, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c48 submitted job 7020 (ANCHOR ranks=192 omp=1 12x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c36 submitted job 7021 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c70 submitted job 7022 (ANCHOR ranks=350 omp=1 14x25, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n5-c64 submitted job 7022 (ANCHOR ranks=320 omp=1 16x20, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n5-c48 submitted job 7023 (ANCHOR ranks=240 omp=1 15x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c64 submitted job 7023 (ANCHOR ranks=320 omp=1 16x20, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c54 submitted job 7024 (ANCHOR ranks=270 omp=1 15x18, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n5-c36 submitted job 7024 (ANCHOR ranks=180 omp=1 12x15, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c48 submitted job 7025 (ANCHOR ranks=240 omp=1 15x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c36 submitted job 7026 (ANCHOR ranks=180 omp=1 12x15, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
 core sweep N=4: measuring [72, 70, 64] once more (within 2x noise of the fastest)
-node sweep: cores-n4-c72-race submitted job 7025 (ANCHOR ranks=288 omp=1 16x18, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c70-race submitted job 7026 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c64-race submitted job 7027 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c72-race submitted job 7027 (ANCHOR ranks=288 omp=1 16x18, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c70-race submitted job 7028 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c64-race submitted job 7029 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
 core sweep N=5: measuring [72, 70, 64] once more (within 2x noise of the fastest)
-node sweep: cores-n5-c72-race submitted job 7028 (ANCHOR ranks=360 omp=1 18x20, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n5-c70-race submitted job 7029 (ANCHOR ranks=350 omp=1 14x25, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c72-race submitted job 7030 (ANCHOR ranks=360 omp=1 18x20, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c70-race submitted job 7031 (ANCHOR ranks=350 omp=1 14x25, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n5-c64-race submitted job 7030 (ANCHOR ranks=320 omp=1 16x20, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c64-race submitted job 7032 (ANCHOR ranks=320 omp=1 16x20, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
@@ -97,7 +99,7 @@ tuning:   running 0:00, queue 0:00 (not counted)
 
 === wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it)
-budget=11.7 min  elapsed=0.0 min  jobs=9000,9001,9002,9003,9004,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,8033,8034
+budget=11.7 min  elapsed=0.0 min  jobs=9000,9001,9002,9003,9004,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,8035,8036
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED    288    1    16    18     1   block     0.3000  0.3000-0.3000  1.000x        -    6 -           False
@@ -140,6 +142,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      72         72    1      0.3000      6     0.0%         - <- chosen
      70         70    1      0.3000      4     0.0%         - 
      64         64    1      0.3000      4     0.0%         - 
+     54         54    1      0.3000      2     0.0%         - 
      48         48    1      0.3000      2     0.0%         - 
      36         36    1      0.3000      2     0.0%         - 
 
@@ -148,19 +151,22 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      72         72    1      0.3050      6     0.0%         - <- chosen
      70         70    1      0.3050      4     0.0%         - 
      64         64    1      0.3050      4     0.0%         - 
+     54         54    1      0.3050      2     0.0%         - 
      48         48    1      0.3050      2     0.0%         - 
      36         36    1      0.3050      2     0.0%         - 
 
---- measured layouts (21; best first; the full table is in tune_report.json node_selection.layouts) ---
+--- measured layouts (23; best first; the full table is in tune_report.json node_selection.layouts) ---
    N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
    4    72    288    1     16x18     1      0.3000    0.0%     6  cores/node sweep ANCHOR
    4    70    280    1     14x20     1      0.3000    0.0%     4  cores/node sweep ANCHOR
    4    64    256    1     16x16     1      0.3000    0.0%     4  cores/node sweep ANCHOR
+   4    54    216    1     12x18     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    4    48    192    1     12x16     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    4    36    144    1     12x12     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    5    72    360    1     18x20     1      0.3050    0.0%     6  cores/node sweep ANCHOR
    5    70    350    1     14x25     1      0.3050    0.0%     4  cores/node sweep ANCHOR
    5    64    320    1     16x20     1      0.3050    0.0%     4  cores/node sweep ANCHOR
+   5    54    270    1     15x18     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    5    48    240    1     15x16     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    5    36    180    1     12x15     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    6    72    432    1     18x24     1      0.3100    0.0%     4  t0 sweep ANCHOR

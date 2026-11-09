@@ -90,6 +90,8 @@ class _JCtx:
     seed: int = 1
     owned_jobs: list = dataclasses.field(default_factory=list)
     anchor_override: dict | None = None
+    core_budget: int | None = None
+    cores_per_node: int = 64
 
 
 def _joint(tmp_path, monkeypatch, pools, timings, band):
@@ -520,8 +522,29 @@ def test_the_jobs_path_keeps_the_one_node_runs_that_finished_before_a_queue_cap(
         e.partial = {"N4_24x24_o1_nt1": 0.45}
         raise e
     monkeypatch.setattr(S, "_run_jobs", run_jobs)
-    monkeypatch.setattr(S, "_one_node_scores", lambda n, pool, timed, *a: dict(timed) if n == 4 else {})
+    monkeypatch.setattr(S, "_one_node_scores", lambda label, pool, timed, *a: dict(timed) if label == "N4" else {})
     plans = {4: ({"runs": []}, []), 5: ({"runs": []}, [])}
     one, band, _p, _b = S._time_in_jobs(None, str(tmp_path), {4: [], 5: []}, plans, str(tmp_path), 1, 1)
     assert one == {4: {"N4_24x24_o1_nt1": 0.45}} and band == {}
     assert "none re-timed" in capsys.readouterr().out
+
+
+def test_rank_across_nodes_times_each_core_count_under_its_own_label_and_merges_by_n(tmp_path, monkeypatch):
+    at48 = [_cfg("ANCHOR", 12, 16), _cfg("D0001", 16, 12)]                 # 4 x 48 = 192 ranks
+    ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n: ((at48 if c.core_budget == 48 else POOLS[n])[0], None))
+    monkeypatch.setattr(S, "cores_used", lambda c: c.core_budget or 144)
+    monkeypatch.setattr(S, "sample_more_diverse_configs",
+                        lambda c, ex, k, seed: (at48 if c.core_budget == 48 else POOLS[c.nodes])[1:k + 1])
+    timings = {"N4_24x24_o1_nt1": 0.45, "N4_12x24_o2_nt24": 0.40, "N4_18x32_o1_nt1": 0.47,
+               "N4c48_12x16_o1_nt1": 0.43, "N4c48_16x12_o1_nt1": 0.41}
+    band = {"N4_12x24_o2_nt24": 0.47, "N4c48_16x12_o1_nt1": 0.44}
+    monkeypatch.setattr(P, "collect", lambda d: [dict(tag=t, median=m) for t, m in
+                        (timings if d.endswith("jobs0") else band if "band" in os.path.basename(d) else {}).items()])
+    monkeypatch.setattr(S, "PROXY_JOINT_LEADERS", 1)
+    out, _same = S.rank_across_nodes(ctx, [4], cores=[144, 48])
+    assert [(S._tag(c), S.cores_of(c, 4), t, f) for c, t, f in out[4][:2]] == [
+        ("16x12_o1_nt1", 48, 0.44, "band"), ("12x24_o2_nt24", 144, 0.47, "band")]
+    # each core count re-timed in a plan of its own: one plan's cores would launch the other's runs
+    bands = [p for p in submitted if p.get("proxy_nodes") == 3]
+    assert sorted(sorted({r["layout"].split("_")[0] for r in p["runs"]}) for p in bands) == [["N4"], ["N4c48"]]

@@ -68,7 +68,9 @@
     "7028",
     "7029",
     "7030",
-    "7031"
+    "7031",
+    "7032",
+    "7033"
   ],
   "layout_table": {
     "comparison": {
@@ -259,6 +261,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -374,6 +391,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -617,6 +649,7 @@
       72,
       70,
       64,
+      54,
       48,
       36
     ],
@@ -659,6 +692,19 @@
           "omp": 1,
           "ranks": 256,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.3,
+          "n": 2,
+          "nx": 12,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 216,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -726,6 +772,19 @@
           "omp": 1,
           "ranks": 320,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.305,
+          "n": 2,
+          "nx": 15,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 270,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -971,6 +1030,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -1086,6 +1160,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -1527,7 +1616,9 @@
           "7028",
           "7029",
           "7030",
-          "7031"
+          "7031",
+          "7032",
+          "7033"
         ],
         "limit_s": Infinity,
         "name": "layout",

@@ -169,8 +169,20 @@ def _afford(ctx, chosen, anchor):
     return chosen
 
 
+@dataclasses.dataclass
+class Slot:
+    """One (N, cores per node) the joint proxy times: `label` prefixes its run tags and names its
+    directories (N4 at the full core count, N4c48 at 48)."""
+    n: int
+    cores: int
+    label: str
+    ctx: Ctx
+
+
 def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0,
-                      leaders: int | None = None) -> tuple[dict, dict]:
+                      leaders: int | None = None, cores: list[int] | None = None,
+                      fallback_cores: list[int] | None = None,
+                      out_name: str = "proxy-joint") -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each; then the `leaders` (PROXY_JOINT_LEADERS) fastest one-node layouts of
     each N that can be re-timed are, so that N compare: as band proxies when N > PROXY_BAND_NODES,
@@ -178,106 +190,137 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     PROXY_POSITIONS crop positions where they can be placed (the whole domain has one). The runs
     go to one node pool (_Pool: an N's leaders start as soon as its one-node runs are timed, the
     largest N first); without one, one batch of jobs per round. At the --minutes deadline the
-    runs that finished are ranked. Returns ({N: [(config, s/step, "band" | "full" | "one-node"),
-    ...]} best first, re-timed ahead of one-node ones (one node alone reads 0-18 % low), {N: True
-    when its crop positions agree on the fastest layout}); ({}, {}) when nothing was timed. N <
+    runs that finished are ranked. Every N is timed at each of `cores` per node (default: the
+    cores the layouts may use); an N with no legal layout at any of them is timed at the first of
+    `fallback_cores` that has one, as the real sweep's _sweep_anchor_fitting does. Returns ({N:
+    [(config, s/step, "band" | "full" | "one-node"), ...]} best first over all its core counts,
+    re-timed ahead of one-node ones (one node alone reads 0-18 % low), {N: True when its crop
+    positions agree on the fastest layout}); ({}, {}) when nothing was timed. N <
     anchor_only_below is timed with its ANCHOR alone (the objective time: an N under half the
     largest cannot be the fastest)."""
     leaders = leaders or PROXY_JOINT_LEADERS
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
-    pools, plans = {}, {}
+    full = cores_used(ctx)
+    cores = cores or [full]
+    slots, pools, plans = {}, {}, {}
     for n in legal_nodes:
-        cn = dataclasses.replace(ctx, nodes=n, anchor_override=None)
-        anchor = _sweep_anchor(cn, n)[0]
-        if anchor is None:
-            continue
-        # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take the
-        # slots (Big Chill N=4, N=5: the ANCHOR alone was left)
-        # the seed shapes first: per thread count the most balanced and the widest-in-x patch.
-        # The sampled pool alone missed the fastest class on isc-synth N=8 (omp2, x-wide patches:
-        # 8x56 omp2 nt14 2.71 s/step; the pick from the pool, 28x16 omp2 nt14, 3.37: 24% regret)
-        seeds = [] if n < anchor_only_below else _seed_layouts(cn)
-        more = [] if n < anchor_only_below else _apply_search_filter(cn, sample_more_diverse_configs(
-            cn, [anchor] + seeds, PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
-        pool, cap = {}, PROXY_JOINT_PER_N + len(seeds)
-        for c in [anchor] + seeds + more:
-            if _spec(c) and len(pool) < cap:
-                pool.setdefault(_tag(c), c)
-        plan, got = _joint_plan(cn, case_dir, n, pool, 1)
-        if got:
-            pools[n], plans[n] = pool, (plan, got)
+        tried = []
+        for c in list(cores) + [c for c in (fallback_cores or []) if c not in cores]:
+            if tried and c not in cores and any(t in slots for t in tried):
+                break                          # a fallback count only stands in for none at all
+            label = "N%d" % n if c == full else "N%dc%d" % (n, c)
+            tried.append(label)
+            cn = dataclasses.replace(ctx, nodes=n, anchor_override=None, core_budget=c)
+            anchor = _sweep_anchor(cn, n)[0]
+            if anchor is None:
+                continue
+            # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take
+            # the slots (Big Chill N=4, N=5: the ANCHOR alone was left)
+            # the seed shapes first: per thread count the most balanced and the widest-in-x patch.
+            # The sampled pool alone missed the fastest class on isc-synth N=8 (omp2, x-wide
+            # patches: 8x56 omp2 nt14 2.71 s/step; the pick from the pool, 28x16 omp2 nt14, 3.37)
+            seeds = [] if n < anchor_only_below else _seed_layouts(cn)
+            more = [] if n < anchor_only_below else _apply_search_filter(cn, sample_more_diverse_configs(
+                cn, [anchor] + seeds, PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
+            pool, cap = {}, PROXY_JOINT_PER_N + len(seeds)
+            for cfg in [anchor] + seeds + more:
+                if _spec(cfg) and len(pool) < cap:
+                    pool.setdefault(_tag(cfg), cfg)
+            plan, got = _joint_plan(cn, case_dir, n, pool, 1, label=label)
+            if got:
+                if c not in cores:
+                    print("proxy: N=%d has no legal layout at %s cores per node: timed at %d"
+                          % (n, "/".join(map(str, cores)), c))
+                slots[label] = Slot(n, c, label, cn)
+                pools[label], plans[label] = pool, (plan, got)
     if not plans:
         print("proxy: joint search skipped (no layout reproducible on one node)")
         return {}, {}
-    out_root = os.path.join(ctx.out_dir, "proxy-joint")
-    print("proxy: joint search over N=%s: %d run(s) on one node each"
-          % (sorted(pools), sum(len(g) for _p, g in plans.values())))
-    sizes = [PROXY_BAND_NODES if n > PROXY_BAND_NODES else n for n in pools]
+    out_root = os.path.join(ctx.out_dir, out_name)
+    where = ("N=%s" % sorted({sl.n for sl in slots.values()})
+             if all(sl.cores == full for sl in slots.values())
+             else ", ".join(sorted(slots, key=lambda k: (slots[k].n, -slots[k].cores))))
+    print("proxy: joint search over %s: %d run(s) on one node each"
+          % (where, sum(len(g) for _p, g in plans.values())))
+    sizes = [PROXY_BAND_NODES if sl.n > PROXY_BAND_NODES else sl.n for sl in slots.values()]
     points = _time_points(ctx, case_dir) if any(1 < z <= ctx.max_nodes for z in sizes) else []
     npool = _pool_nodes(ctx, sum(len(g) for _p, g in plans.values()))
     pool = _Pool.start(ctx, out_root, npool) if npool else None
     if pool is not None:
         one, band, one_pos, band_pos = _time_in_pool(ctx, pool, case_dir, pools, plans, out_root,
-                                                     leaders, points)
+                                                     leaders, points, slots)
     else:
         one, band, one_pos, band_pos = _time_in_jobs(ctx, case_dir, pools, plans, out_root,
-                                                     leaders, points)
+                                                     leaders, points, slots)
     out, same = {}, {}
-    for n in sorted(one):
-        hf = "band" if n > PROXY_BAND_NODES else "full"
-        rows = [(pools[n][t], band["N%d_%s" % (n, t)], hf) if "N%d_%s" % (n, t) in band
-                else (pools[n][t], v, "one-node") for t, v in one[n].items()]
-        out[n] = sorted(rows, key=lambda r: (r[2] == "one-node", r[1]))
-        same[n] = _same_fastest({t: band_pos.get("N%d_%s" % (n, t), {}) for t in pools[n]},
-                                {t: one_pos.get("N%d_%s" % (n, t), {}) for t in pools[n]})
-        c, v, f = out[n][0]
-        print("proxy: N=%-2d best %-20s %.4f s/step %-8s (%d of %d timed)%s"
-              % (n, _tag(c), v, f, len(one[n]), len(pools[n]),
-                 "" if same[n] else "  crop positions disagree on the fastest"))
+    for k in sorted(one, key=lambda k: (slots[k].n, -slots[k].cores)):
+        sl = slots[k]
+        hf = "band" if sl.n > PROXY_BAND_NODES else "full"
+        rows = [(pools[k][t], band["%s_%s" % (k, t)], hf) if "%s_%s" % (k, t) in band
+                else (pools[k][t], v, "one-node") for t, v in one[k].items()]
+        rows = sorted(rows, key=lambda r: (r[2] == "one-node", r[1]))
+        agree = _same_fastest({t: band_pos.get("%s_%s" % (k, t), {}) for t in pools[k]},
+                              {t: one_pos.get("%s_%s" % (k, t), {}) for t in pools[k]})
+        cfg, v, f = rows[0]
+        print("proxy: %-6s best %-20s %.4f s/step %-8s (%d of %d timed)%s"
+              % (k, _tag(cfg), v, f, len(one[k]), len(pools[k]),
+                 "" if agree else "  crop positions disagree on the fastest"))
+        out[sl.n] = sorted(out.get(sl.n, []) + rows, key=lambda r: (r[2] == "one-node", r[1]))
+        same[sl.n] = same.get(sl.n, True) and agree
     if not out:
         print("proxy: joint search produced no usable timing")
     return out, same
 
 
-def _one_node_scores(n, pool, timed, one_pos, nt_used):
-    """{layout tag: one-node s/step} of N=n from `timed`; a layout timed at the half-tiles
+def cores_of(cfg: dict, n: int) -> int:
+    """Cores per node a ranked layout uses: its ranks x threads over its N nodes."""
+    return int(cfg["ranks"]) * int(cfg.get("omp") or 1) // max(1, n)
+
+
+def _one_node_scores(label, pool, timed, one_pos, nt_used):
+    """{layout tag: one-node s/step} of slot `label` from `timed`; a layout timed at the half-tiles
     fallback is re-timed and probed at that numtiles, under its own tag (Big Chill N=5: 7x40 omp2
     nt12 crashed, nt6 scored 2.40, the real nt12 probes hung). Renames `pool` in place."""
+    if isinstance(label, int):
+        label = "N%d" % label
     for t in list(pool):
-        nt = nt_used.get("N%d_%s" % (n, t))
-        if nt and int(pool[t].get("numtiles") or 1) != nt and "N%d_%s" % (n, t) in timed:
+        nt = nt_used.get("%s_%s" % (label, t))
+        if nt and int(pool[t].get("numtiles") or 1) != nt and "%s_%s" % (label, t) in timed:
             c = dict(pool.pop(t), numtiles=nt)
             if _tag(c) in pool:
                 continue                       # that numtiles is in the pool already
             pool[_tag(c)] = c
-            old, new = "N%d_%s" % (n, t), "N%d_%s" % (n, _tag(c))
+            old, new = "%s_%s" % (label, t), "%s_%s" % (label, _tag(c))
             timed[new] = timed.pop(old)
             if old in one_pos:
                 one_pos[new] = one_pos.pop(old)
-            print("proxy: N=%d %s timed at numtiles=%d (the fallback): ranked as %s" % (n, t, nt, _tag(c)))
-    return {t: timed["N%d_%s" % (n, t)] for t in pool if "N%d_%s" % (n, t) in timed}
+            print("proxy: %s %s timed at numtiles=%d (the fallback): ranked as %s" % (label, t, nt, _tag(c)))
+    return {t: timed["%s_%s" % (label, t)] for t in pool if "%s_%s" % (label, t) in timed}
 
 
-def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points):
+def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None):
     """(size, plan, runs) re-timing N=n's `leaders` fastest distinct shapes that can be re-timed:
     a band beyond PROXY_BAND_NODES, the whole domain on n nodes at 2..PROXY_BAND_NODES (one node
     alone reads 0-18 % low; N=1's one-node run is the whole domain). A leader that cannot be
     banded (6x56 at N=6: no whole rows per node) gives way to the next. None when nothing can."""
+    label = label or "N%d" % n
     size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
     if size <= 1 or min(ctx.max_nodes, proxy_node_cap(ctx)) < size or not scores:
         return None
     ranked = _distinct_shapes(sorted(scores, key=scores.get), len(scores))
-    plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points)
+    plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
     if not got:
         return None
-    keep = [t for t in ranked if any(r["layout"] == "N%d_%s" % (n, t) for r in got)][:leaders]
-    runs = [r for r in got if r["layout"] in {"N%d_%s" % (n, t) for t in keep}]
+    keep = [t for t in ranked if any(r["layout"] == "%s_%s" % (label, t) for r in got)][:leaders]
+    runs = [r for r in got if r["layout"] in {"%s_%s" % (label, t) for t in keep}]
     return size, dict(plan, proxy_nodes=size), runs
 
 
-def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points):
-    """One batch of one-node jobs for every N, then one batch of re-timing jobs per size: (one,
+def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=None):
+    """One batch of one-node jobs for every slot, then one batch of re-timing jobs per size: (one,
     band, one_pos, band_pos)."""
+    slots = slots or {k: Slot(k, cores_used(ctx) if ctx is not None else 0, "N%d" % k, ctx)
+                      for k in plans}
     base = next(iter(plans.values()))[0]
     runs = [r for _p, got in plans.values() for r in got]
     one_pos, band_pos, nt_used = {}, {}, {}
@@ -287,24 +330,28 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points):
     except QueueCapExceeded as e:
         timed, halted = e.partial or {}, e
     one = {}
-    for n in sorted(pools):
-        got = _one_node_scores(n, pools[n], timed, one_pos, nt_used)
+    for k in sorted(pools, key=lambda k: (slots[k].n, -slots[k].cores)):
+        got = _one_node_scores(slots[k].label, pools[k], timed, one_pos, nt_used)
         if got:
-            one[n] = got
+            one[k] = got
     if halted is not None:
         print("proxy: %s -- ranked from the one-node runs that finished, none re-timed" % halted)
         return one, {}, one_pos, band_pos
     by_size = {}
-    for n in sorted(one):
-        lp = _leader_plan(ctx, case_dir, n, one[n], pools[n], leaders, points)
+    for k in one:
+        sl = slots[k]
+        lp = _leader_plan(sl.ctx, case_dir, sl.n, one[k], pools[k], leaders, points, label=sl.label)
         if lp:
             size, plan, got = lp
-            prev = by_size.get(size, (plan, []))
-            by_size[size] = (prev[0], prev[1] + got)
+            # one plan per size and core count: a plan's cores launch every run in it
+            prev = by_size.get((size, sl.cores), (plan, []))
+            by_size[(size, sl.cores)] = (prev[0], prev[1] + got)
     # every size at once: the whole-domain runs (N <= PROXY_BAND_NODES) and the bands do not wait
     # on each other (isc-synth: 2-node then 3-node rounds ran one after the other, ~2 min each)
     handles = [_submit_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
-                            "band%d-" % size, size) for size, (bbase, bruns) in sorted(by_size.items())]
+                            "band%d-%s" % (size, "" if c == max(x.cores for x in slots.values())
+                                           else "c%d-" % c), size)
+               for (size, c), (bbase, bruns) in sorted(by_size.items(), key=lambda kv: (kv[0][0], -kv[0][1]))]
     handles = [h for h in handles if h]
     if handles:
         try:
@@ -317,68 +364,85 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points):
     return one, band, one_pos, band_pos
 
 
-def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
-    """Every N's one-node runs queued at once, the largest N first; an N's leaders queued as soon
-    as its one-node runs are timed, ahead of the one-node runs still waiting. Stops at the
+def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, slots=None):
+    """Every slot's one-node runs queued at once, the largest N first; a slot's leaders queued as
+    soon as its one-node runs are timed, ahead of the one-node runs still waiting. Stops at the
     --minutes deadline (the pool job is cancelled) or when the pool job ends; what finished is
-    ranked. Band leaders within PROXY_CLOSE_CALL of their N's best, at an N within
+    ranked. Band leaders within PROXY_CLOSE_CALL of their slot's best, at a slot within
     PROXY_FINALIST_MARGIN of the best band so far, are re-timed once on other nodes: one band run
     varies 2-5 % run to run (isc-synth N=8, three tunes), more than the gap it must resolve.
-    (one, band, one_pos, band_pos)."""
-    one_dir = lambda n: os.path.join(out_root, "one-N%d" % n)            # noqa: E731
-    band_dir = lambda n: os.path.join(out_root, "band-N%d" % n)          # noqa: E731
-    for n in sorted(plans, reverse=True):
-        plan, got = plans[n]
-        pool.add(one_dir(n), plan, got, 1, "1-%03d" % (999 - n))
+    (one, band, one_pos, band_pos), keyed by slot label."""
+    slots = slots or {k: Slot(k, cores_used(ctx) if ctx is not None else 0, "N%d" % k, ctx)
+                      for k in plans}
+    full = max(sl.cores for sl in slots.values())
+    lab = lambda k: slots[k].label                                              # noqa: E731
+    one_dir = lambda k: os.path.join(out_root, "one-%s" % lab(k))               # noqa: E731
+    band_dir = lambda k: os.path.join(out_root, "band-%s" % lab(k))             # noqa: E731
+    prio = lambda k: "%03d%s" % (999 - slots[k].n, "" if slots[k].cores == full  # noqa: E731
+                                 else "-c%03d" % (999 - slots[k].cores))
+    order = sorted(plans, key=lambda k: (-slots[k].n, -slots[k].cores))
+    for k in order:
+        plan, got = plans[k]
+        pool.add(one_dir(k), plan, got, 1, "1-" + prio(k))
     one, band, one_pos, band_pos, nt_used = {}, {}, {}, {}, {}
-    waiting, banding, retiming, queued = sorted(plans, reverse=True), [], [], {}
+    waiting, banding, retiming, queued = list(order), [], [], {}
 
-    def take_one(n):
-        timed = _collect_jobs(dict(out_dirs=[one_dir(n)]), one_pos, nt_used)
-        got = _one_node_scores(n, pools[n], timed, one_pos, nt_used)
+    def take_one(k):
+        timed = _collect_jobs(dict(out_dirs=[one_dir(k)]), one_pos, nt_used)
+        got = _one_node_scores(lab(k), pools[k], timed, one_pos, nt_used)
         if got:
-            one[n] = got
+            one[k] = got
         return got
 
     while waiting or banding or retiming:
-        dirs = [one_dir(n) for n in waiting] + [band_dir(n) for n in banding + retiming]
+        dirs = [one_dir(k) for k in waiting] + [band_dir(k) for k in banding + retiming]
         if not pool.wait(lambda: any(pool.done(d) for d in dirs)):
             break
-        for n in [n for n in waiting if pool.done(one_dir(n))]:
-            waiting.remove(n)
-            got = take_one(n)
-            lp = _leader_plan(ctx, case_dir, n, got, pools[n], leaders, points) if got else None
+        for k in [k for k in waiting if pool.done(one_dir(k))]:
+            waiting.remove(k)
+            got = take_one(k)
+            sl = slots[k]
+            lp = _leader_plan(sl.ctx, case_dir, sl.n, got, pools[k], leaders, points,
+                              label=sl.label) if got else None
             if lp and lp[0] <= pool.nodes:
                 size, plan, bruns = lp
-                pool.add(band_dir(n), plan, bruns, size, "0-%03d" % (999 - n))
-                banding.append(n)
-                queued[n] = lp
-        for n in [n for n in banding if pool.done(band_dir(n))]:
-            banding.remove(n)
-            band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
-            again = _close_calls(band, queued, n)
+                pool.add(band_dir(k), plan, bruns, size, "0-" + prio(k))
+                banding.append(k)
+                queued[k] = lp
+        for k in [k for k in banding if pool.done(band_dir(k))]:
+            banding.remove(k)
+            band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
+            again = _close_calls(band, queued, k)
             if again:
-                size, plan, _r = queued[n]
-                print("proxy: N=%d %s within %.0f%% of each other in one band run: re-timed once"
-                      % (n, ", ".join(sorted({r.get("layout", r["tag"])[len("N%d_" % n):] for r in again})),
-                         PROXY_CLOSE_CALL * 100))
-                pool.add(band_dir(n), plan, again, size, "0-r%03d" % (999 - n), rep0=2)
-                retiming.append(n)
-        for n in [n for n in retiming if pool.done(band_dir(n))]:
-            retiming.remove(n)
-            band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
+                size, plan, _r = queued[k]
+                print("proxy: %s %s within %.0f%% of each other in one band run: re-timed once"
+                      % (lab(k), ", ".join(sorted({r.get("layout", r["tag"])[len(lab(k)) + 1:]
+                                                   for r in again})), PROXY_CLOSE_CALL * 100))
+                pool.add(band_dir(k), plan, again, size, "0-r" + prio(k), rep0=2)
+                retiming.append(k)
+        for k in [k for k in retiming if pool.done(band_dir(k))]:
+            retiming.remove(k)
+            band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
     if waiting or banding:
-        print("proxy: stopped with N=%s not fully timed (%s): ranked from the runs that finished"
-              % (sorted(set(waiting + banding)), "deadline" if ctx.elapsed() >= ctx.budget_s
+        print("proxy: stopped with %s not fully timed (%s): ranked from the runs that finished"
+              % (_stopped_names(slots, waiting + banding), "deadline" if ctx.elapsed() >= ctx.budget_s
                  else getattr(pool, "halted", None) or "the node pool job ended"))
-        for n in waiting:
-            take_one(n)
-        for n in banding:
-            band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
-    for n in retiming:                     # the first runs count; finished re-runs join them
-        band.update(_collect_jobs(dict(out_dirs=[band_dir(n)]), band_pos))
+        for k in waiting:
+            take_one(k)
+        for k in banding:
+            band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
+    for k in retiming:                     # the first runs count; finished re-runs join them
+        band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
     pool.close(stopped=bool(waiting or banding or retiming))
     return one, band, one_pos, band_pos
+
+
+def _stopped_names(slots, keys) -> str:
+    """'N=[2, 4]' at full cores, else the slot labels."""
+    labels = sorted({slots[k].label for k in keys})
+    if all(re.fullmatch(r"N\d+", x) for x in labels):
+        return "N=%s" % sorted({slots[k].n for k in keys})
+    return ", ".join(labels)
 
 
 def _close_calls(band, queued, n):
@@ -491,7 +555,7 @@ def _same_fastest(*sources):
     return True
 
 
-def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
+def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=(), label=None):
     """make_plan at N for {tag: config}, builds checked, every run's tag and layout prefixed
     N<n>_ so that all N share one plan (the worker reads no plan-level N). (plan, runs), or
     (None, []) when N cannot be planned."""
@@ -504,7 +568,8 @@ def _joint_plan(ctx, case_dir, n, cfgs, proxy_nodes, time_points=()):
         print("proxy: N=%d skipped (%s)" % (n, e))
         return None, []
     errors = _proxy.check_builds(plan)
-    return plan, [dict(r, tag="N%d_%s" % (n, r["tag"]), layout="N%d_%s" % (n, r["layout"]))
+    label = label or "N%d" % n
+    return plan, [dict(r, tag="%s_%s" % (label, r["tag"]), layout="%s_%s" % (label, r["layout"]))
                   for r in plan["runs"] if not any(e.startswith(r["tag"] + ":") for e in errors)]
 
 

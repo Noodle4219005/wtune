@@ -27,6 +27,7 @@ import shutil
 import wtune.proxy as _proxy
 from . import jobs as _jobs
 from ._deps import decomp_space
+from .context import QueueCapExceeded
 from .candidates import _apply_search_filter, _sweep_anchor, sample_more_diverse_configs
 from .context import Ctx, cores_used
 
@@ -280,12 +281,19 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points):
     base = next(iter(plans.values()))[0]
     runs = [r for _p, got in plans.values() for r in got]
     one_pos, band_pos, nt_used = {}, {}, {}
-    timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1, one_pos, nt_used) or {}
+    try:
+        timed = _run_jobs(ctx, dict(base, runs=runs), runs, out_root, "jobs", 1, one_pos, nt_used) or {}
+        halted = None
+    except QueueCapExceeded as e:
+        timed, halted = e.partial or {}, e
     one = {}
     for n in sorted(pools):
         got = _one_node_scores(n, pools[n], timed, one_pos, nt_used)
         if got:
             one[n] = got
+    if halted is not None:
+        print("proxy: %s -- ranked from the one-node runs that finished, none re-timed" % halted)
+        return one, {}, one_pos, band_pos
     by_size = {}
     for n in sorted(one):
         lp = _leader_plan(ctx, case_dir, n, one[n], pools[n], leaders, points)
@@ -299,7 +307,10 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points):
                             "band%d-" % size, size) for size, (bbase, bruns) in sorted(by_size.items())]
     handles = [h for h in handles if h]
     if handles:
-        _jobs.wait_for_jobs(ctx, [j for h in handles for j in h["live"]], "proxy")
+        try:
+            _jobs.wait_for_jobs(ctx, [j for h in handles for j in h["live"]], "proxy")
+        except QueueCapExceeded as e:
+            print("proxy: %s -- ranked from the re-timing runs that finished" % e)
     band = {}
     for h in handles:
         band.update(_collect_jobs(h, band_pos))
@@ -359,7 +370,7 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points):
     if waiting or banding:
         print("proxy: stopped with N=%s not fully timed (%s): ranked from the runs that finished"
               % (sorted(set(waiting + banding)), "deadline" if ctx.elapsed() >= ctx.budget_s
-                 else "the node pool job ended"))
+                 else getattr(pool, "halted", None) or "the node pool job ended"))
         for n in waiting:
             take_one(n)
         for n in banding:
@@ -410,7 +421,7 @@ class _Pool:
 
     def __init__(self, ctx, root, nodes, job):
         self.ctx, self.root, self.nodes, self.job = ctx, root, nodes, job
-        self.seq, self.batches = 0, {}
+        self.seq, self.batches, self.halted = 0, {}, None
 
     @classmethod
     def start(cls, ctx, out_root, nodes):
@@ -457,7 +468,11 @@ class _Pool:
         job ended or the deadline cancelled it first."""
         if pred():
             return True
-        _jobs.wait_for_jobs(self.ctx, [self.job], "proxy", until=pred)
+        try:
+            _jobs.wait_for_jobs(self.ctx, [self.job], "proxy", until=pred)
+        except QueueCapExceeded as e:      # --max-queue-hours or wtune stop: what finished counts
+            self.halted = e
+            return False
         return pred()
 
     def close(self, stopped=False):
@@ -501,7 +516,11 @@ def _run_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job, by_pos=None, nt_
     h = _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job)
     if h is None:
         return None
-    _jobs.wait_for_jobs(ctx, h["live"], "proxy")
+    try:
+        _jobs.wait_for_jobs(ctx, h["live"], "proxy")
+    except QueueCapExceeded as e:          # the jobs that finished before the stop still count
+        e.partial = _collect_jobs(h, by_pos, nt_used)
+        raise
     return _collect_jobs(h, by_pos, nt_used)
 
 

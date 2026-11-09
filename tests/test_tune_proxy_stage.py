@@ -495,3 +495,33 @@ def test_a_band_re_timed_in_the_pool_is_scored_over_both_runs(tmp_path):
     assert pool.done(batch) and got["N8_a"]["positions"] == {0: 2.2, 1: 2.2}
     assert got["N8_a"]["median"] == pytest.approx(2.2) and len(got["N8_a"]["reps"]) == 4
     assert not os.path.exists(root / "scratch") and len(os.listdir(root / "done")) == 5
+
+
+def test_a_stop_or_queue_cap_while_the_pool_waits_ranks_what_finished(tmp_path, monkeypatch, capsys):
+    # wtune stop and --max-queue-hours raise QueueCapExceeded inside the wait; the real sweep keeps
+    # its partial results and so must the pool, not lose every timing with the phase
+    from wtune.tune.context import StopRequested
+    calls = []
+
+    def wait_for_jobs(ctx, jobs, stage, until=None):
+        calls.append(jobs)
+        raise StopRequested("stopped by wtune stop")
+    monkeypatch.setattr(S._jobs, "wait_for_jobs", wait_for_jobs)
+    pool = S._Pool(None, str(tmp_path), 4, "77")
+    assert pool.wait(lambda: False) is False and calls == [["77"]]
+    assert "wtune stop" in str(pool.halted)
+
+
+def test_the_jobs_path_keeps_the_one_node_runs_that_finished_before_a_queue_cap(tmp_path, monkeypatch, capsys):
+    from wtune.tune.context import QueueCapExceeded
+
+    def run_jobs(*a, **k):
+        e = QueueCapExceeded("queue-only wait 1:00:00 reached --max-queue-hours")
+        e.partial = {"N4_24x24_o1_nt1": 0.45}
+        raise e
+    monkeypatch.setattr(S, "_run_jobs", run_jobs)
+    monkeypatch.setattr(S, "_one_node_scores", lambda n, pool, timed, *a: dict(timed) if n == 4 else {})
+    plans = {4: ({"runs": []}, []), 5: ({"runs": []}, [])}
+    one, band, _p, _b = S._time_in_jobs(None, str(tmp_path), {4: [], 5: []}, plans, str(tmp_path), 1, 1)
+    assert one == {4: {"N4_24x24_o1_nt1": 0.45}} and band == {}
+    assert "none re-timed" in capsys.readouterr().out

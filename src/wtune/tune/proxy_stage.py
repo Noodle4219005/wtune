@@ -207,7 +207,7 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
         for c in (cores_by_n or {}).get(n, cores):
             label = "N%d" % n if c == full else "N%dc%d" % (n, c)
             cn = dataclasses.replace(ctx, nodes=n, anchor_override=None, core_budget=c)
-            anchor = _sweep_anchor(cn, n)[0]
+            anchor = _sweep_anchor(cn, n, cores=c)[0]
             if anchor is None:
                 continue
             # oversampled: cyclic and tile-strategy samples cannot be proxied, and they used to take
@@ -230,6 +230,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
         print("proxy: joint search skipped (no layout reproducible on one node)")
         return {}, {}
     out_root = os.path.join(ctx.out_dir, out_name)
+    if os.path.isdir(out_root):            # a reused --out: the last search's pool, CLOSE, results
+        shutil.rmtree(out_root, ignore_errors=True)
     where = ("N=%s" % sorted({sl.n for sl in slots.values()})
              if all(sl.cores == full for sl in slots.values())
              else ", ".join(sorted(slots, key=lambda k: (slots[k].n, -slots[k].cores))))
@@ -249,8 +251,11 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     for k in sorted(one, key=lambda k: (slots[k].n, -slots[k].cores)):
         sl = slots[k]
         hf = "band" if sl.n > PROXY_BAND_NODES else "full"
-        rows = [(pools[k][t], band["%s_%s" % (k, t)], hf) if "%s_%s" % (k, t) in band
-                else (pools[k][t], v, "one-node") for t, v in one[k].items()]
+        # each row keeps its one-node score: a re-timed leader's would be lost, and the N-wide and
+        # core-count comparisons need the one-node order (node_search)
+        rows = [(dict(pools[k][t], proxy_one_node_s=v), band["%s_%s" % (k, t)], hf)
+                if "%s_%s" % (k, t) in band else (dict(pools[k][t], proxy_one_node_s=v), v, "one-node")
+                for t, v in one[k].items()]
         rows = sorted(rows, key=lambda r: (r[2] == "one-node", r[1]))
         agree = _same_fastest({t: band_pos.get("%s_%s" % (k, t), {}) for t in pools[k]},
                               {t: one_pos.get("%s_%s" % (k, t), {}) for t in pools[k]})
@@ -270,7 +275,7 @@ def cores_of(cfg: dict, n: int) -> int:
     return int(cfg["ranks"]) * int(cfg.get("omp") or 1) // max(1, n)
 
 
-def _one_node_scores(label, pool, timed, one_pos, nt_used):
+def _one_node_scores(label, pool, timed, one_pos, nt_used, ctx=None):
     """{layout tag: one-node s/step} of slot `label` from `timed`; a layout timed at the half-tiles
     fallback is re-timed and probed at that numtiles, under its own tag (Big Chill N=5: 7x40 omp2
     nt12 crashed, nt6 scored 2.40, the real nt12 probes hung). Renames `pool` in place."""
@@ -282,6 +287,10 @@ def _one_node_scores(label, pool, timed, one_pos, nt_used):
             c = dict(pool.pop(t), numtiles=nt)
             if _tag(c) in pool:
                 continue                       # that numtiles is in the pool already
+            if ctx is not None and c.get("id") != "ANCHOR" and not _apply_search_filter(ctx, [c]):
+                timed.pop("%s_%s" % (label, t), None)
+                print("proxy: %s %s ran only at numtiles=%d, outside the search: dropped" % (label, t, nt))
+                continue
             pool[_tag(c)] = c
             old, new = "%s_%s" % (label, t), "%s_%s" % (label, _tag(c))
             timed[new] = timed.pop(old)
@@ -324,7 +333,7 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=
         timed, halted = e.partial or {}, e
     one = {}
     for k in sorted(pools, key=lambda k: (slots[k].n, -slots[k].cores)):
-        got = _one_node_scores(slots[k].label, pools[k], timed, one_pos, nt_used)
+        got = _one_node_scores(slots[k].label, pools[k], timed, one_pos, nt_used, slots[k].ctx)
         if got:
             one[k] = got
     if halted is not None:
@@ -341,17 +350,22 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=
             by_size[(size, sl.cores)] = (prev[0], prev[1] + got)
     # every size at once: the whole-domain runs (N <= PROXY_BAND_NODES) and the bands do not wait
     # on each other (isc-synth: 2-node then 3-node rounds ran one after the other, ~2 min each)
-    handles = [_submit_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
-                            "band%d-%s" % (size, "" if c == max(x.cores for x in slots.values())
-                                           else "c%d-" % c), size)
-               for (size, c), (bbase, bruns) in sorted(by_size.items(), key=lambda kv: (kv[0][0], -kv[0][1]))]
+    handles, band = [], {}
+    try:
+        for (size, c), (bbase, bruns) in sorted(by_size.items(), key=lambda kv: (kv[0][0], -kv[0][1])):
+            handles.append(_submit_jobs(ctx, dict(bbase, runs=bruns, proxy_nodes=size), bruns, out_root,
+                                        "band%d-%s" % (size, "" if c == max(x.cores for x in slots.values())
+                                                       else "c%d-" % c), size))
+    except QueueCapExceeded as e:          # stopped while waiting to submit: rank what finished
+        print("proxy: %s -- ranked from the re-timing runs that finished" % e)
+        band.update(e.partial or {})
+        by_size = {}
     handles = [h for h in handles if h]
     if handles:
         try:
             _jobs.wait_for_jobs(ctx, [j for h in handles for j in h["live"]], "proxy")
         except QueueCapExceeded as e:
             print("proxy: %s -- ranked from the re-timing runs that finished" % e)
-    band = {}
     for h in handles:
         band.update(_collect_jobs(h, band_pos))
     return one, band, one_pos, band_pos
@@ -382,7 +396,7 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
 
     def take_one(k):
         timed = _collect_jobs(dict(out_dirs=[one_dir(k)]), one_pos, nt_used)
-        got = _one_node_scores(lab(k), pools[k], timed, one_pos, nt_used)
+        got = _one_node_scores(lab(k), pools[k], timed, one_pos, nt_used, slots[k].ctx)
         if got:
             one[k] = got
         return got
@@ -658,7 +672,8 @@ def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
     while j < n_jobs:
         d = os.path.join(out_root, "%s%d" % (prefix, j))
         job_runs = [r for g in packed[j] for r in g]
-        job, msg = _proxy.submit_plan(dict(plan, runs=job_runs), d, _proxy_time_limit(ctx))
+        job, msg = _proxy.submit_plan(dict(plan, runs=job_runs), d, _proxy_time_limit(ctx),
+                                      tasks_per_node=getattr(ctx, "cores_per_node", None))
         if job:
             job_ids.append(job)
             out_dirs.append(d)
@@ -673,7 +688,12 @@ def _submit_jobs(ctx, plan, runs, out_root, prefix, nodes_per_job):
         # a per-user submit limit (f1 ct112 QOS: 32 submitted) is shared with every other job of
         # the user: wait for our oldest job to end, then submit the rest
         print("proxy: submit refused for %s (%s); waiting for job %s first" % (d, msg.strip()[:80], live[0]))
-        _jobs.wait_for_jobs(ctx, [live[0]], "proxy")
+        try:
+            _jobs.wait_for_jobs(ctx, [live[0]], "proxy")
+        except QueueCapExceeded as e:      # the jobs submitted so far must not outlive the stop
+            _jobs.cancel_jobs(ctx, [x for x in live[1:] if x not in ctx.cancelled_jobs])
+            e.partial = _collect_jobs(dict(live=[], out_dirs=out_dirs))
+            raise
         ended.append(live[0])
     if not job_ids:
         return None

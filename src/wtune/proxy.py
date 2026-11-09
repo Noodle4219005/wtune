@@ -608,14 +608,15 @@ def campaign_dir():
                         "campaign")
 
 
-def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
+def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",), tasks_per_node=None):
     """Write <out_dir>/plan.json + proxy.sbatch and submit it; returns (job_id or None, message)."""
     os.makedirs(out_dir, exist_ok=True)
     plan_path = os.path.join(out_dir, "plan.json")
     json.dump(plan, open(plan_path, "w"), indent=1)
     sb = os.path.join(out_dir, "proxy.sbatch")
     nodes = plan.get("proxy_nodes", 1)
-    open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit, nodes))
+    open(sb, "w").write(render_sbatch(plan_path, sys.executable, campaign_dir(), time_limit, nodes,
+                                      tasks_per_node=tasks_per_node))
     return _submit_script(sb, nodes, sbatch)
 
 

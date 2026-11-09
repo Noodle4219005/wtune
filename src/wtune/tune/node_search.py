@@ -969,8 +969,7 @@ def _proxy_cores_for(ctx: Ctx, n: int, smaller: list[int], mem) -> tuple[int | N
     _sweep_anchor_fitting and fit_memory); (None, reason) when none does."""
     why = None
     for c in [ctx.cores_per_node] + smaller:
-        cn = dataclasses.replace(ctx, core_budget=c)
-        anchor, no = _sweep_anchor(cn, n)
+        anchor, no = _sweep_anchor(ctx, n, cores=c)
         if anchor is None:
             why = why or no
             continue
@@ -995,30 +994,36 @@ def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: di
         have = {proxy_stage.cores_of(cfg, n) for cfg, _s, _f in ranking.get(n) or []}
         fit = []
         for c in others:
-            a = _sweep_anchor(dataclasses.replace(ctx, core_budget=c), n)[0]
+            a = _sweep_anchor(ctx, n, cores=c)[0]
             if c not in have and a is not None and not (mem and mem.why_not(n, a["ranks"] // n)):
                 fit.append(c)
         if fit:
             by_n[n] = fit
-    if by_n and ctx.elapsed() < ctx.budget_s:
+    halted = bool((getattr(ctx, "shared_queue", None) or {}).get("cap_hit")) or bool(STOP["reason"])
+    if by_n and ctx.elapsed() < ctx.budget_s and not halted:
         more, agree = proxy_stage.rank_across_nodes(ctx, sorted(by_n), leaders=1, cores_by_n=by_n,
                                                     out_name="proxy-cores")
         for n, rows in more.items():
             ranking[n] = sorted(ranking.get(n, []) + rows, key=lambda r: (r[2] == "one-node", r[1]))
             consistent[n] = consistent.get(n, True) and agree.get(n, True)
-    elif others:
-        print("node search: no time left for the cores/node sweep -- %d cores per node"
-              % ctx.cores_per_node)
+    elif by_n:
+        print("node search: %s -- no cores/node sweep, %d cores per node"
+              % ("stopped" if halted else "no time left", ctx.cores_per_node))
     tables, choice = {}, {}
     for n in finals:
         rows = ranking.get(n) or []
         if not rows:
             continue
         fid = rows[0][2]
-        per_c = {}
+        per_c, lead = {}, {}
+        # each count scored by its one-node leader's re-timed score: the full count re-times 3
+        # leaders, the others 1, and a minimum over 3 noisy band runs (2-5 % each) favours it
         for cfg, s, f in rows:
-            c = proxy_stage.cores_of(cfg, n)
-            if f == fid and (c not in per_c or s < per_c[c]["median"]):
+            c, o = proxy_stage.cores_of(cfg, n), cfg.get("proxy_one_node_s", s)
+            if f == fid and (c not in lead or o < lead[c]):
+                lead[c] = o
+                per_c.pop(c, None)
+            if f == fid and lead.get(c) == o and c not in per_c:
                 per_c[c] = dict(cores=c, median=s, fidelity=f, ranks_per_node=int(cfg["ranks"]) // n,
                                 omp=int(cfg.get("omp") or 1), n=1, spread=0.0, maxrss_mb=None,
                                 layout=proxy_stage._tag(cfg))
@@ -1093,6 +1098,15 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         print("node search: N=%s have one-node scores only -- not compared with the re-timed N"
               % ",".join(map(str, sorted(loose))))
     order = sorted(retimed or ranking, key=lambda n: (best[n][1], n))
+    by_one_node = False
+    if loose and retimed and max(loose) > max(retimed):
+        # the largest N lost its re-timing (a band beyond --proxy-max-nodes, a stop before the
+        # bands): dropping them would hand the pick to the small N; compare every N one-node
+        by_one_node = True
+        one = {n: min(cfg.get("proxy_one_node_s", s) for cfg, s, _f in ranking[n]) for n in ranking}
+        order = sorted(ranking, key=lambda n: (one[n], n))
+        print("node search: N=%s were not re-timed, the largest among them: every N compared by "
+              "its one-node score (0-18%% low)" % ",".join(map(str, sorted(loose))))
     kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=ctx.startup_s,
               min_efficiency=min_efficiency)
     k = proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)
@@ -1105,7 +1119,7 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
                                        objective, k=k, **kw)
     if not consistent.get(order[0], True):
         print("node search: N=%d's crop positions disagree on its fastest layout -- one more finalist" % order[0])
-    if objective == "time" and best[order[0]][2] in ("band", "full"):
+    if objective == "time" and not by_one_node and best[order[0]][2] in ("band", "full"):
         # an N the proxy puts beyond the margin cannot be the fastest, nor within noise of it; only
         # behind a band or whole-domain leader: one-node scores read ~7% low (isc-synth N=8)
         lead = best[order[0]][1]
@@ -1114,8 +1128,9 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
             print("node search: N=%s more than %d%% slower than N=%d in the proxy -- not tuned for real"
                   % (",".join(map(str, slow)), round(100 * proxy_stage.PROXY_FINALIST_MARGIN), order[0]))
             finals = [n for n in finals if n not in slow]
-    core_tables, core_choice = _proxy_core_sweep(ctx, finals, ranking, consistent, smaller + [
-        c for c in options if c > ctx.cores_per_node], mem)
+    # c < C only (a pool node holds C tasks; the real sweep drops c >= C too), and from O2 on
+    core_tables, core_choice = _proxy_core_sweep(ctx, finals, ranking, consistent,
+                                                 smaller if leaders != 1 else [], mem)
     best = {n: rows[0] for n, rows in ranking.items()}
     anchors = {n: next((c for c, _t, _f in ranking[n] if c.get("id") == "ANCHOR"), None)
                or _sweep_anchor(ctx, n)[0] for n in finals}
@@ -1131,7 +1146,9 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     print("node search: no real N-node probes -- the layouts rank by their proxy s/step")
     if on_wave is not None:                # the short-run guard, as after a real sweep's wave
         on_wave({n: [best[n][1]] for n in order})
-    prows = wtune.nodes.summarize({n: [b[1]] for n, b in best.items()})
+    # one fidelity across N: the re-timed scores, or every N's one-node score when the largest
+    # N were not re-timed
+    prows = wtune.nodes.summarize({n: [one[n] if by_one_node else b[1]] for n, b in best.items()})
     final_n, final_note = _final_over_finalists(outcomes, prows, objective, kw)
     if collect is not None:
         collect.update(outcomes=outcomes, final_n=final_n, sweep=sw, cores_info={})

@@ -41,7 +41,7 @@ RANKING = {2: [(ANCHORS[2], 0.262, "one-node")],
 
 def _patch(monkeypatch, ranking, calls, consistent=None, extra_cores=None):
     extra_cores = extra_cores if extra_cores is not None else {}
-    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS[n], None) if n in ANCHORS
+    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n, cores=None: (ANCHORS[n], None) if n in ANCHORS
                         else (None, "no legal decomposition"))
 
     def rank(ctx, legal, anchor_only_below=0, leaders=3, cores=None, cores_by_n=None, **kw):
@@ -126,7 +126,9 @@ def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, mo
 
 # cost: N=4 at 0.265 s/step costs 1.06 node-s/step, N=8 at 0.25 2.0 -- N=4 leads, as the real sweep's
 # wtune.nodes.finalists picks it (the proxy path took the two fastest whatever the objective)
-@pytest.mark.parametrize("objective,lead,finals", [("time", "band", [8]), ("time", "one-node", [4]),
+# time / one-node: N=8 was not re-timed and is the largest -- dropping it would hand the pick to N=4,
+# so every N is compared by its one-node score (no margin cut between fidelities)
+@pytest.mark.parametrize("objective,lead,finals", [("time", "band", [8]), ("time", "one-node", [8, 4]),
                                                    ("cost", "band", [4, 8])])
 def test_a_finalist_beyond_the_margin_behind_an_accurate_leader_is_dropped(tmp_path, monkeypatch,
                                                                            objective, lead, finals):
@@ -174,8 +176,8 @@ def test_an_n_with_no_full_core_layout_is_timed_at_fewer_cores_not_dropped(tmp_p
     calls = []
     _patch(monkeypatch, RANKING, calls)
     # N=6 has no legal layout at 144 cores per node but has one at 108
-    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS.get(n), None) if n in ANCHORS
-                        else ((_cfg("ANCHOR", 27, 24), None) if n == 6 and ctx.core_budget == 108
+    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n, cores=None: (ANCHORS.get(n), None) if n in ANCHORS
+                        else ((_cfg("ANCHOR", 27, 24), None) if n == 6 and cores == 108
                               else (None, "no legal decomposition")))
     ctx = _ctx(tmp_path)
     _search(ctx, 2)
@@ -185,7 +187,7 @@ def test_an_n_with_no_full_core_layout_is_timed_at_fewer_cores_not_dropped(tmp_p
 def test_an_n_that_does_not_fit_in_memory_at_full_cores_is_timed_at_fewer_or_skipped(tmp_path, monkeypatch):
     calls = []
     _patch(monkeypatch, RANKING, calls)
-    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (_cfg("ANCHOR", 12 * n, (ctx.core_budget or 144) // 12), None)
+    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n, cores=None: (_cfg("ANCHOR", 12 * n, (cores or 144) // 12), None)
                         if n in ANCHORS else (None, "no legal decomposition"))
 
     class Mem:                                # N=2 fits only at <= 96 ranks/node, N=4 never
@@ -219,3 +221,35 @@ def test_the_pipeline_callbacks_see_the_proxy_scores(tmp_path, monkeypatch):
                        on_wave=lambda meas: seen.update(wave=meas),
                        on_sweep=lambda rows, sw: seen.update(rows=sorted((r["nodes"], r["median"]) for r in rows)))
     assert seen["wave"] == {8: [0.25], 4: [0.26]} and seen["rows"] == [(4, 0.26), (8, 0.25)]
+
+
+def test_the_core_sweep_asks_for_anchors_at_each_count_and_scores_counts_alike(tmp_path, monkeypatch):
+    # _sweep_anchor sizes by its cores argument, not ctx.core_budget; and each count is scored by
+    # its one-node leader's re-timed score, not the best of 3 noisy bands at the full count
+    calls, asked = [], []
+    full = [(dict(_cfg("A", 36, 32), proxy_one_node_s=0.20), 0.26, "band"),
+            (dict(_cfg("B", 32, 36), proxy_one_node_s=0.22), 0.24, "band")]
+    fewer = {8: [(dict(_cfg("C", 32, 27), proxy_one_node_s=0.21), 0.25, "band")]}
+    _patch(monkeypatch, {8: full, 4: [(ANCHORS[4], 0.30, "band")]}, calls, extra_cores=dict(ranking=fewer))
+    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n, cores=None: (
+        asked.append(cores) or (_cfg("ANCHOR", 12 * n, (cores or 144) // 12), None)))
+    report, collect = _search(_ctx(tmp_path), 2)
+    assert 108 in asked
+    assert report["node_selection"]["core_choice"]["8"]["cores"] == 108   # 0.25 vs A's 0.26
+    assert collect["outcomes"][8].cores == 108
+
+
+def test_no_core_sweep_after_a_stop(tmp_path, monkeypatch):
+    calls = []
+    _patch(monkeypatch, RANKING, calls)
+    ctx = _ctx(tmp_path)
+    ctx.shared_queue = {"cap_hit": True}
+    _search(ctx, 2)
+    assert not [c for c in calls if c[0] == "cores"]
+
+
+def test_o1_runs_no_core_sweep_as_the_real_sweep(tmp_path, monkeypatch):
+    calls = []
+    _patch(monkeypatch, RANKING, calls)
+    _search(_ctx(tmp_path), 1)
+    assert not [c for c in calls if c[0] == "cores"]

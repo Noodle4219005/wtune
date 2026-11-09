@@ -98,7 +98,7 @@ def _joint(tmp_path, monkeypatch, pools, timings, band):
     ns = _ctx(tmp_path)
     ctx = _JCtx(namelist_path=ns.namelist_path, wrf_tree=ns.wrf_tree, out_dir=ns.out_dir)
     submitted = _patch(monkeypatch, [], {}, None)
-    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n: (pools[n][0], None) if n in pools else (None, "x"))
+    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n, cores=None: (pools[n][0], None) if n in pools else (None, "x"))
     monkeypatch.setattr(S, "_seed_layouts", lambda c: [])
     monkeypatch.setattr(S, "sample_more_diverse_configs", lambda c, ex, k, seed: pools[c.nodes][1:k + 1])
     monkeypatch.setattr(P, "collect", lambda d: [dict(tag=t, median=m) for t, m in
@@ -532,7 +532,7 @@ def test_the_jobs_path_keeps_the_one_node_runs_that_finished_before_a_queue_cap(
 def test_rank_across_nodes_times_each_core_count_under_its_own_label_and_merges_by_n(tmp_path, monkeypatch):
     at48 = [_cfg("ANCHOR", 12, 16), _cfg("D0001", 16, 12)]                 # 4 x 48 = 192 ranks
     ctx, submitted = _joint(tmp_path, monkeypatch, POOLS, {}, {})
-    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n: ((at48 if c.core_budget == 48 else POOLS[n])[0], None))
+    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n, cores=None: ((at48 if cores == 48 else POOLS[n])[0], None))
     monkeypatch.setattr(S, "cores_used", lambda c: c.core_budget or 144)
     monkeypatch.setattr(S, "sample_more_diverse_configs",
                         lambda c, ex, k, seed: (at48 if c.core_budget == 48 else POOLS[c.nodes])[1:k + 1])
@@ -556,3 +556,28 @@ def test_the_pool_job_holds_the_tunes_cores_per_node_not_the_machines(tmp_path, 
     ctx = types.SimpleNamespace(cores_per_node=36, owned_jobs=[], budget_s=600.0, elapsed=lambda: 0.0)
     pool = S._Pool.start(ctx, str(tmp_path), 4)
     assert pool is not None and "--ntasks-per-node=36" in seen["text"]
+
+
+def test_a_reused_out_dir_does_not_hand_the_search_the_last_ones_pool(tmp_path, monkeypatch):
+    ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    stale = tmp_path / "out" / "proxy-joint" / "pool"
+    (stale / "done").mkdir(parents=True)
+    (stale / "CLOSE").write_text("")
+    (stale / "done" / "1-996-000001.json").write_text("{}")
+    S.rank_across_nodes(ctx, [4])
+    assert not (stale / "CLOSE").exists() and not (stale / "done" / "1-996-000001.json").exists()
+
+
+def test_a_per_job_proxy_script_holds_the_tunes_cores_per_node(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(P, "_submit_script", lambda sb, nodes, sbatch: (seen.update(text=open(sb).read()) or ("9", "ok")))
+    P.submit_plan(dict(runs=[], proxy_nodes=1), str(tmp_path / "j0"), tasks_per_node=36)
+    assert "--ntasks-per-node=36" in seen["text"]
+
+
+def test_a_numtiles_fallback_outside_the_search_is_dropped(tmp_path, monkeypatch, capsys):
+    pool = {"12x24_o2_nt24": _cfg("D0001", 12, 24, omp=2, nt=24)}
+    timed = {"N4_12x24_o2_nt24": 0.40}
+    monkeypatch.setattr(S, "_apply_search_filter", lambda ctx, cs: [c for c in cs if c["numtiles"] == 24])
+    got = S._one_node_scores("N4", pool, timed, {}, {"N4_12x24_o2_nt24": 12}, ctx=object())
+    assert got == {} and pool == {} and "outside the search: dropped" in capsys.readouterr().out

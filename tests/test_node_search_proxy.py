@@ -253,3 +253,23 @@ def test_o1_runs_no_core_sweep_as_the_real_sweep(tmp_path, monkeypatch):
     _patch(monkeypatch, RANKING, calls)
     _search(_ctx(tmp_path), 1)
     assert not [c for c in calls if c[0] == "cores"]
+
+
+def test_joint_proxy_keeps_a_share_of_the_budget_for_the_cores_sweep(tmp_path, monkeypatch):
+    # Sundowner on f1-arm, -O2 --minutes 15: the main search used the whole layout budget and the
+    # cores/node sweep printed "no time left" in two tunes
+    calls, seen = [], []
+    _patch(monkeypatch, RANKING, calls)
+    import wtune.tune.proxy_stage as PS
+    fake = PS.rank_across_nodes
+
+    def spy(ctx, legal, **kw):
+        seen.append((ctx.budget_s, kw.get("out_name", "proxy-joint"), kw.get("neighbors"), kw.get("sample", True)))
+        return fake(ctx, legal, **kw)
+    monkeypatch.setattr(PS, "rank_across_nodes", spy)
+    ctx = _ctx(tmp_path)
+    _search(ctx, 2)
+    left = 3600.0 - ctx.elapsed()
+    assert seen[0][1:] == ("proxy-joint", True, True)
+    assert abs(seen[0][0] - (3600.0 - left * NS.PROXY_CORE_SHARE)) < 1.0
+    assert seen[1][1:] == ("proxy-cores", None, False) and seen[1][0] == 3600.0

@@ -980,6 +980,9 @@ def _proxy_cores_for(ctx: Ctx, n: int, smaller: list[int], mem) -> tuple[int | N
     return None, why
 
 
+PROXY_CORE_SHARE = 0.35   # joint proxy search: share of the budget left kept for the cores/node sweep
+
+
 def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: dict,
                       others: list[int], mem=None) -> tuple[dict, dict]:
     """The finalists timed at the `others` cores per node too (one leader re-timed each), merged
@@ -1001,8 +1004,9 @@ def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: di
             by_n[n] = fit
     halted = bool((getattr(ctx, "shared_queue", None) or {}).get("cap_hit")) or bool(STOP["reason"])
     if by_n and ctx.elapsed() < ctx.budget_s and not halted:
+        # the ANCHOR and the seed shapes at each count: the count is what is compared
         more, agree = proxy_stage.rank_across_nodes(ctx, sorted(by_n), leaders=1, cores_by_n=by_n,
-                                                    out_name="proxy-cores")
+                                                    out_name="proxy-cores", sample=False)
         for n, rows in more.items():
             ranking[n] = sorted(ranking.get(n, []) + rows, key=lambda r: (r[2] == "one-node", r[1]))
             consistent[n] = consistent.get(n, True) and agree.get(n, True)
@@ -1079,10 +1083,18 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
             print("node search: N=%d timed at %d cores per node -- %s at %d"
                   % (n, c, why, ctx.cores_per_node))
     first_job = len(ctx.owned_jobs)
+    # the cores/node sweep (O2 up) keeps PROXY_CORE_SHARE of what is left: run after the main
+    # search, it got none on Sundowner (f1-arm, -O2 --minutes 15, two tunes: "no time left")
+    sctx = ctx
+    left = ctx.budget_s - ctx.elapsed()
+    if smaller and leaders != 1 and math.isfinite(ctx.budget_s) and left > 0:
+        sctx = dataclasses.replace(ctx, budget_s=ctx.elapsed() + left * (1 - PROXY_CORE_SHARE))
+        print("node search: %s of the %s left kept for the cores/node sweep"
+              % (_fmt_hms(left * PROXY_CORE_SHARE), _fmt_hms(left)))
     # objective time: N under half the largest legal N would need > 2x superlinear speedup to win
     ranking, consistent = proxy_stage.rank_across_nodes(
-        ctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0,
-        leaders=leaders, cores_by_n=cores_by_n)
+        sctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0,
+        leaders=leaders, cores_by_n=cores_by_n, neighbors=True)
     proxy_jobs = list(ctx.owned_jobs[first_job:])
     if not ranking:
         print("node search: the joint proxy search ranked nothing; running the real node sweep")

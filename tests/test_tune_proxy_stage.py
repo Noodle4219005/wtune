@@ -599,3 +599,62 @@ def test_a_re_timed_score_far_below_its_one_node_score_is_re_timed_twice(tmp_pat
     assert ("band-N4", "0-r995", 2, 2) in adds
     assert "12x24_o2_nt24 re-timed 10%+ below its one-node score" in capsys.readouterr().out
     assert S._too_fast({"N4_a": 0.37}, {"a": 0.40}, [dict(tag="N4_a", layout="N4_a")], "N4") == []
+
+
+def test_neighbor_layouts_are_the_grids_and_numtiles_next_to_the_fastest(monkeypatch):
+    space = [_cfg("D", 12, 48), _cfg("D", 16, 36), _cfg("D", 16, 36, nt=2), _cfg("D", 16, 36, nt=4),
+             _cfg("D", 18, 32, nt=2), _cfg("D", 24, 24), _cfg("D", 16, 18, omp=2)]
+    monkeypatch.setattr(S, "_neighbor_space", lambda c: space)
+    pool = {S._tag(c): c for c in (_cfg("ANCHOR", 24, 24), _cfg("S0001", 16, 36, nt=2))}
+    got = S._neighbor_layouts(None, {"24x24_o1_nt1": 0.45, "16x36_o1_nt2": 0.43}, pool)
+    # the grids on either side of 16x36 at the numtiles nearest 2, then 16x36 at nt 1 and 4
+    assert list(got) == ["12x48_o1_nt1", "18x32_o1_nt2", "16x36_o1_nt1", "16x36_o1_nt4"]
+    assert [c["id"] for c in got.values()] == ["B0001", "B0002", "B0003", "B0004"]
+    assert S._neighbor_layouts(None, {}, pool) == {}
+
+
+def test_the_node_pool_times_an_ns_neighbours_before_its_sampled_layouts(tmp_path, monkeypatch, capsys):
+    # within one N: ANCHOR + seeds, then the layouts next to the fastest of them, then the samples
+    order = []
+
+    class Fake(_FakePool):
+        def wait(self, pred):
+            # like _Pool.wait: runs batches until pred() holds (the near batch alone does not
+            # finish N=4's one-node runs; its samples are still queued)
+            while True:
+                before = set(self.ran_first)
+                ok = super().wait(pred)
+                order.extend(sorted(self.ran_first - before))
+                if ok or self.ran_first == before:
+                    return ok
+    fake = Fake()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    monkeypatch.setattr(S, "_seed_layouts", lambda c: [_cfg("S0001", 16, 36)])
+    monkeypatch.setattr(S, "_neighbor_space", lambda c: [_cfg("D", 12, 48), _cfg("D", 16, 36),
+                                                         _cfg("D", 16, 36, nt=2), _cfg("D", 18, 32)])
+    one = {"one-N4": {"N4_24x24_o1_nt1": 0.45, "N4_16x36_o1_nt1": 0.43},
+           "one-N4-near": {"N4_12x48_o1_nt1": 0.44, "N4_16x36_o1_nt2": 0.39},
+           "one-N4-rest": {"N4_12x24_o2_nt24": 0.46, "N4_18x32_o1_nt1": 0.47}}
+    band = {"N4_16x36_o1_nt2": 0.41, "N4_12x48_o1_nt1": 0.45}
+
+    def collect(d):
+        b = os.path.basename(d)
+        if b not in fake.ran:
+            return []
+        return [dict(tag=t, median=m) for t, m in (band if b.startswith("band-") else one.get(b, {})).items()]
+    monkeypatch.setattr(P, "collect", collect)
+    out, _same = S.rank_across_nodes(ctx, [4], neighbors=True)
+    assert [(b, f) for b, f, _k, _l in fake.added[:3]] == [
+        ("one-N4", "1-995-1"), ("one-N4-rest", "1-995-3"), ("one-N4-near", "1-995-2")]
+    assert fake.added[2][3] == ["N4_12x48_o1_nt1", "N4_16x36_o1_nt2"]   # 18x32 nt1 is a sample already
+    assert order[:3] == ["1-995-1", "1-995-2", "1-995-3"]
+    assert (S._tag(out[4][0][0]), out[4][0][0]["id"], out[4][0][2]) == ("16x36_o1_nt2", "B0002", "band")
+    assert "N4 fastest of its ANCHOR and seeds 16x36_o1_nt1" in capsys.readouterr().out
+
+
+def test_without_neighbors_or_samples_the_pool_queues_the_anchor_and_seeds_only(tmp_path, monkeypatch):
+    fake = _FakePool()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    monkeypatch.setattr(S, "_seed_layouts", lambda c: [_cfg("S0001", 16, 36)])
+    S.rank_across_nodes(ctx, [4], sample=False)
+    assert fake.added[0][:2] == ("one-N4", "1-995") and fake.added[0][3] == ["N4_16x36_o1_nt1", "N4_24x24_o1_nt1"]

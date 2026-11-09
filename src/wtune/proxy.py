@@ -1121,9 +1121,12 @@ def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=
     return "\n".join([
         "#!/usr/bin/env bash",
         "#SBATCH --job-name=wtune-proxy",
-        ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
-         % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(), time_limit,
-            scc_sweep.scheduler_args())).rstrip(),
+        ("#SBATCH -p %s -N %d %s --ntasks-per-node=%d %s--time=%s %s"
+         % (wtune.machine.partition(), nodes,
+            wtune.machine.node_share_arg(wtune.machine.cores_per_node()),
+            wtune.machine.cores_per_node(),
+            (wtune.machine.cpus_per_task_arg(wtune.machine.cores_per_node()) + " ").lstrip(),
+            time_limit, scc_sweep.scheduler_args())).rstrip(),
         "#SBATCH --no-requeue",
         "#SBATCH --output=%s/proxy-%%j.out" % out,
         "set -uo pipefail",

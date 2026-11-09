@@ -233,6 +233,7 @@ def machine_line(project_doc):
     values["node_memory_gib"] = "%g" % values["node_memory_gib"]
     values["node_preflight"] = "on" if values["node_preflight"] else "off"
     values["copy_probe_inputs"] = "on" if values["copy_probe_inputs"] else "off"
+    values["exclusive"] = "on" if values["exclusive"] else "off"
     values["measured"] = ",".join(
         "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
@@ -1036,6 +1037,10 @@ def build_parser():
     p_set.add_argument("--copy-probe-inputs", type=_on_off, default=None, metavar="{on,off}",
                        help="each probe job reads its own copy of the BP inputs (built-in on); "
                             "off where the filesystem has a quota and no NFS open stall")
+    p_set.add_argument("--exclusive", type=_on_off, default=None, metavar="{on,off}",
+                       help="jobs hold whole nodes (built-in on); off: only the cores their "
+                            "tasks use, on one socket when --numa-per-node is 1 -- for a "
+                            "cluster with no idle nodes, at the price of a neighbour's noise")
     p_set.add_argument("--node-preflight", type=_on_off, default=None, metavar="{on,off}",
                        help="probe every node with one srun before a tune (built-in on); off "
                             "where the scheduler limits how many jobs a user may submit")

@@ -429,11 +429,11 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
         export += ",%s=%s" % (key, value)
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
     cpt = wtune.machine.cpus_per_task_arg(cores_per_node)
-    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d %s--exclusive %s "
+    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d %s%s %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
               % (wtune.machine.partition(), nodes, cores_per_node, cpt + " " if cpt else "",
-                 scheduler_args(), time_limit, case, nodes, out_dir, export,
-                 _expand(sbatch_script)))
+                 wtune.machine.node_share_arg(cores_per_node), scheduler_args(), time_limit,
+                 case, nodes, out_dir, export, _expand(sbatch_script)))
     return "source %s; %s" % (_expand(env_source or wtune.machine.env_source()), sbatch)
 
 

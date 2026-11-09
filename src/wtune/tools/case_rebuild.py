@@ -1466,7 +1466,8 @@ def _sbatch_header(job: _RebuildJob) -> list[str]:
         lines.append("#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()))
     if wtune.machine.account_arg():
         lines.append("#SBATCH " + wtune.machine.account_arg())
-    lines += ["#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
+    lines += [("#SBATCH -N %d %s --ntasks-per-node=%d"
+               % (job.nodes, wtune.machine.node_share_arg(job.ppn), job.ppn)).replace("  ", " "),
              "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
              "#SBATCH --signal=B:USR1@90"]
     if job.out_dir_abs:

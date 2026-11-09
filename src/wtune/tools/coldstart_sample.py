@@ -2643,7 +2643,8 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
         lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
     if wtune.machine.account_arg():
         lines.append("#SBATCH " + wtune.machine.account_arg())
-    lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
+    lines.append(("#SBATCH -N %d %s --ntasks-per-node=%d"
+                  % (nodes, wtune.machine.node_share_arg(ppn), ppn)).replace("  ", " "))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")
     plan_dir_abs = plan.get("_plan_dir")

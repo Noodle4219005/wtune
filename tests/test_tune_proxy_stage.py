@@ -412,8 +412,9 @@ def test_pool_worker_backfills_one_node_runs_that_cannot_delay_a_waiting_band(tm
 
     P.pool_worker(str(q), hosts=list("abcde"), run_tries=fake_tries, poll_s=0.01)
     order = sorted(starts, key=starts.get)
-    # B2 waits for 3 nodes; the 2 left beside B1 take L3 and L4 (B1 ending frees B2's 3 nodes alone)
-    assert order[:3] == ["B1", "L3", "L4"] and order.index("B2") < order.index("L5")
+    # B2 waits for 3 nodes; the 2 left beside B1 take L3 and L4 (B1 ending frees B2's 3 nodes alone).
+    # Runs started in one poll start their threads in no fixed order: compare rounds, not ranks.
+    assert set(order[:3]) == {"B1", "L3", "L4"} and starts["B2"] < starts["L5"] + 0.1
     assert not P._backfill_ok(3, 0, {})                                 # nothing running: no backfill
     assert not P._backfill_ok(3, 0, {"x": (None, ["a"], 0.0), "y": (None, list("bcd"), 1.0)})
 

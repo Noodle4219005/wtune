@@ -16,8 +16,10 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
                   campaign_dir: str) -> list[str]:
     return ["#!/usr/bin/env bash",
             "#SBATCH --job-name=%s" % job_name,
-            ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d %s--time=%s %s"
-             % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(),
+            ("#SBATCH -p %s -N %d %s --ntasks-per-node=%d %s--time=%s %s"
+             % (wtune.machine.partition(), nodes,
+                wtune.machine.node_share_arg(wtune.machine.cores_per_node()),
+                wtune.machine.cores_per_node(),
                 (wtune.machine.cpus_per_task_arg(wtune.machine.cores_per_node()) + " ").lstrip(),
                 time_limit, sweep.scheduler_args())).rstrip(),
             "#SBATCH --signal=B:USR1@90",
@@ -102,8 +104,9 @@ def render_convert_sbatch(out_dir: str, job_name: str, namelist: str, case_dir: 
     return "\n".join([
         "#!/usr/bin/env bash",
         "#SBATCH --job-name=%s" % job_name,
-        ("#SBATCH -p %s -N 1 --exclusive --time=%s %s"
-         % (wtune.machine.partition(), time_limit, sweep.scheduler_args())).rstrip(),
+        ("#SBATCH -p %s -N 1 %s --time=%s %s"
+         % (wtune.machine.partition(), "--exclusive" if wtune.machine.exclusive() else "-n 1",
+            time_limit, sweep.scheduler_args())).rstrip(),
         "#SBATCH --no-requeue",
         "#SBATCH --output=%s/nc2bp-%%j.out" % os.path.abspath(out_dir),
         "set -uo pipefail",

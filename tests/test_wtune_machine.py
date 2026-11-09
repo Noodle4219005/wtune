@@ -257,3 +257,21 @@ def test_hardware_cores_per_node_makes_jobs_request_the_billed_cpus(scc, tmp_pat
     assert "-N 2 --exclusive --ntasks-per-node=72 --cpus-per-task=2 --time=01:00:00" in head[2]
     with pytest.raises(wtune.machine.MachineError, match="number of cores"):
         wtune.machine.check({"hardware_cores_per_node": -1})
+
+
+def test_exclusive_off_jobs_hold_only_their_tasks_cores_on_one_socket(scc, tmp_path):
+    # f1-arm 2026-11-09: no idle node, so a whole-node tune waited 12 h; shared, each job takes
+    # one Grace (72 of 144 cores) and is billed for those
+    wtune.machine.export(wtune.machine.check({"cores_per_node": 72, "hardware_cores_per_node": 144,
+                                              "numa_per_node": 1, "exclusive": False}))
+    assert not wtune.machine.exclusive() and wtune.machine.cpus_per_task_arg(72) == ""
+    cmd = scc_sweep.build_sbatch_command("c", 2, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    from wtune import proxy
+    from wtune.run import sbatch as run_sbatch
+    pool = proxy.render_sbatch(str(tmp_path / "q"), "python", "/camp", "00:16:00", 4, mode="_pool")
+    head = run_sbatch._header_lines(str(tmp_path), 2, "01:00:00", "seg", "/env.sh", str(tmp_path))[2]
+    for line in (cmd, pool, head):
+        assert "--exclusive" not in line and "--cpus-per-task" not in line
+        assert "--ntasks-per-socket=72 -m block:block" in line
+    with pytest.raises(wtune.machine.MachineError, match="true or false"):
+        wtune.machine.check({"exclusive": "no"})

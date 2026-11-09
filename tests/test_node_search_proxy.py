@@ -122,8 +122,10 @@ def test_inconsistent_crop_positions_at_the_best_n_add_one_finalist(tmp_path, mo
     assert report["node_selection"]["finalists"] == [8, 4]          # only the best N's flag counts
 
 
+# cost: N=4 at 0.265 s/step costs 1.06 node-s/step, N=8 at 0.25 2.0 -- N=4 leads, as the real sweep's
+# wtune.nodes.finalists picks it (the proxy path took the two fastest whatever the objective)
 @pytest.mark.parametrize("objective,lead,finals", [("time", "band", [8]), ("time", "one-node", [4]),
-                                                   ("cost", "band", [8, 4])])
+                                                   ("cost", "band", [4, 8])])
 def test_a_finalist_beyond_the_margin_behind_an_accurate_leader_is_dropped(tmp_path, monkeypatch,
                                                                            objective, lead, finals):
     calls = []

@@ -1044,7 +1044,16 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         print("node search: N=%s have one-node scores only -- not compared with the re-timed N"
               % ",".join(map(str, sorted(loose))))
     order = sorted(retimed or ranking, key=lambda n: (best[n][1], n))
-    finals = order[:proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)]
+    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=ctx.startup_s,
+              min_efficiency=min_efficiency)
+    k = proxy_stage.PROXY_JOINT_FINALISTS + (0 if consistent.get(order[0], True) else 1)
+    if objective == "time":
+        finals = order[:k]
+    else:
+        # cost / knee / a deadline pick a smaller N than the fastest: chosen as the real sweep's
+        # finalists are, from the comparable N's proxy scores
+        finals = wtune.nodes.finalists(wtune.nodes.summarize({n: [best[n][1]] for n in order}),
+                                       objective, k=k, **kw)
     if not consistent.get(order[0], True):
         print("node search: N=%d's crop positions disagree on its fastest layout -- one more finalist" % order[0])
     if objective == "time" and best[order[0]][2] in ("band", "full"):
@@ -1071,8 +1080,6 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         print("node search: no joint-proxy finalist has a score; running the real node sweep")
         return None
     print("node search: no real N-node probes -- the layouts rank by their proxy s/step")
-    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=ctx.startup_s,
-              min_efficiency=min_efficiency)
     prows = wtune.nodes.summarize({n: [b[1]] for n, b in best.items()})
     final_n, final_note = _final_over_finalists(outcomes, prows, objective, kw)
     if collect is not None:

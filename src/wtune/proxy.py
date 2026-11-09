@@ -619,13 +619,13 @@ def submit_plan(plan, out_dir, time_limit="01:00:00", sbatch=("sbatch",)):
     return _submit_script(sb, nodes, sbatch)
 
 
-def submit_pool(queue_dir, nodes, time_limit, sbatch=("sbatch",)):
+def submit_pool(queue_dir, nodes, time_limit, sbatch=("sbatch",), tasks_per_node=None):
     """Submit one job of `nodes` nodes serving queue_dir as a node pool (pool_worker); returns
     (job_id or None, message)."""
     os.makedirs(queue_dir, exist_ok=True)
     sb = os.path.join(queue_dir, "pool.sbatch")
     open(sb, "w").write(render_sbatch(queue_dir, sys.executable, campaign_dir(), time_limit, nodes,
-                                      mode="_pool"))
+                                      mode="_pool", tasks_per_node=tasks_per_node))
     return _submit_script(sb, nodes, sbatch)
 
 
@@ -1112,20 +1112,21 @@ def _step_times(rsl):
 
 
 # ------------------------------------------------------------------------------------ sbatch
-def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=1, mode="_worker"):
+def render_sbatch(plan_path, python, campaign_dir, time_limit="01:00:00", nodes=1, mode="_worker",
+                  tasks_per_node=None):
     """The proxy job script: `mode` _worker runs plan_path's runs in order, _pool serves the
-    queue directory plan_path as a node pool."""
+    queue directory plan_path as a node pool. `tasks_per_node` defaults to the machine's cores
+    per node; a tune passes its own --cores-per-node."""
     import wtune.machine
     from wtune.tools import scc_sweep
     out = plan_path if mode == "_pool" else os.path.dirname(os.path.abspath(plan_path))
+    tpn = int(tasks_per_node or wtune.machine.cores_per_node())
     return "\n".join([
         "#!/usr/bin/env bash",
         "#SBATCH --job-name=wtune-proxy",
         ("#SBATCH -p %s -N %d %s --ntasks-per-node=%d %s--time=%s %s"
-         % (wtune.machine.partition(), nodes,
-            wtune.machine.node_share_arg(wtune.machine.cores_per_node()),
-            wtune.machine.cores_per_node(),
-            (wtune.machine.cpus_per_task_arg(wtune.machine.cores_per_node()) + " ").lstrip(),
+         % (wtune.machine.partition(), nodes, wtune.machine.node_share_arg(tpn), tpn,
+            (wtune.machine.cpus_per_task_arg(tpn) + " ").lstrip(),
             time_limit, scc_sweep.scheduler_args())).rstrip(),
         "#SBATCH --no-requeue",
         "#SBATCH --output=%s/proxy-%%j.out" % out,

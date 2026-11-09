@@ -50,7 +50,7 @@ PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interi
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N
 PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
 PROXY_CLOSE_CALL = 0.03       # node pool: band leaders of one N this close to its best are re-timed once
-PROXY_JOINT_FINALISTS = 2      # node search: the N with the best proxy scores tuned for real
+PROXY_JOINT_FINALISTS = 2      # node search: the N whose proxy scores the objective ranks first
 
 
 def proxy_node_cap(ctx) -> int:
@@ -486,7 +486,9 @@ class _Pool:
         for d in ("tasks", "running", "done"):
             os.makedirs(os.path.join(root, d), exist_ok=True)
         try:
-            job, msg = _proxy.submit_pool(root, nodes, _pool_time_limit(ctx))
+            # the tune's own --cores-per-node: a run of 72 ranks needs 72 tasks per pool node
+            job, msg = _proxy.submit_pool(root, nodes, _pool_time_limit(ctx),
+                                          tasks_per_node=getattr(ctx, "cores_per_node", None))
         except OSError as e:
             job, msg = None, str(e)
         if not job:

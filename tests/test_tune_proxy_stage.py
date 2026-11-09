@@ -548,3 +548,11 @@ def test_rank_across_nodes_times_each_core_count_under_its_own_label_and_merges_
     # each core count re-timed in a plan of its own: one plan's cores would launch the other's runs
     bands = [p for p in submitted if p.get("proxy_nodes") == 3]
     assert sorted(sorted({r["layout"].split("_")[0] for r in p["runs"]}) for p in bands) == [["N4"], ["N4c48"]]
+
+
+def test_the_pool_job_holds_the_tunes_cores_per_node_not_the_machines(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(P, "_submit_script", lambda sb, nodes, sbatch: (seen.update(text=open(sb).read()) or ("9", "ok")))
+    ctx = types.SimpleNamespace(cores_per_node=36, owned_jobs=[], budget_s=600.0, elapsed=lambda: 0.0)
+    pool = S._Pool.start(ctx, str(tmp_path), 4)
+    assert pool is not None and "--ntasks-per-node=36" in seen["text"]

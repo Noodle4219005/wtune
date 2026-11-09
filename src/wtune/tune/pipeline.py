@@ -263,7 +263,10 @@ def _pipeline_pre_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         lv = highest_level_within(est, T_cold, plan["level"])
         if lv < plan["level"]:
             print("pipeline: 模擬本身只要約 %.0f 分鐘（冷啟動估計），比 O%d 的調校時間短；"
-                  "自動降為 O%d（--stop-if-short / --minutes 啟用）" % (T_cold / 60.0, plan["level"], lv))
+                  "自動降為 O%d（--stop-if-short / --minutes 啟用）%s"
+                  % (T_cold / 60.0, plan["level"], lv,
+                     "；O%d 用聯合代理挑選，不跑真實 N 節點探測" % lv
+                     if lv in (1, 2) and _node_search.joint_proxy_usable(ctx) else ""))
             plan["level"] = lv
     pipe.level = LevelInfo(requested=st.level_req, effective=plan["level"],
                            estimate_s={("O%d" % k): v for k, v in (est or {}).items()},

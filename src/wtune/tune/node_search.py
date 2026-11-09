@@ -752,8 +752,16 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     At O1/O2 with ctx.proxy the joint proxy search (_run_node_search_proxy) replaces the sweep."""
     lvl = (lambda: plan["level"]) if plan else (lambda: 3)    # effort level, read live
     if plan is not None and lvl() in (1, 2) and joint_proxy_usable(ctx):
+        unused = [flag for flag, on in (("--node-seeds %s" % ctx.node_seeds, ctx.node_seeds != "geometric"),
+                                        ("--hotspot-fill off", not ctx.hotspot_fill),
+                                        ("--sweep-budget-frac %g" % sweep_budget_frac,
+                                         sweep_budget_frac != DEFAULT_SWEEP_BUDGET_FRAC)) if on]
+        if unused:
+            print("node search: the joint proxy (O%d) does not use %s; --proxy off runs the real "
+                  "node sweep, which does" % (lvl(), ", ".join(unused)))
         report = _run_node_search_proxy(ctx, objective, deadline_s, min_efficiency, total_steps, collect,
-                                        leaders=1 if lvl() == 1 else None, core_options=core_options)
+                                        leaders=1 if lvl() == 1 else None, core_options=core_options,
+                                        on_sweep=on_sweep, on_wave=on_wave)
         if report is not None:
             return report
     overhead_s = ctx.startup_s
@@ -1030,7 +1038,8 @@ def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: di
 def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, min_efficiency: float,
                            total_steps: int | None, collect: dict | None,
                            leaders: int | None = None,
-                           core_options: list[int] | None = None) -> dict | None:
+                           core_options: list[int] | None = None, on_sweep: Callable | None = None,
+                           on_wave: Callable | None = None) -> dict | None:
     """-O1/-O2 with the proxy: proxy_stage.rank_across_nodes over every legal N replaces the real
     ANCHOR sweep and the real N-node probes; the final N and layout come from the proxy scores of
     the PROXY_JOINT_FINALISTS best N (one more when the best N's crop positions disagree on its
@@ -1041,6 +1050,14 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     PROXY_JOINT_LEADERS; O1: 1) one-node leaders per N are re-timed at band or whole-domain
     fidelity. None (the real sweep runs instead) when nothing was ranked."""
     from . import proxy_stage
+    dists = (getattr(ctx, "search_cfg", None) or {}).get("rank_distribution")
+    if dists and "block" not in dists:
+        print("node search: search.rank_distribution %s has no block layout, which the proxy cannot "
+              "time; running the real node sweep" % dists)
+        return None
+    if dists and len(dists) > 1:
+        print("node search: the joint proxy ranks the block layouts only (%s cannot be proxied)"
+              % ", ".join(d for d in dists if d != "block"))
     options = sorted(set(core_options or wtune.nodes.default_core_options(ctx.cores_per_node)),
                      reverse=True)
     smaller = [c for c in options if c < ctx.cores_per_node]
@@ -1112,6 +1129,8 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
         print("node search: no joint-proxy finalist has a score; running the real node sweep")
         return None
     print("node search: no real N-node probes -- the layouts rank by their proxy s/step")
+    if on_wave is not None:                # the short-run guard, as after a real sweep's wave
+        on_wave({n: [best[n][1]] for n in order})
     prows = wtune.nodes.summarize({n: [b[1]] for n, b in best.items()})
     final_n, final_note = _final_over_finalists(outcomes, prows, objective, kw)
     if collect is not None:
@@ -1120,6 +1139,8 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     tab = wtune.nodes.table(prows, total_steps=total_steps, overhead_s=ctx.startup_s)
     for r in tab:
         r.update(maxrss_mb=None, fidelity=best[r["nodes"]][2], layout=proxy_stage._tag(best[r["nodes"]][0]))
+    if on_sweep is not None:               # the whole run implied by the best score (T_updated)
+        on_sweep(wtune.nodes.summarize({n: [best[n][1]] for n in order}), sw)
     note = "joint proxy search: N=%d best proxy %.4f s/step (%s)" % (finals[0], best[finals[0]][1],
                                                                      best[finals[0]][2])
     report["node_selection"] = NodeSelection(

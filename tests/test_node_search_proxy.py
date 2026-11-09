@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 
 import wtune.tune
@@ -52,7 +53,8 @@ def _patch(monkeypatch, ranking, calls, consistent=None, extra_cores=None):
         calls.append(("leaders", leaders))
         calls.append(("cores_by_n", cores_by_n))
         ctx.owned_jobs += ["901", "902"]
-        return ranking, (consistent if consistent is not None else {n: True for n in ranking})
+        return ({n: list(rows) for n, rows in ranking.items()},     # the search merges into it
+                dict(consistent) if consistent is not None else {n: True for n in ranking})
     monkeypatch.setattr(PS, "rank_across_nodes", rank)
     monkeypatch.setattr(NS._rounds, "run_tuning_at", lambda *a, **k: pytest.fail("no real probe"))
 
@@ -194,3 +196,26 @@ def test_an_n_that_does_not_fit_in_memory_at_full_cores_is_timed_at_fewer_or_ski
     report, _c = _search(ctx, 2)
     assert ("rank", [2, 8]) in calls and ("cores_by_n", {2: [96]}) in calls
     assert {"nodes": 4, "reason": "memory: too big"} in report["node_selection"]["skipped"]
+
+
+def test_cyclic_only_search_runs_the_real_sweep_and_unused_flags_are_named(tmp_path, monkeypatch, capsys):
+    calls = []
+    _patch(monkeypatch, RANKING, calls)
+    ctx = dataclasses.replace(_ctx(tmp_path), search_cfg={"rank_distribution": ["cyclic"]})
+    assert NS._run_node_search_proxy(ctx, "time", None, 0.7, 1000, {}) is None
+    assert "has no block layout" in capsys.readouterr().out and not calls
+    (tmp_path / "b").mkdir()
+    ctx = dataclasses.replace(_ctx(tmp_path / "b"), node_seeds="all", hotspot_fill=False)
+    NS.run_node_search(ctx, {}, "time", None, 0.7, 2, 1000, plan=dict(level=2), collect={},
+                       sweep_budget_frac=0.5)
+    out = capsys.readouterr().out
+    assert "does not use --node-seeds all, --hotspot-fill off, --sweep-budget-frac 0.5" in out
+
+
+def test_the_pipeline_callbacks_see_the_proxy_scores(tmp_path, monkeypatch):
+    calls, seen = [], {}
+    _patch(monkeypatch, RANKING, calls)
+    NS.run_node_search(_ctx(tmp_path), {}, "time", None, 0.7, 2, 1000, plan=dict(level=2), collect={},
+                       on_wave=lambda meas: seen.update(wave=meas),
+                       on_sweep=lambda rows, sw: seen.update(rows=sorted((r["nodes"], r["median"]) for r in rows)))
+    assert seen["wave"] == {8: [0.25], 4: [0.26]} and seen["rows"] == [(4, 0.26), (8, 0.25)]

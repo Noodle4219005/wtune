@@ -900,3 +900,42 @@ def test_predict_init_skips_dangling_symlinks_and_sizes_bp_directories(tmp_path)
     assert init["read_s"] == pytest.approx(1.0)              # 1000 bytes / 1000 B/s
     assert "wrfinput_d01.bp" in init["source"] and "gone" not in init["source"] \
         and "wrfbdy_d01" not in init["source"]
+
+
+SUNDOWNER_NL = """&domains
+ time_step = 75,
+ max_dom = 3,
+ e_we = 196, 196, 181,
+ e_sn = 196, 196, 181,
+ e_vert = 77, 77, 77,
+ parent_time_step_ratio = 1, 3, 5,
+/
+&physics
+ ra_lw_physics = 1, 1, 1,
+ ra_sw_physics = 1, 1, 1,
+ radt = 1, 1, 1,
+/
+"""
+
+
+def test_a_default_radiation_ratio_is_priced_per_domain_on_a_nested_case(tmp_path):
+    # Sundowner: radt 1 min < dt 75 s, so every d01 step calls radiation; a default r is one
+    # domain's ratio and must not multiply the whole nested step (1h45m predicted for 36:43)
+    nl = _parse(tmp_path, SUNDOWNER_NL)
+    shares = wp.domain_work_shares(nl, 3)
+    assert [n for _f, n in shares] == [1, 3, 15] and abs(sum(f for f, _n in shares) - 1) < 1e-9
+    n, extra, _f, _a = wp.predict_radiation_extra_nested(nl, 3, 1728, 75.0, 1.0, 2.0, 2.0,
+                                                         None, None, 5.0)
+    d01_f, d02_f, d03_f = (f for f, _n in shares)
+    want = 1728 * (d01_f + d02_f / 2 + d03_f / 12)          # stepra 1, 2 (nint 2.4), 12
+    assert n == 1728 and abs(extra - want) < 0.05 * want
+    one, extra_one, _f, _a = wp.predict_radiation_extra(1728, 1, 75.0, 1.0, 2.0, 2.0, None, None, 5.0)
+    assert extra < 0.25 * extra_one
+
+
+def test_the_radiation_scheme_picks_its_calibrated_default_ratio(tmp_path):
+    cal = {"r_rad_scheme_defaults": {"1/1": {"night": 1.29, "day": 1.29}}}
+    assert wp.scheme_default_r_rad(_parse(tmp_path, SUNDOWNER_NL), cal) == (1.29, 1.29, "default_scheme_1_1")
+    rrtmg = SUNDOWNER_NL.replace("ra_lw_physics = 1, 1, 1", "ra_lw_physics = 4").replace(
+        "ra_sw_physics = 1, 1, 1", "ra_sw_physics = 4")
+    assert wp.scheme_default_r_rad(_parse(tmp_path, rrtmg, "nl2"), cal) is None

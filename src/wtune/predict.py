@@ -1151,6 +1151,50 @@ def predict_radiation_extra(steps: int, radt: float, dt_seconds: float, s_normal
     return rad_steps, rad_steps * (r_uniform - 1.0) * s_normal, None, None
 
 
+def domain_work_shares(nl: dict, max_dom: int) -> list[tuple[float, int]]:
+    """(share of one d01 step's work, substeps per d01 step) per domain, work = cells x levels x
+    substeps as in nested_equivalent_cells."""
+    cum, rows = 1, []
+    for d in range(max_dom):
+        if d > 0:
+            cum *= parent_time_step_ratio(nl, d, default=1)
+        rows.append((cells_levels(*get_domain_geom(nl, d)) * cum, cum))
+    total = sum(w for w, _ in rows) or 1.0
+    return [(w / total, n) for w, n in rows]
+
+
+def predict_radiation_extra_nested(nl: dict, max_dom: int, steps: int, dt_seconds: float,
+                                   s_normal: float, r_night: float | None, r_day: float | None,
+                                   run_start_dt, sample_points, default_r_rad: float):
+    """predict_radiation_extra per domain, for an r that is one domain's radiation-step / normal-
+    step cost: each domain's radiation calls (its own radt and substep dt) are priced at its share
+    of the d01 step's work. Pricing every d01 radiation step at the whole nested step instead put
+    Sundowner (3 domains, radt 1 min < dt 75 s) at 1h45m for a 36:43 run. One domain: unchanged.
+    -> (d01 radiation steps, extra s, d01 run mean sunlit fraction, d01 sampling advice)."""
+    out = None
+    extra = 0.0
+    for d, (share, sub) in enumerate(domain_work_shares(nl, max_dom)):
+        radt_d = g_dom(nl, "physics", "radt", d, default=None)
+        n, x, frac, advice = predict_radiation_extra(
+            steps * sub, radt_d, dt_seconds / sub, s_normal * share / sub, r_night, r_day,
+            run_start_dt, sample_points, default_r_rad)
+        extra += x
+        if d == 0:
+            out = (n, frac, advice)
+    return out[0], extra, out[1], out[2]
+
+
+def scheme_default_r_rad(nl: dict, cal_rad: dict) -> tuple[float, float, str] | None:
+    """Calibrated (r_night, r_day, source) for d01's ra_lw/ra_sw pair from
+    calibration.radiation.r_rad_scheme_defaults, else None (the RRTMG-measured defaults apply)."""
+    pair = "%s/%s" % (g_dom(nl, "physics", "ra_lw_physics", 0, default="?"),
+                      g_dom(nl, "physics", "ra_sw_physics", 0, default="?"))
+    row = (cal_rad.get("r_rad_scheme_defaults") or {}).get(pair)
+    if not row:
+        return None
+    return float(row["night"]), float(row["day"]), "default_scheme_%s" % pair.replace("/", "_")
+
+
 def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: int, omp: int,
                     probe_result: dict | None, calibration: dict, rsl_paths: list[str] | None = None,
                     dt_seconds: float | None = None, sample_points: list | None = None,
@@ -1191,7 +1235,9 @@ def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: i
     # sc26p1: every 54, probes are 30). Prefer measured typical day/night levels over the flat
     # r_rad_default of 5, which alone produced severe2023's +25% (2026-09-23 validation).
     cal_rad = calibration.get("radiation", {})
-    if r_rad_source == "default_unmeasured" and cal_rad.get("r_rad_default_night") and cal_rad.get("r_rad_default_day"):
+    if r_rad_source == "default_unmeasured" and scheme_default_r_rad(nl, cal_rad):
+        r_night, r_day, r_rad_source = scheme_default_r_rad(nl, cal_rad)
+    elif r_rad_source == "default_unmeasured" and cal_rad.get("r_rad_default_night") and cal_rad.get("r_rad_default_day"):
         r_night, r_day = float(cal_rad["r_rad_default_night"]), float(cal_rad["r_rad_default_day"])
         r_rad_source = "default_calibrated"
 
@@ -1224,8 +1270,15 @@ def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: i
         detail = {"source": source, "nested_equivalent_cells": cl_eq, "cores": cores,
                   "fallback_s_per_cell_step_ns": ns_per_cell_core}
 
-    rad_steps, rad_extra_s, run_mean_sunlit_fraction, sampling_advice = predict_radiation_extra(
-        steps, radt, dt_seconds, s_normal, r_night, r_day, run_start_dt, sample_points, default_r_rad)
+    if r_rad_source.startswith("default") and max_dom > 1 and dt_seconds:
+        # a default r is one domain's ratio; a d01-rsl-measured one already holds the nests
+        rad_steps, rad_extra_s, run_mean_sunlit_fraction, sampling_advice = \
+            predict_radiation_extra_nested(nl, max_dom, steps, dt_seconds, s_normal, r_night,
+                                           r_day, run_start_dt, sample_points, default_r_rad)
+    else:
+        rad_steps, rad_extra_s, run_mean_sunlit_fraction, sampling_advice = predict_radiation_extra(
+            steps, radt, dt_seconds, s_normal, r_night, r_day, run_start_dt, sample_points,
+            default_r_rad)
 
     compute_total_s = steps * s_normal + rad_extra_s
     noise_abs_s = compute_total_s * (noise_pct / 100.0)

@@ -239,6 +239,7 @@ def test_rebuild_points_refuse_to_overrun_the_quota(monkeypatch, tmp_path):
         wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
                                       str(tmp_path), str(tmp_path / "out"),
                                       _dt.datetime(2017, 7, 31))
+    assert not (tmp_path / "out" / "pt_0" / "grib").exists()     # fetched forcing is not left
 
 
 def test_rebuild_points_predict_from_the_points_that_ran_and_clean_up(monkeypatch, tmp_path,
@@ -276,3 +277,5 @@ def test_rebuild_jobs_cancelled_at_the_budget_are_not_called_an_infrastructure_f
     with pytest.raises(RuntimeError, match="cancelled at the time budget"):
         wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
                                       str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31))
+    # the cancelled point's grib/ and wps/ go too (Sundowner: 2-5.7 GB left per tune)
+    assert not (tmp_path / "out" / "pt_0" / "wps").exists() and (tmp_path / "out" / "pt_0" / "win_0").exists()

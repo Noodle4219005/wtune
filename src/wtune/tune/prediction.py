@@ -260,8 +260,6 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     seg_timeout_min = _budget.rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
                                                           config.get("omp", 1))
 
-    owned_lock = threading.Lock()
-
     def _prepare(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = probe_plan.plan_rebuild_segments(
@@ -282,6 +280,16 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
         done = list(pool.map(lambda ip: _prepare(*ip), enumerate(points)))
     plans = [d[0] for d in done]
+    try:
+        return _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_start)
+    finally:
+        # also on a space refusal, a budget cancel or a failed job: 2-5.7 GB per tune otherwise
+        # stayed under <out>/rebuilt/ (Sundowner on f1-arm, 2026-11-09, three tunes)
+        _clean_rebuild_points(plans)
+
+
+def _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_start):
+    owned_lock = threading.Lock()
     _check_rebuild_space(out_dir, [d[2] for d in done])
     wave = rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
     job_ids = []
@@ -319,7 +327,6 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
             measurements.append(probe_plan.PointMeasurement(
                 at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
                 n_rad=w["n_rad"], r=w["r_local"]))
-    _clean_rebuild_points(plans)
     if failed:
         print("WARNING: %d of %d rebuilt point(s) gave no measurement -- predicting from the "
               "rest: %s" % (len(failed), len(plans), "; ".join(failed)), flush=True)

@@ -43,14 +43,14 @@ def _patch(monkeypatch, ranking, calls, consistent=None, extra_cores=None):
     monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (ANCHORS[n], None) if n in ANCHORS
                         else (None, "no legal decomposition"))
 
-    def rank(ctx, legal, anchor_only_below=0, leaders=3, cores=None, fallback_cores=None, **kw):
-        if cores:                              # the finalists' cores/node sweep
-            calls.append(("cores", legal, cores))
+    def rank(ctx, legal, anchor_only_below=0, leaders=3, cores=None, cores_by_n=None, **kw):
+        if kw.get("out_name") == "proxy-cores":    # the finalists' cores/node sweep
+            calls.append(("cores", legal, cores_by_n))
             return extra_cores.get("ranking", {}), {}
         calls.append(("rank", legal))
         calls.append(("below", anchor_only_below))
         calls.append(("leaders", leaders))
-        calls.append(("fallback", fallback_cores))
+        calls.append(("cores_by_n", cores_by_n))
         ctx.owned_jobs += ["901", "902"]
         return ranking, (consistent if consistent is not None else {n: True for n in ranking})
     monkeypatch.setattr(PS, "rank_across_nodes", rank)
@@ -156,7 +156,8 @@ def test_the_finalists_are_timed_at_the_other_core_counts_and_a_faster_one_wins(
     ctx = _ctx(tmp_path)
     report, collect = _search(ctx, 2)
     sweep = [c for c in calls if c[0] == "cores"]
-    assert sweep == [("cores", [8, 4], [142, 128, 108, 96, 72])]   # 144's options but 144
+    options = [142, 128, 108, 96, 72]                              # 144's options but 144
+    assert sweep == [("cores", [4, 8], {8: options, 4: options})]
     assert collect["outcomes"][8].cores == 108 and collect["outcomes"][8].best_median == 0.22
     assert collect["outcomes"][4].cores == 144                     # 0.30 at 108 is slower than 0.26
     ns = report["node_selection"]
@@ -176,4 +177,20 @@ def test_an_n_with_no_full_core_layout_is_timed_at_fewer_cores_not_dropped(tmp_p
                               else (None, "no legal decomposition")))
     ctx = _ctx(tmp_path)
     _search(ctx, 2)
-    assert ("rank", [2, 4, 6, 8]) in calls and ("fallback", [142, 128, 108, 96, 72]) in calls
+    assert ("rank", [2, 4, 6, 8]) in calls and ("cores_by_n", {6: [108]}) in calls
+
+
+def test_an_n_that_does_not_fit_in_memory_at_full_cores_is_timed_at_fewer_or_skipped(tmp_path, monkeypatch):
+    calls = []
+    _patch(monkeypatch, RANKING, calls)
+    monkeypatch.setattr(NS, "_sweep_anchor", lambda ctx, n: (_cfg("ANCHOR", 12 * n, (ctx.core_budget or 144) // 12), None)
+                        if n in ANCHORS else (None, "no legal decomposition"))
+
+    class Mem:                                # N=2 fits only at <= 96 ranks/node, N=4 never
+        def why_not(self, n, rpn):
+            return "memory: too big" if n == 4 or (n == 2 and rpn > 96) else None
+    monkeypatch.setattr(NS._memory, "model_for", lambda cj, gib: Mem())
+    ctx = _ctx(tmp_path)
+    report, _c = _search(ctx, 2)
+    assert ("rank", [2, 8]) in calls and ("cores_by_n", {2: [96]}) in calls
+    assert {"nodes": 4, "reason": "memory: too big"} in report["node_selection"]["skipped"]

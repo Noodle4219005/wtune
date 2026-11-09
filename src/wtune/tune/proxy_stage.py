@@ -181,7 +181,7 @@ class Slot:
 
 def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0,
                       leaders: int | None = None, cores: list[int] | None = None,
-                      fallback_cores: list[int] | None = None,
+                      cores_by_n: dict | None = None,
                       out_name: str = "proxy-joint") -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each; then the `leaders` (PROXY_JOINT_LEADERS) fastest one-node layouts of
@@ -191,8 +191,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     go to one node pool (_Pool: an N's leaders start as soon as its one-node runs are timed, the
     largest N first); without one, one batch of jobs per round. At the --minutes deadline the
     runs that finished are ranked. Every N is timed at each of `cores` per node (default: the
-    cores the layouts may use); an N with no legal layout at any of them is timed at the first of
-    `fallback_cores` that has one, as the real sweep's _sweep_anchor_fitting does. Returns ({N:
+    cores the layouts may use), or at its own list in `cores_by_n` (the caller's choice for an N
+    with no legal or no fitting layout at the full count). Returns ({N:
     [(config, s/step, "band" | "full" | "one-node"), ...]} best first over all its core counts,
     re-timed ahead of one-node ones (one node alone reads 0-18 % low), {N: True when its crop
     positions agree on the fastest layout}); ({}, {}) when nothing was timed. N <
@@ -204,12 +204,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     cores = cores or [full]
     slots, pools, plans = {}, {}, {}
     for n in legal_nodes:
-        tried = []
-        for c in list(cores) + [c for c in (fallback_cores or []) if c not in cores]:
-            if tried and c not in cores and any(t in slots for t in tried):
-                break                          # a fallback count only stands in for none at all
+        for c in (cores_by_n or {}).get(n, cores):
             label = "N%d" % n if c == full else "N%dc%d" % (n, c)
-            tried.append(label)
             cn = dataclasses.replace(ctx, nodes=n, anchor_override=None, core_budget=c)
             anchor = _sweep_anchor(cn, n)[0]
             if anchor is None:
@@ -228,9 +224,6 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
                     pool.setdefault(_tag(cfg), cfg)
             plan, got = _joint_plan(cn, case_dir, n, pool, 1, label=label)
             if got:
-                if c not in cores:
-                    print("proxy: N=%d has no legal layout at %s cores per node: timed at %d"
-                          % (n, "/".join(map(str, cores)), c))
                 slots[label] = Slot(n, c, label, cn)
                 pools[label], plans[label] = pool, (plan, got)
     if not plans:

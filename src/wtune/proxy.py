@@ -901,7 +901,8 @@ def _run(plan, r, rep, out, scratch, retry=False, hosts=None):
                pos=r.get("pos", 0), time=r.get("time", 0), rep=rep, rc=rc, steps=len(steps), ok=ok,
                median=statistics.median(steps[1:]) if len(steps) > 1 else None,
                px=r["px"], py=r["py"], omp=r["omp"], numtiles=r["numtiles"],
-               proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]), run_dir=d)
+               proxy_ranks=r["ranks"], box="%dx%d" % (r["nx"], r["ny"]), run_dir=d,
+               step_s=[round(x, 4) for x in steps])
     if r.get("boxes"):
         rec["nested"] = "crop"
     if retry:

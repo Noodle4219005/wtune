@@ -581,3 +581,21 @@ def test_a_numtiles_fallback_outside_the_search_is_dropped(tmp_path, monkeypatch
     monkeypatch.setattr(S, "_apply_search_filter", lambda ctx, cs: [c for c in cs if c["numtiles"] == 24])
     got = S._one_node_scores("N4", pool, timed, {}, {"N4_12x24_o2_nt24": 12}, ctx=object())
     assert got == {} and pool == {} and "outside the search: dropped" in capsys.readouterr().out
+
+
+def test_a_re_timed_score_far_below_its_one_node_score_is_re_timed_twice(tmp_path, monkeypatch, capsys):
+    # Sundowner N=3 6x18 nt3: whole domain read 1.286 in the pool against 2.087 on one node; alone
+    # the same run read 2.280. Two more runs: the median of two would be their mean
+    fake = _FakePool()
+    timings = dict(TIMINGS, **{"N4_24x24_o1_nt1": 0.45, "N4_12x24_o2_nt24": 0.40})
+    band = dict(BAND, **{"N4_12x24_o2_nt24": 0.30, "N4_24x24_o1_nt1": 0.46})      # 0.30 << 0.40
+    adds = []
+    orig = fake.add
+    fake.add = lambda batch_dir, plan, runs, nodes, first, rep0=1: (
+        adds.append((os.path.basename(batch_dir), first, plan.get("reps", 1), rep0)),
+        orig(batch_dir, plan, runs, nodes, first, rep0))
+    ctx = _pool_joint(tmp_path, monkeypatch, timings, band, fake)
+    S.rank_across_nodes(ctx, [4, 5])
+    assert ("band-N4", "0-r995", 2, 2) in adds
+    assert "12x24_o2_nt24 re-timed 10%+ below its one-node score" in capsys.readouterr().out
+    assert S._too_fast({"N4_a": 0.37}, {"a": 0.40}, [dict(tag="N4_a", layout="N4_a")], "N4") == []

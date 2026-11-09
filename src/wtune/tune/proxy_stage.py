@@ -50,6 +50,7 @@ PROXY_BAND_NODES = 3           # band proxy size: reproduces the target's interi
 PROXY_JOINT_PER_N = 6          # rank_across_nodes: ANCHOR + 5 diverse layouts per N
 PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PROXY_BAND_NODES re-timed as bands
 PROXY_CLOSE_CALL = 0.03       # node pool: band leaders of one N this close to its best are re-timed once
+PROXY_RETIME_LOW = 0.10       # node pool: a re-timed score this far below its one-node score is re-timed once
 PROXY_JOINT_FINALISTS = 2      # node search: the N whose proxy scores the objective ranks first
 
 
@@ -420,8 +421,17 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             banding.remove(k)
             band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
             again = _close_calls(band, queued, k)
+            low = _too_fast(band, one.get(k, {}), queued[k][2], lab(k))
+            if low:
+                print("proxy: %s %s re-timed %.0f%%+ below its one-node score (one node reads 0-18%% "
+                      "low): re-timed twice" % (lab(k), ", ".join(sorted({
+                          r.get("layout", r["tag"])[len(lab(k)) + 1:] for r in low})), PROXY_RETIME_LOW * 100))
+                again = again + [r for r in low if r not in again]
             if again:
                 size, plan, _r = queued[k]
+                # a low reading needs two more: the median of two runs is their mean, and
+                # (1.29 + 2.28) / 2 is still wrong
+                plan = dict(plan, reps=2 if low else 1)
                 print("proxy: %s %s within %.0f%% of each other in one band run: re-timed once"
                       % (lab(k), ", ".join(sorted({r.get("layout", r["tag"])[len(lab(k)) + 1:]
                                                    for r in again})), PROXY_CLOSE_CALL * 100))
@@ -450,6 +460,17 @@ def _stopped_names(slots, keys) -> str:
     if all(re.fullmatch(r"N\d+", x) for x in labels):
         return "N=%s" % sorted({slots[k].n for k in keys})
     return ", ".join(labels)
+
+
+def _too_fast(band, one_k, runs, label):
+    """Slot `label`'s band / whole-domain runs (every crop position) of the layouts whose re-timed
+    score is more than PROXY_RETIME_LOW below their one-node score. One node alone reads 0-18 %
+    low, so such a score is a bad reading: Sundowner N=3 6x18 nt3 whole domain read 1.286 s/step
+    in the pool (27 s for the run) against 2.087 on one node; the same run alone read 2.280 and
+    the real run 2.265 on the same nodes."""
+    bad = {"%s_%s" % (label, t) for t, v in one_k.items()
+           if "%s_%s" % (label, t) in band and band["%s_%s" % (label, t)] < v * (1 - PROXY_RETIME_LOW)}
+    return [r for r in runs if r.get("layout", r["tag"]) in bad]
 
 
 def _close_calls(band, queued, n):

@@ -431,8 +431,14 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
     def queue_near(k):
         timed = _collect_jobs(dict(out_dirs=[one_dir(k)]))
         scores = {t: timed["%s_%s" % (lab(k), t)] for t in pools[k] if "%s_%s" % (lab(k), t) in timed}
-        new = {t: c for t, c in (explore[k](scores) if k in explore and scores else {}).items()
-               if t not in pools[k]}
+        near = explore[k](scores) if k in explore and scores else {}
+        # a neighbour already queued among the samples moves up to the neighbours' place
+        up = pool.promote(rest_dir(k), {"%s_%s" % (lab(k), t) for t in near if t in pools[k]},
+                          "1-%s-3" % prio(k), "1-%s-2" % prio(k)) if rest_dir(k) in dirs_of[k] else []
+        if up:
+            print("proxy: %s %s moved ahead of its other sampled layouts (next to %s)"
+                  % (lab(k), ", ".join(sorted(x[len(lab(k)) + 1:] for x in up)), min(scores, key=scores.get)))
+        new = {t: c for t, c in near.items() if t not in pools[k]}
         if not new:
             return
         sl = slots[k]
@@ -606,6 +612,29 @@ class _Pool:
                 names.append(name)
         self.batches[batch_dir] = names
 
+    def promote(self, batch_dir, layouts, old, new) -> list:
+        """Rename batch_dir's tasks of `layouts` still queued from prefix `old` to `new` (the
+        worker takes tasks in name order; one it took meanwhile is left). The layouts moved."""
+        moved, names = set(), []
+        for name in self.batches.get(batch_dir, []):
+            src = os.path.join(self.root, "tasks", name)
+            if name.startswith(old + "-") and os.path.exists(src):
+                try:
+                    lay = json.load(open(src))["run"].get("layout")
+                except (OSError, ValueError, KeyError):
+                    lay = None
+                if lay in layouts:
+                    dst = new + name[len(old):]
+                    try:
+                        os.replace(src, os.path.join(self.root, "tasks", dst))
+                        name = dst
+                        moved.add(lay)
+                    except FileNotFoundError:
+                        pass                   # the worker took it
+            names.append(name)
+        self.batches[batch_dir] = names
+        return sorted(moved)
+
     def done(self, batch_dir):
         d = os.path.join(self.root, "done")
         return all(os.path.exists(os.path.join(d, n)) for n in self.batches.get(batch_dir, []))
@@ -697,7 +726,8 @@ def _neighbor_space(ctx) -> list[dict]:
 
 def _neighbor_layouts(ctx, scores, pool) -> dict:
     """{tag: config} of up to PROXY_NEIGHBORS legal layouts next to the fastest of `scores` ({tag:
-    one-node s/step}) that are not in `pool`: at its thread count, the process grids on either
+    one-node s/step}, configs in `pool`) that are not timed there yet (a neighbour in `pool` is
+    returned as it is there): at its thread count, the process grids on either
     side of its (by nx) at the numtiles nearest its, and its grid at the numtiles on either side.
     Measured ahead of the sampled layouts, whose order says nothing about their speed."""
     best = pool.get(min(scores, key=scores.get)) if scores else None
@@ -718,8 +748,9 @@ def _neighbor_layouts(ctx, scores, pool) -> dict:
         picks += [c for c in on(grids[i]) if int(c.get("numtiles") or 1) == t][:1]
     out = {}
     for c in picks:
-        if _tag(c) not in pool and _tag(c) not in out and len(out) < PROXY_NEIGHBORS:
-            out[_tag(c)] = dict(c, id="B%04d" % (len(out) + 1))
+        t = _tag(c)
+        if t not in scores and t not in out and len(out) < PROXY_NEIGHBORS:
+            out[t] = pool[t] if t in pool else dict(c, id="B%04d" % (1 + sum(t2 not in pool for t2 in out)))
     return out
 
 

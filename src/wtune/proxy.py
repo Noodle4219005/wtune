@@ -810,8 +810,11 @@ def pool_worker(queue_dir, hosts=None, run_tries=None, poll_s=None, idle_exit_s=
                 continue
             if task["batch"] not in plans:
                 plans[task["batch"]] = json.load(open(os.path.join(task["batch"], "plan.json")))
+            try:
+                os.replace(path, os.path.join(queue_dir, "running", name))
+            except FileNotFoundError:
+                continue                   # renamed by the controller (moved up the queue)
             mine, free[:] = free[:k], free[k:]
-            os.replace(path, os.path.join(queue_dir, "running", name))
             th = threading.Thread(target=work, args=(name, task, mine), daemon=True)
             running[name] = (th, mine, clock.time())
             th.start()

@@ -628,6 +628,8 @@ def test_the_node_pool_times_an_ns_neighbours_before_its_sampled_layouts(tmp_pat
                 if ok or self.ran_first == before:
                     return ok
     fake = Fake()
+    promoted = []
+    fake.promote = lambda d, lays, old, new: promoted.append((os.path.basename(d), sorted(lays), old, new)) or sorted(lays)
     ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
     monkeypatch.setattr(S, "_seed_layouts", lambda c: [_cfg("S0001", 16, 36)])
     monkeypatch.setattr(S, "_neighbor_space", lambda c: [_cfg("D", 12, 48), _cfg("D", 16, 36),
@@ -646,10 +648,32 @@ def test_the_node_pool_times_an_ns_neighbours_before_its_sampled_layouts(tmp_pat
     out, _same = S.rank_across_nodes(ctx, [4], neighbors=True)
     assert [(b, f) for b, f, _k, _l in fake.added[:3]] == [
         ("one-N4", "1-995-1"), ("one-N4-rest", "1-995-3"), ("one-N4-near", "1-995-2")]
-    assert fake.added[2][3] == ["N4_12x48_o1_nt1", "N4_16x36_o1_nt2"]   # 18x32 nt1 is a sample already
+    assert fake.added[2][3] == ["N4_12x48_o1_nt1", "N4_16x36_o1_nt2"]
+    # 18x32 nt1, a neighbour queued among the samples already, moves up instead
+    assert promoted == [("one-N4-rest", ["N4_18x32_o1_nt1"], "1-995-3", "1-995-2")]
     assert order[:3] == ["1-995-1", "1-995-2", "1-995-3"]
     assert (S._tag(out[4][0][0]), out[4][0][0]["id"], out[4][0][2]) == ("16x36_o1_nt2", "B0002", "band")
-    assert "N4 fastest of its ANCHOR and seeds 16x36_o1_nt1" in capsys.readouterr().out
+    text = capsys.readouterr().out
+    assert "N4 fastest of its ANCHOR and seeds 16x36_o1_nt1" in text
+    assert "N4 18x32_o1_nt1 moved ahead of its other sampled layouts" in text
+
+
+def test_pool_promote_renames_the_queued_tasks_of_the_layouts_only(tmp_path):
+    import json as _json
+    pool = S._Pool(None, str(tmp_path / "pool"), 4, "1")
+    (tmp_path / "pool" / "tasks").mkdir(parents=True)
+    (tmp_path / "pool" / "done").mkdir()
+    runs = [dict(tag="N4_a", layout="N4_a"), dict(tag="N4_b", layout="N4_b"), dict(tag="N4_c", layout="N4_c")]
+    pool.add(str(tmp_path / "rest"), {}, runs, 1, "1-995-3")
+    taken = sorted((tmp_path / "pool" / "tasks").iterdir())[2]                 # N4_c: the worker has it
+    taken.rename(tmp_path / "pool" / "done" / taken.name)
+    assert pool.promote(str(tmp_path / "rest"), {"N4_b", "N4_c"}, "1-995-3", "1-995-2") == ["N4_b"]
+    names = sorted(p.name for p in (tmp_path / "pool" / "tasks").iterdir())
+    assert names == ["1-995-2-000002.json", "1-995-3-000001.json"]
+    assert _json.load(open(tmp_path / "pool" / "tasks" / names[0]))["run"]["layout"] == "N4_b"
+    for n in names:
+        (tmp_path / "pool" / "tasks" / n).rename(tmp_path / "pool" / "done" / n)
+    assert pool.done(str(tmp_path / "rest"))
 
 
 def test_without_neighbors_or_samples_the_pool_queues_the_anchor_and_seeds_only(tmp_path, monkeypatch):

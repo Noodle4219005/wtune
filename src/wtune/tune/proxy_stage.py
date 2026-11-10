@@ -179,6 +179,7 @@ class Slot:
     cores: int
     label: str
     ctx: Ctx
+    fidelity: str = ""             # how its leaders were re-timed: "band" or "full" (set when queued)
 
 
 def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int = 0,
@@ -261,7 +262,7 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     out, same = {}, {}
     for k in sorted(one, key=lambda k: (slots[k].n, -slots[k].cores)):
         sl = slots[k]
-        hf = "band" if sl.n > PROXY_BAND_NODES else "full"
+        hf = sl.fidelity or ("band" if sl.n > PROXY_BAND_NODES else "full")
         # each row keeps its one-node score: a re-timed leader's would be lost, and the N-wide and
         # core-count comparisons need the one-node order (node_search)
         rows = [(dict(pools[k][t], proxy_one_node_s=v), band["%s_%s" % (k, t)], hf)
@@ -311,17 +312,31 @@ def _one_node_scores(label, pool, timed, one_pos, nt_used, ctx=None):
     return {t: timed["%s_%s" % (label, t)] for t in pool if "%s_%s" % (label, t) in timed}
 
 
-def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None):
+def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None, max_size=None):
     """(size, plan, runs) re-timing N=n's `leaders` fastest distinct shapes that can be re-timed:
     a band beyond PROXY_BAND_NODES, the whole domain on n nodes at 2..PROXY_BAND_NODES (one node
     alone reads 0-18 % low; N=1's one-node run is the whole domain). A leader that cannot be
-    banded (6x56 at N=6: no whole rows per node) gives way to the next. None when nothing can."""
+    banded (6x56 at N=6: no whole rows per node) gives way to the next; when the fastest cannot
+    and N nodes fit (the cap, and `max_size`: the node pool's), the leaders are re-timed on the
+    whole domain on N nodes instead. None when nothing can."""
     label = label or "N%d" % n
     size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
-    if size <= 1 or min(ctx.max_nodes, proxy_node_cap(ctx)) < size or not scores:
+    cap = min(ctx.max_nodes, proxy_node_cap(ctx))
+    if size <= 1 or cap < size or not scores:
         return None
     ranked = _distinct_shapes(sorted(scores, key=scores.get), len(scores))
     plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
+    if size < n <= min(cap, max_size or cap):
+        # a leader with no whole process-grid rows per node cannot be banded, and the next took its
+        # place: Sundowner N=4 at 36 cores, 8x18 (4.5 rows a node) read 1.82-1.87 on one node, the
+        # fastest of three tunes, and was never re-timed. The whole domain on N nodes takes all
+        banded = {r["layout"] for r in got}
+        lost = [t for t in ranked[:1] if "%s_%s" % (label, t) not in banded]
+        if lost:
+            print("proxy: %s %s cannot be banded (no whole process-grid rows per node): its leaders "
+                  "re-timed on the whole domain on %d nodes" % (label, ", ".join(lost), n))
+            size = n
+            plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
     if not got:
         return None
     keep = [t for t in ranked if any(r["layout"] == "%s_%s" % (label, t) for r in got)][:leaders]
@@ -356,6 +371,7 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=
         lp = _leader_plan(sl.ctx, case_dir, sl.n, one[k], pools[k], leaders, points, label=sl.label)
         if lp:
             size, plan, got = lp
+            sl.fidelity = "full" if size == sl.n else "band"
             # one plan per size and core count: a plan's cores launch every run in it
             prev = by_size.get((size, sl.cores), (plan, []))
             by_size[(size, sl.cores)] = (prev[0], prev[1] + got)
@@ -470,9 +486,10 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             got = take_one(k)
             sl = slots[k]
             lp = _leader_plan(sl.ctx, case_dir, sl.n, got, pools[k], leaders, points,
-                              label=sl.label) if got else None
+                              label=sl.label, max_size=pool.nodes) if got else None
             if lp and lp[0] <= pool.nodes:
                 size, plan, bruns = lp
+                sl.fidelity = "full" if size == sl.n else "band"
                 pool.add(band_dir(k), plan, bruns, size, "0-" + prio(k))
                 banding.append(k)
                 queued[k] = lp

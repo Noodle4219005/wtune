@@ -295,7 +295,7 @@ def test_the_node_pool_bands_an_n_as_soon_as_its_one_node_runs_are_timed(tmp_pat
     # N=2's are as close, but 100 % slower than N=5
     assert [(b, f, k) for b, f, k, _l in fake.added] == [
         ("one-N5", "1-994", 1), ("one-N4", "1-995", 1), ("one-N2", "1-997", 1),
-        ("band-N5", "0-994", 3), ("band-N4", "0-995", 3), ("band-N4", "0-r995", 3),
+        ("band-N5", "0-994", 5), ("band-N4", "0-995", 3), ("band-N4", "0-r995", 3),
         ("band-N2", "0-997", 2)]
     assert fake.added[5][3] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
     assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N4"] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
@@ -310,7 +310,8 @@ def test_the_node_pool_ranks_what_finished_at_the_deadline(tmp_path, monkeypatch
     fake = _FakePool(stop_after=2)                      # N=5's one-node runs, then its band
     ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
     out, _same = S.rank_across_nodes(ctx, [2, 4, 5])
-    assert sorted(out) == [5] and out[5][0][2] == "band" and fake.closed and fake.stopped
+    # N=5's fastest, 20x36, has no whole rows per node (144 / 20): its leaders run on the whole domain
+    assert sorted(out) == [5] and out[5][0][2] == "full" and fake.closed and fake.stopped
     assert "stopped with N=[2, 4] not fully timed" in capsys.readouterr().out
 
 
@@ -682,3 +683,18 @@ def test_without_neighbors_or_samples_the_pool_queues_the_anchor_and_seeds_only(
     monkeypatch.setattr(S, "_seed_layouts", lambda c: [_cfg("S0001", 16, 36)])
     S.rank_across_nodes(ctx, [4], sample=False)
     assert fake.added[0][:2] == ("one-N4", "1-995") and fake.added[0][3] == ["N4_16x36_o1_nt1", "N4_24x24_o1_nt1"]
+
+
+def test_a_leader_that_cannot_be_banded_re_times_the_leaders_on_the_whole_domain(tmp_path, monkeypatch, capsys):
+    # Sundowner N=4 at 36 cores: 8x18 (4.5 process-grid rows a node) read the fastest on one node in
+    # three tunes and was never re-timed; here 128x2 at 64 cores (0.5 rows a node)
+    ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
+    pool = {S._tag(c): c for c in (_cfg("D0001", 128, 2), _cfg("ANCHOR", 16, 16), _cfg("D0002", 32, 8))}
+    scores = {"128x2_o1_nt1": 0.30, "16x16_o1_nt1": 0.35, "32x8_o1_nt1": 0.36}
+    size, plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 4, scores, pool, 2, [], max_size=4)
+    assert size == 4 and plan["proxy_nodes"] == 4
+    assert sorted({r["layout"] for r in runs}) == ["N4_128x2_o1_nt1", "N4_16x16_o1_nt1"]
+    assert "N4 128x2_o1_nt1 cannot be banded" in capsys.readouterr().out
+    # a pool of 3 nodes cannot hold the whole domain: the band, without 128x2, as before
+    size, _plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 4, scores, pool, 2, [], max_size=3)
+    assert size == 3 and sorted({r["layout"] for r in runs}) == ["N4_16x16_o1_nt1", "N4_32x8_o1_nt1"]

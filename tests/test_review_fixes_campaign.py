@@ -294,3 +294,14 @@ def test_fill_run_defaults_still_fills_when_no_variant_is_present():
     cr._fill_run_defaults(ed, {"dx_km": 12.0}, 6 * 3600)
     assert cs.count_key(ed.txt, "history_interval") == 1
     assert cs.get_first(ed.txt, "restart_interval").strip() == "360"
+
+
+def test_score_when_every_step_calls_radiation(tmp_path):
+    # Sundowner (radt 1 min, dt 75 s): stepra 1, every step was flagged a radiation step and both
+    # rebuilt points died on "no normal (non-radiation) steps after spin-up"
+    d = str(tmp_path)
+    plan = _plan_two(d)
+    plan.update(radt_min=1.0, stepra=cs.predict.steps_per_radiation_call(1.0, 72.0))
+    assert plan["stepra"] == 1
+    out, pooled, _anchors = cs.score_windows_from_rsl(plan, None, {})
+    assert [(w["s_k"], w["n_rad"], w["r_local"]) for w in out] == [(1.0, 0, None), (2.0, 0, None)] and not pooled

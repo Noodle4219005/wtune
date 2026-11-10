@@ -3146,7 +3146,12 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
                                       % (k, rsl_path))
             fill = statistics.median(clean)
             wall = [fill if absorbed[i] else sec for i, sec in enumerate(wall)]
-        if plan.get("measure_steps", 2 * stepra) < 2 * stepra:
+        if stepra <= 1:
+            # radt no longer than the time step: every step calls radiation and there is no
+            # normal step to compare with -- the step time is the point's s_k, radiation in it
+            # (Sundowner, radt 1 min, dt 75 s: both rebuilt points ran and neither was scored)
+            flags = [False] * len(kept)
+        elif plan.get("measure_steps", 2 * stepra) < 2 * stepra:
             # An explicitly shortened window (compute_window_seconds' measure_steps) has too few
             # samples for classify_steps_detected's phase detection. Each window is a fresh run
             # starting at T, so its radiation steps are known: local step n (n*dt after T) with

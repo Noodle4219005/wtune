@@ -265,13 +265,24 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
                        out_dir: str, run_start: Any, spinup_min: float = 60,
                        grib_dir: str | None = None, date_shift_to: Any = None,
                        forcing: str | None = None,
-                       measure_steps: int | None = None) -> tuple | list:
+                       measure_steps: int | None = None,
+                       point_s: float | None = None) -> tuple | list:
     """Measure the rebuild points: one coldstart plan dir + job per point, fetched/staged/
     submitted concurrently (decision 0054), scored by score_windows_from_rsl. `spinup_min` must
     equal plan_points'; each `.at` is the measured window's midpoint, not its start T. Returns
-    ([PointMeasurement], "job,job"); RuntimeError on any infrastructure failure."""
+    ([PointMeasurement], "job,job"); RuntimeError on any infrastructure failure. With `point_s`
+    (one point's estimated job time) only the points whose waves end inside the time budget are
+    fetched and submitted, the first one always; points cancelled at the budget are left out and
+    the finished ones scored."""
     if not points:
         return []
+    left = getattr(ctx, "budget_s", float("inf")) - (ctx.elapsed() if hasattr(ctx, "elapsed") else 0.0)
+    if point_s and left < float("inf"):
+        fit = max(1, int(left // point_s)) * rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
+        if fit < len(points):
+            print("C3 rebuild: %d of %d point(s) fit the %s left at ~%s each: the first %d"
+                  % (fit, len(points), _fmt_hms(max(0.0, left)), _fmt_hms(point_s), fit))
+            points = points[:fit]
     missing_env = rebuild_env_missing()
     if missing_env:          # job 1236: staged without these, the windows died in 3 s
         raise RuntimeError("run_rebuild_points: %s not set -- source the site env (%s) before "
@@ -328,10 +339,17 @@ def _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_st
     states = _jobs.wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    keep = list(range(len(plans)))
     if bad and hasattr(ctx, "elapsed") and ctx.elapsed() >= getattr(ctx, "budget_s", float("inf")):
         # wait_for_jobs cancelled them at the --minutes budget: not a failure of the jobs
-        raise RuntimeError("C3 rebuild job(s) %s cancelled at the time budget before they finished"
-                           % ",".join(bad))
+        keep = [i for i, j in enumerate(job_ids) if j not in bad]
+        if not keep:
+            raise RuntimeError("C3 rebuild job(s) %s cancelled at the time budget before they finished"
+                               % ",".join(bad))
+        # Sundowner on f1-arm: point 0 finished in 4:10, point 1 was cancelled, both were dropped
+        print("C3 rebuild: job(s) %s cancelled at the time budget; predicting from the %d point(s) "
+              "that finished" % (",".join(bad), len(keep)))
+        bad = {}
     if bad:
         raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
                            "and diagnose read-only" % bad)
@@ -339,6 +357,8 @@ def _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_st
     calibration = predict.load_calibration(predict.calibration_path())
     measurements, failed = [], []
     for i, plan in enumerate(plans):
+        if i not in keep:
+            continue
         try:
             windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(
                 plan, sample_points, calibration)
@@ -352,7 +372,7 @@ def _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_st
                 n_rad=w["n_rad"], r=w["r_local"]))
     if failed:
         print("WARNING: %d of %d rebuilt point(s) gave no measurement -- predicting from the "
-              "rest: %s" % (len(failed), len(plans), "; ".join(failed)), flush=True)
+              "rest: %s" % (len(failed), len(keep), "; ".join(failed)), flush=True)
     if failed and not measurements:
         raise RuntimeError("no rebuilt point gave a measurement: %s" % "; ".join(failed))
     return measurements, ",".join(job_ids)

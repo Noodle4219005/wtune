@@ -722,3 +722,57 @@ def test_a_kept_pool_stops_at_the_soft_deadline_and_drops_its_queue_not_the_job(
     fake.clear = lambda: setattr(fake, "cleared", True)
     S.rank_across_nodes(ctx, [4], pool_box={"pool": fake}, soft_budget_s=7.0)
     assert fake.cleared and not fake.closed and fake.soft == 7.0 and box["pool"] is pool
+
+
+def test_n1_is_planned_as_the_whole_domain():
+    # Sundowner: at N=1 ceil(mx / px) * px exceeded the domain, no run was planned, "no timing"
+    assert P.proxy_shape(300, 250, 6, 6, 1, 36) == dict(ranks=36, a=6, b=6, nx=299, ny=249)
+    assert P.proxy_shape(300, 250, 6, 6, 1, 32) is None             # more ranks than the node's cores
+
+
+def test_an_ns_first_layouts_hold_two_numtiles_of_one_grid(tmp_path, monkeypatch):
+    # Sundowner N=4: the samples were 8x18 nt1,2,3,4,8 -- 1.82-1.88 on one node, five runs alike
+    pools = {4: [_cfg("ANCHOR", 24, 24)] + [_cfg("D%04d" % t, 16, 36, nt=t) for t in (1, 2, 3, 4, 8)]
+             + [_cfg("D0009", 18, 32)]}
+    fake = _FakePool()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    monkeypatch.setattr(S, "_sweep_anchor", lambda c, n, cores=None: (pools[n][0], None))
+    monkeypatch.setattr(S, "sample_more_diverse_configs", lambda c, ex, k, seed: pools[c.nodes][1:])
+    S.rank_across_nodes(ctx, [4])
+    assert fake.added[0][3] == ["N4_16x36_o1_nt1", "N4_16x36_o1_nt2", "N4_18x32_o1_nt1", "N4_24x24_o1_nt1"]
+
+
+def test_an_n_far_slower_on_one_node_is_timed_no_further(tmp_path, monkeypatch, capsys):
+    # objective time: N=2's ANCHOR, 0.80 against N=4's 0.45 on one node, cannot be the fastest
+    class Fake(_FakePool):
+        dropped = []
+
+        def drop(self, d):
+            self.dropped.append(os.path.basename(d))
+
+        def promote(self, d, lays, old, new):
+            return []
+
+        def wait(self, pred):
+            while True:
+                before = set(self.ran_first)
+                ok = super().wait(pred)
+                if ok or self.ran_first == before:
+                    return ok
+    fake = Fake()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    monkeypatch.setattr(S, "_neighbor_space", lambda c: [])
+    one = {"one-N4": {"N4_24x24_o1_nt1": 0.45}, "one-N4-rest": {"N4_12x24_o2_nt24": 0.40, "N4_18x32_o1_nt1": 0.47},
+           "one-N2": {"N2_16x18_o1_nt1": 0.80}}
+
+    def collect(d):
+        b = os.path.basename(d)
+        if b not in fake.ran:
+            return []
+        return [dict(tag=t, median=m) for t, m in (BAND if b.startswith("band-") else one.get(b, {})).items()
+                if t.startswith(b.split("-")[1] + "_")]
+    monkeypatch.setattr(P, "collect", collect)
+    out, _same = S.rank_across_nodes(ctx, [2, 4], anchor_only_below=1, neighbors=True)
+    assert fake.dropped == ["one-N2-rest"] and "band-N2" not in [a[0] for a in fake.added]
+    assert [f for _c, _s, f in out[2]] == ["one-node"] and out[4][0][2] == "full"
+    assert "N2 fastest of its ANCHOR and seeds 0.8000 s/step on one node, more than 25% slower" in capsys.readouterr().out

@@ -142,6 +142,19 @@ def run_pipeline_full(ctx: Ctx, profile: dict, *, minutes: float | None = None, 
     return _pipeline_finish(st, report, pred, pplan, band_eff, io_run, health_checks, keep_frames)
 
 
+REBUILD_POINT_OVERHEAD_S = 120.0    # one rebuild point's WPS + real.exe + start (Sundowner: 4:10 in all)
+
+
+def _rebuild_point_s(s_per_step, dt) -> float | None:
+    """One rebuild point's job time: its spin-up steps at 1.5 x the winner's s/step (the first
+    steps and the measured window) plus the WPS / real.exe overhead; None without both inputs."""
+    try:
+        steps = PREDICT_REBUILD_SPINUP_MIN * 60.0 / float(dt)
+        return REBUILD_POINT_OVERHEAD_S + 1.5 * steps * float(s_per_step)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
 def _pipeline_shares(physics: bool, rebuild: bool = True) -> tuple[dict, dict]:
     """(fracs, cum) of B in PIPELINE_FRACS order; without physics advice its share goes to
     layout and prediction 2:1; with phase 2's rebuild unable to run, prediction's goes to layout."""
@@ -398,7 +411,8 @@ def _pipeline_phase2_rebuild_winner(st: PipelineRun, layouts: list[dict], pplan:
             meas, job_ids = run_rebuild_points(
                 ctx, points, best, lay0["nodes"], case_dir, os.path.join(ctx.out_dir, "rebuilt"),
                 run_start, spinup_min=PREDICT_REBUILD_SPINUP_MIN, forcing=None,
-                measure_steps=max(REBUILT_MIN_STEPS, int(stepra) + 1))
+                measure_steps=max(REBUILT_MIN_STEPS, int(stepra) + 1),
+                point_s=_rebuild_point_s(lay0.get("median") or cfg.get("median"), _dt))
             (st.nl, st.run_start, st.run_end, st.dt, st.stepra, st.calibration,
              st.sample_points, st.case_dir) = _prediction._prediction_context(ctx)
             st.pc_ok = True

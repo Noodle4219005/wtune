@@ -52,6 +52,10 @@ PROXY_JOINT_LEADERS = 3        # rank_across_nodes: one-node leaders per N > PRO
 PROXY_CLOSE_CALL = 0.03       # node pool: band leaders of one N this close to its best are re-timed once
 PROXY_RETIME_LOW = 0.10       # node pool: a re-timed score this far below its one-node score is re-timed once
 PROXY_JOINT_FINALISTS = 2      # node search: the N whose proxy scores the objective ranks first
+PROXY_TILES_PER_GRID = 2       # joint pool: numtiles variants of one process grid among an N's first layouts
+                               # (Sundowner N=4: 8x18 nt1,2,3,4,8 read 1.82-1.88 on one node, five runs alike)
+PROXY_PRUNE_SLOWER = 0.25      # objective time: an N whose ANCHOR and seeds are this much slower than
+                               # another N's on one node (which reads 0-18 % low) is timed no further
 PROXY_NEIGHBORS = 4            # node pool: layouts next to an N's best ANCHOR / seed, timed before its samples
 
 
@@ -230,10 +234,14 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
             more = [] if n < anchor_only_below or not sample else _apply_search_filter(
                 cn, sample_more_diverse_configs(cn, [anchor] + seeds,
                                                 PROXY_POOL_OVERSAMPLE * (PROXY_JOINT_PER_N - 1), ctx.seed + n))
-            pool, cap = {}, PROXY_JOINT_PER_N + len(seeds)
+            pool, cap, per_grid = {}, PROXY_JOINT_PER_N + len(seeds), {}
             for cfg in [anchor] + seeds + more:
-                if _spec(cfg) and len(pool) < cap:
-                    pool.setdefault(_tag(cfg), cfg)
+                grid = (cfg["nx"], cfg["ny"], int(cfg.get("omp") or 1))
+                # the neighbours of the fastest add its numtiles on either side later
+                if (_spec(cfg) and len(pool) < cap and _tag(cfg) not in pool
+                        and (cfg in ([anchor] + seeds) or per_grid.get(grid, 0) < PROXY_TILES_PER_GRID)):
+                    pool[_tag(cfg)] = cfg
+                    per_grid[grid] = per_grid.get(grid, 0) + 1
             plan, got = _joint_plan(cn, case_dir, n, pool, 1, label=label)
             if got:
                 slots[label] = Slot(n, c, label, cn)
@@ -263,7 +271,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
             pool_box["pool"] = pool
         one, band, one_pos, band_pos = _time_in_pool(ctx, pool, case_dir, pools, plans, out_root,
                                                      leaders, points, slots, first, explore,
-                                                     keep=pool_box is not None)
+                                                     keep=pool_box is not None,
+                                                     prune=PROXY_PRUNE_SLOWER if anchor_only_below else None)
     else:
         one, band, one_pos, band_pos = _time_in_jobs(ctx, case_dir, pools, plans, out_root,
                                                      leaders, points, slots)
@@ -411,7 +420,7 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=
 
 
 def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, slots=None,
-                  first=None, explore=None, keep=False):
+                  first=None, explore=None, keep=False, prune=None):
     """Every slot's one-node runs queued at once, the largest N first; a slot's leaders queued as
     soon as its one-node runs are timed, ahead of the one-node runs still waiting. Stops at the
     --minutes deadline (the pool job is cancelled) or when the pool job ends; what finished is
@@ -420,7 +429,9 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
     varies 2-5 % run to run (isc-synth N=8, three tunes), more than the gap it must resolve.
     A slot in `first` ({label: its first layouts}) queues those first and its other one-node runs
     last; once the first are timed, explore[label]({tag: one-node s/step}) -> {tag: config} gives
-    the layouts queued between them.
+    the layouts queued between them. With `prune`, a slot whose first layouts are that much
+    slower on one node than another slot's at the same cores per node is timed no further: its
+    queued runs are dropped and it is not re-timed.
     (one, band, one_pos, band_pos), keyed by slot label."""
     first, explore = first or {}, explore or {}
     slots = slots or {k: Slot(k, cores_used(ctx) if ctx is not None else 0, "N%d" % k, ctx)
@@ -452,6 +463,7 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             pool.add(one_dir(k), plan, got, 1, "1-" + prio(k))
     one, band, one_pos, band_pos, nt_used = {}, {}, {}, {}, {}
     waiting, banding, retiming, queued = [k for k in order if k not in early], [], [], {}
+    lead, pruned = {}, set()               # {cores: the fastest first-tier one-node score so far}
 
     def all_done(k):
         return all(pool.done(d) for d in dirs_of[k])
@@ -459,6 +471,17 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
     def queue_near(k):
         timed = _collect_jobs(dict(out_dirs=[one_dir(k)]))
         scores = {t: timed["%s_%s" % (lab(k), t)] for t in pools[k] if "%s_%s" % (lab(k), t) in timed}
+        c = slots[k].cores
+        if scores and prune and c in lead and min(scores.values()) > lead[c] * (1 + prune):
+            print("proxy: %s fastest of its ANCHOR and seeds %.4f s/step on one node, more than %d%% "
+                  "slower than another N's %.4f: timed no further"
+                  % (lab(k), min(scores.values()), round(100 * prune), lead[c]))
+            pruned.add(k)
+            for d in dirs_of[k][1:]:
+                pool.drop(d)
+            return
+        if scores:
+            lead[c] = min(lead.get(c, float("inf")), min(scores.values()))
         near = explore[k](scores) if k in explore and scores else {}
         # a neighbour already queued among the samples moves up to the neighbours' place
         up = pool.promote(rest_dir(k), {"%s_%s" % (lab(k), t) for t in near if t in pools[k]},
@@ -498,7 +521,7 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             got = take_one(k)
             sl = slots[k]
             lp = _leader_plan(sl.ctx, case_dir, sl.n, got, pools[k], leaders, points,
-                              label=sl.label, max_size=pool.nodes) if got else None
+                              label=sl.label, max_size=pool.nodes) if got and k not in pruned else None
             if lp and lp[0] <= pool.nodes:
                 size, plan, bruns = lp
                 sl.fidelity = "full" if size == sl.n else "band"
@@ -687,6 +710,16 @@ class _Pool:
             self.halted = e
             return False
         return pred()
+
+    def drop(self, batch_dir):
+        """Remove batch_dir's tasks still queued; the ones running or done stay its batch."""
+        left = []
+        for name in self.batches.get(batch_dir, []):
+            try:
+                os.remove(os.path.join(self.root, "tasks", name))
+            except OSError:
+                left.append(name)          # the worker took it
+        self.batches[batch_dir] = left
 
     def clear(self):
         """Drop the tasks still queued (running ones finish); the pool job stays for more."""

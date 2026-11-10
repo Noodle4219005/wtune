@@ -290,3 +290,42 @@ def test_rebuild_space_is_judged_before_the_layout_search(monkeypatch, tmp_path)
     assert "need ~10.4 GB" in PR.rebuild_space_short(str(tmp_path / "out"))
     monkeypatch.setattr(space, "writable_bytes", lambda path, runner=None: (20e9, "quota"))
     assert PR.rebuild_space_short(str(tmp_path / "out")) is None
+
+
+def test_rebuild_points_cancelled_at_the_budget_leave_the_finished_ones_scored(monkeypatch, tmp_path, capsys):
+    # Sundowner on f1-arm: point 0 finished in 4:10, point 1 was cancelled at the budget, and both
+    # were dropped
+    import datetime as _dt
+    import wtune.tune
+    _rebuild_env(monkeypatch, tmp_path, lambda plan, sp, cal: (
+        [dict(reason="t", s_k=1.6, n_rad=4, r=1.0, r_local=1.0)], None, [(3600.0, 1.6)]))
+    ids = iter(["11", "12"])
+    monkeypatch.setattr(wtune.tune.sweep, "submit_job", lambda cmd, sbatch_runner=None: next(ids))
+    monkeypatch.setattr(wtune.tune.jobs, "wait_for_jobs", lambda ctx, jobs, stage, **k: {
+        "11": ("COMPLETED", ""), "12": ("CANCELLED", "")})
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=4,
+                                elapsed=lambda: 900.0, budget_s=900.0)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, h)) for h in (1, 6)]
+    meas, _jobs = wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 3,
+                                                str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31))
+    assert len(meas) == 1 and "predicting from the 1 point(s) that finished" in capsys.readouterr().out
+
+
+def test_rebuild_points_that_cannot_end_inside_the_budget_are_not_submitted(monkeypatch, tmp_path, capsys):
+    # two points of 4 nodes on 4 nodes run one after the other, ~4 min each: 7 min hold one
+    import datetime as _dt
+    import wtune.tune
+    from wtune.tune import pipeline as PL
+    _rebuild_env(monkeypatch, tmp_path, lambda plan, sp, cal: (
+        [dict(reason="t", s_k=1.6, n_rad=4, r=1.0, r_local=1.0)], None, [(3600.0, 1.6)]))
+    subs = []
+    monkeypatch.setattr(wtune.tune.sweep, "submit_job", lambda cmd, sbatch_runner=None: subs.append(cmd) or "1")
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=4,
+                                elapsed=lambda: 480.0, budget_s=900.0)
+    pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, h)) for h in (1, 6)]
+    assert round(PL._rebuild_point_s(2.0, 75)) == 264               # 48 spin-up steps x 2.0 x 1.5 + 120
+    meas, _jobs = wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 4,
+                                                str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31),
+                                                point_s=264.0)
+    assert len(subs) == 1 and len(meas) == 1 and "1 of 2 point(s) fit" in capsys.readouterr().out
+    assert PL._rebuild_point_s(None, 75) is None

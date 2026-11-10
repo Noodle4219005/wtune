@@ -232,6 +232,10 @@ def proxy_shape(e_we, e_sn, px, py, nodes, cores_per_node, omp=1):
     rp = px * py // nodes
     if rp * omp > cores_per_node:
         return None
+    if nodes == 1:
+        # the run itself: ceil(mx / px) * px cells are more than the domain has unless px divides
+        # it, and N=1 was planned with no run and no word (Sundowner: "no timing")
+        return dict(ranks=rp, a=px, b=py, nx=mx, ny=my)
     pxm, pym = math.ceil(mx / px), math.ceil(my / py)
     best = None
     for a in range(1, rp + 1):

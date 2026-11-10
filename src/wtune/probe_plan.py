@@ -580,6 +580,11 @@ def combine(points_measurements: list[PointMeasurement], run_start: datetime.dat
             pooled_radiation_samples.append((frac if frac is not None else 0.5, pm.r))
 
     r_night, r_day, r_source = _resolve_r_rad_from_points(pooled_radiation_samples, calibration)
+    if int(stepra) <= 1:
+        # every step calls radiation: a point's s_normal is the whole step, radiation in it. The
+        # day/night ratio on top priced it again on each of the 1728 steps (Sundowner, radt 1
+        # min, dt 75 s: 4:16:44 predicted for a run of 67 min)
+        r_night, r_day, r_source = 1.0, 1.0, "every step calls radiation (in s_normal)"
 
     compute_total_s, _s_values = coldstart.predicted_compute_total(
         steps_n, dt, stepra, run_start, anchors, sample_points, r_night, r_day)

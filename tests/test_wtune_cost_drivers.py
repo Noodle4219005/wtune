@@ -421,3 +421,12 @@ def test_multiple_labels_union_merged_by_min_gap():
              best_track=tr)
     assert _hrs(r) == [0, 10]                              # peaks 10 min apart merge into one
     assert "convective_peak" in r["points"][1][1] and "tc_max_intensity" in r["points"][1][1]
+
+
+def test_combine_does_not_price_radiation_again_when_every_step_calls_it(monkeypatch):
+    # Sundowner (radt 1 min, dt 75 s, stepra 1): the rebuilt point's s_normal holds the radiation
+    # call, and the day/night ratio on each step predicted 4:16:44 for a run of 67 min
+    monkeypatch.setattr(plan, "_resolve_r_rad_from_points", lambda samples, cal: (3.0, 5.0, "calibration"))
+    res = plan.combine([_pm(12, 2.0)], RUN_START, RUN_END, 60.0, 1)
+    assert res["compute_total_s"] == pytest.approx(1440 * 2.0)
+    assert plan.combine([_pm(12, 2.0)], RUN_START, RUN_END, 60.0, 15)["compute_total_s"] > 1440 * 2.0

@@ -20,6 +20,8 @@ wtune <指令> --help
 | `wtune watch` | 唯讀監看一個執行目錄 | 否 | [run 與 watch](../tutorial/run.md) |
 | `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [post](../tutorial/post.md) |
 | `wtune event init\|vocab\|check\|plan` | 把 `event.txt` 的事件描述轉成檢查過的 `event.yaml`，列出要用的觀測資料 | 否 | [event](../tutorial/event.md) |
+| `wtune event obs-check\|obs-convert` | 檢查 `input/obs/` 下的 `wtune-obs/1` 資料夾；把 ASOS CSV 轉成測站資料集 | 否 | [event](../tutorial/event.md) |
+| `wtune proxy plan\|submit\|collect` | 用 1 個節點上的小區域代理，替 N 節點的執行排出切法名次 | `submit` 會 | [tune](../tutorial/tune.md) |
 
 ## 檢查與預測
 
@@ -62,7 +64,8 @@ wtune <指令> --help
 |---|---|
 | `recipe` | 依個案類型出標準圖組與 HTML 報告 |
 | `preview` | 還沒跑 WRF 前：列出會畫的圖，先畫初始場與觀測 |
-| `fetch`、`fetch-era5` | 下載觀測與再分析資料 |
+| `fetch` | 下載觀測與再分析資料 |
+| `fetch-era5` | deprecated：`fetch era5` 的別名，請改用 `fetch era5` |
 | `tc` | 颱風路徑追蹤與誤差 |
 | `inventory` | 域、時間、網格、變數、缺 frame 的摘要 |
 | `extract` | 抽出點位 CSV 或區域 netCDF |
@@ -71,6 +74,9 @@ wtune <指令> --help
 | `compare` | 用 `diffwrf` 比對兩次執行 |
 | `report` | 把一個目錄的圖表收成一份 HTML |
 | `custom` | 執行 project 內 `analysis/*.py` |
+| `brief` | 把一個 `recipe` 輸出目錄整理成給審圖者讀的 `brief.json` |
+| `stations` | 模式與測站觀測的逐站比對 |
+| `check` | 檢查 `review.json` 與 `assessment.md`，全部通過才回傳 0 |
 | `cf3d` | 輸出氣壓層、經緯度網格的 CF NetCDF |
 | `vapor-bundle` | 產生可複製到工作站的 VAPOR 資料包 |
 

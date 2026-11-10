@@ -403,7 +403,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     if pipeline == "full":
         if args.nodes not in (None, "search"):
             raise SystemExit("-O/--pipeline runs its own node search: do not combine it with "
-                             "--nodes N/auto or --rank-by predicted")
+                             "--nodes N/auto")
         nodes_raw = "search"
     node_search = (nodes_raw == "search")
 
@@ -600,7 +600,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "(72 -> 72,70,64,48,36); layouts that are not legal are skipped. "
                          "'--cores-per-node-options 72' disables the dimension")
     p.add_argument("--pipeline", choices=("full",), default=None,
-                    help="full = -O3 (kept for compatibility): one pass -- layout search (node, "
+                    help="DEPRECATED alias of -O3: one pass -- layout search (node, "
                          "cores/node, ranks, threads, decomposition, tiles), whole-run "
                          "prediction from rebuilt points, physics advice (decision 0059)")
     p.add_argument("--max-queue-hours", type=float, default=None, dest="max_queue_hours",

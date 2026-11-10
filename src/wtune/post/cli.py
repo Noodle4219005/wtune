@@ -721,7 +721,7 @@ def _add_fetch_parsers(sub) -> dict:
         except argparse.ArgumentError as e:     # a module's own option clashes with --project/...
             print("post fetch: module %s disabled: %s" % (name, e), file=sys.stderr)
     if "era5" in mods:
-        p_e5 = sub.add_parser("fetch-era5", help="alias of `fetch era5`")
+        p_e5 = sub.add_parser("fetch-era5", help="DEPRECATED alias of `fetch era5`")
         p_e5.add_argument("--project", default=None)
         p_e5.add_argument("--run-dir", default=None, dest="run_dir")
         mods["era5"].add_arguments(p_e5)

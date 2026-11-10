@@ -29,7 +29,7 @@ from __future__ import annotations
 import csv
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from wtune.post import agent_obs
 
@@ -274,7 +274,6 @@ def compare(run_dir, stations_ds_dir, station_ids, variables, domains=None, meth
     import numpy as np
     series, stats = [], []
     placed = {s: False for s in stations}
-    calm_ms = calm_kt * KT_MS
     for dom in doms:
         fr = frames[dom]
         with netCDF4.Dataset(fr[0][1]) as ds:

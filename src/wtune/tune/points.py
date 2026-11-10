@@ -462,7 +462,7 @@ def predicted_spinup_min(dt: float, floor_min: int = PREDICTED_SPINUP_MIN,
     for m in range(int(floor_min), int(max_min) + 1):
         if abs((m * 60.0) / float(dt) - round((m * 60.0) / float(dt))) < 1e-9:
             return m
-    raise SystemExit("--rank-by predicted: no whole-minute spin-up in [%d, %d] min is a multiple "
+    raise SystemExit("rebuilt points: no whole-minute spin-up in [%d, %d] min is a multiple "
                      "of time_step=%gs -- the shared restart would not fall on a time step"
                      % (floor_min, max_min, dt))
 

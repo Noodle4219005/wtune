@@ -17,7 +17,7 @@
    "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_nodes_over_max/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_nodes_over_max/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
   },
   "pipeline_fixed_nodes": {
-   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto or --rank-by predicted",
+   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto",
    "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_pipeline_fixed_nodes/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_pipeline_fixed_nodes/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
   }
  },

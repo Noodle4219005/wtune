@@ -12,7 +12,6 @@ catboost/lightgbm as explicitly requested by the brief.
 from __future__ import annotations
 
 import math
-import sys
 from collections import defaultdict
 
 import numpy as np

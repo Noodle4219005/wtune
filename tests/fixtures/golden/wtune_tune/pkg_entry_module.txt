@@ -72,9 +72,9 @@ options:
                         hardware core count C: C, C-2, round(C*8/9), round(C*2/3), C/2 (72 ->
                         72,70,64,48,36); layouts that are not legal are skipped. '--cores-per-
                         node-options 72' disables the dimension
-  --pipeline {full}     full = -O3 (kept for compatibility): one pass -- layout search (node,
-                        cores/node, ranks, threads, decomposition, tiles), whole-run prediction
-                        from rebuilt points, physics advice (decision 0059)
+  --pipeline {full}     DEPRECATED alias of -O3: one pass -- layout search (node, cores/node,
+                        ranks, threads, decomposition, tiles), whole-run prediction from rebuilt
+                        points, physics advice (decision 0059)
   --max-queue-hours MAX_QUEUE_HOURS
                         --pipeline full: safety cap on the accumulated queue-only wait (hours,
                         default 6); queue wait is not charged to --minutes, but past this the run

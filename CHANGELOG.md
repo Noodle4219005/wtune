@@ -3,7 +3,51 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
-## Unreleased
+## 0.10.0 — 2026-11-11
+
+**`wtune tune` searches on one node first.** `wtune proxy plan|submit|collect` ranks the layouts
+of an N-node run by timing a small crop of the domain on single nodes; a nested case runs as a
+nested crop, or as a band that keeps every domain's full width. `wtune tune` uses it by default:
+`-O1` and `-O2` search the node count and the layout together with the proxy, and `-O2` picks
+both from the proxy scores with no real N-node probe. On f1 an ISC-size three-domain case was
+tuned in 11.9 min of running time and Big Chill in 12.8 min (queue time not counted).
+
+- The proxy runs in one node pool. `--minutes` ranks what finished, `--proxy-max-nodes` caps the
+  nodes of the proxy jobs, and `wtune stop` or `--max-queue-hours` keeps the timings that
+  finished.
+- Within a node count, the neighbours of the best layout run before the samples. The finalists
+  follow the objective, get a cores-per-node sweep, and are checked against node memory up front.
+- A score far below its one-node score is re-timed twice. A leader that cannot be banded is
+  re-timed on the whole domain for N = 4 and 5, and gives way from N = 6 on.
+- A proxy run that fails no longer aborts its job: it is re-run once, then once more at half the
+  tiles. A refused node pool is tried at half the nodes.
+- Rebuild points that finished are kept when the time budget cancels the rest, and that
+  cancellation is not reported as an infrastructure failure. Rebuild points drop their `grib/`
+  and `wps/` on every exit. A disk-guard abort stops the tune.
+- `wtune predict` prices a default radiation ratio per domain (RRTM/Dudhia has its own), and
+  does not price radiation again when every step calls it; a rebuilt window whose every step
+  calls radiation is scored. On f1-arm Sundowner (36 cores per node, shared nodes) the whole-run
+  prediction was 1:09:45 against a 67:21 run.
+- `wtune project set --exclusive off` lets jobs share a node.
+- `wtune predict` reads XLAT/XLONG as whole arrays, and `case_rebuild` interpolates pressure
+  levels over all columns at once.
+- The test suite dropped the cases whose branches other tests already run (3,379 to 1,735
+  cases; campaign tests 334 to 159).
+- The README has a structure map. The CLI reference lists `wtune proxy`, `event obs-check` and
+  `obs-convert`, and `post brief`, `stations` and `check`.
+
+**Retired.** The ML state correction of cold-start inputs (`--ml-model`): it was worse than no
+correction on all 18 held-out targets.
+
+**Deprecated.** These still work and are labelled DEPRECATED in `--help` or in the config
+template:
+
+- `wtune tune --pipeline full`: use `-O3`.
+- `wtune post fetch-era5`: use `wtune post fetch era5`.
+- `probe.rank_by` (only `t0` is accepted; `predicted` exits with an error), `probe.stage1` and
+  `probe.stage2_minutes` (read by nothing).
+- `coldstart` in `probe.sources`: use `rebuild`.
+- `post/paraview/render_cloud.py`: nothing calls it; the recipe renders the condensate volume.
 
 Reconciliation of the old open-defect list (2026-11-06).
 

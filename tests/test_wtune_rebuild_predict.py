@@ -323,7 +323,7 @@ def test_rebuild_points_that_cannot_end_inside_the_budget_are_not_submitted(monk
     ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None, max_nodes=4,
                                 elapsed=lambda: 480.0, budget_s=900.0)
     pts = [types.SimpleNamespace(at=_dt.datetime(2017, 7, 31, h)) for h in (1, 6)]
-    assert round(PL._rebuild_point_s(2.0, 75)) == 264               # 48 spin-up steps x 2.0 x 1.5 + 120
+    assert round(PL._rebuild_point_s(2.0, 75, 41)) == 268           # (48 spin-up + 41 measured) x 2.0 + 90
     meas, _jobs = wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=216, omp=1, nx=18, ny=12), 4,
                                                 str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31),
                                                 point_s=264.0)

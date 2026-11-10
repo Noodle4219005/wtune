@@ -635,12 +635,22 @@ class _Pool:
         root = os.path.join(out_root, "pool")
         for d in ("tasks", "running", "done"):
             os.makedirs(os.path.join(root, d), exist_ok=True)
-        try:
-            # the tune's own --cores-per-node: a run of 72 ranks needs 72 tasks per pool node
-            job, msg = _proxy.submit_pool(root, nodes, _pool_time_limit(ctx),
-                                          tasks_per_node=getattr(ctx, "cores_per_node", None))
-        except OSError as e:
-            job, msg = None, str(e)
+        # a pool the scheduler refuses is tried at half the nodes, down to max_nodes: without
+        # --proxy-max-nodes the cap is 4 x max_nodes, and f1's QOS took no 32-node job
+        # (QOSMaxCpuPerJobLimit), which sent isc-synth's 73 runs to 38 separate jobs
+        floor = min(nodes, max(PROXY_BAND_NODES, int(getattr(ctx, "max_nodes", 0) or 0)))
+        while True:
+            try:
+                # the tune's own --cores-per-node: a run of 72 ranks needs 72 tasks per pool node
+                job, msg = _proxy.submit_pool(root, nodes, _pool_time_limit(ctx),
+                                              tasks_per_node=getattr(ctx, "cores_per_node", None))
+            except OSError as e:
+                job, msg = None, str(e)
+            if job or nodes <= floor:
+                break
+            print("proxy: node pool of %d node(s) not submitted (%s); trying %d"
+                  % (nodes, str(msg).strip()[:100], max(floor, nodes // 2)))
+            nodes = max(floor, nodes // 2)
         if not job:
             print("proxy: node pool of %d node(s) not submitted (%s); one job per batch instead"
                   % (nodes, str(msg).strip()[:100]))

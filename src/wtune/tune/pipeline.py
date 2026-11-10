@@ -142,15 +142,16 @@ def run_pipeline_full(ctx: Ctx, profile: dict, *, minutes: float | None = None, 
     return _pipeline_finish(st, report, pred, pplan, band_eff, io_run, health_checks, keep_frames)
 
 
-REBUILD_POINT_OVERHEAD_S = 120.0    # one rebuild point's WPS + real.exe + start (Sundowner: 4:10 in all)
+REBUILD_POINT_OVERHEAD_S = 90.0     # one rebuild point's WPS + real.exe + start (Sundowner: 4:10-4:25
+                                    # in all for 48 + 41 steps at 2.0-2.6 s)
 
 
-def _rebuild_point_s(s_per_step, dt) -> float | None:
-    """One rebuild point's job time: its spin-up steps at 1.5 x the winner's s/step (the first
-    steps and the measured window) plus the WPS / real.exe overhead; None without both inputs."""
+def _rebuild_point_s(s_per_step, dt, measure_steps=0) -> float | None:
+    """One rebuild point's job time: its spin-up and measured steps at the winner's s/step plus
+    the WPS / real.exe overhead; None without both inputs."""
     try:
-        steps = PREDICT_REBUILD_SPINUP_MIN * 60.0 / float(dt)
-        return REBUILD_POINT_OVERHEAD_S + 1.5 * steps * float(s_per_step)
+        steps = PREDICT_REBUILD_SPINUP_MIN * 60.0 / float(dt) + int(measure_steps or 0)
+        return REBUILD_POINT_OVERHEAD_S + steps * float(s_per_step)
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
@@ -412,7 +413,8 @@ def _pipeline_phase2_rebuild_winner(st: PipelineRun, layouts: list[dict], pplan:
                 ctx, points, best, lay0["nodes"], case_dir, os.path.join(ctx.out_dir, "rebuilt"),
                 run_start, spinup_min=PREDICT_REBUILD_SPINUP_MIN, forcing=None,
                 measure_steps=max(REBUILT_MIN_STEPS, int(stepra) + 1),
-                point_s=_rebuild_point_s(lay0.get("median") or cfg.get("median"), _dt))
+                point_s=_rebuild_point_s(lay0.get("median") or cfg.get("median"), _dt,
+                                         max(REBUILT_MIN_STEPS, int(stepra) + 1)))
             (st.nl, st.run_start, st.run_end, st.dt, st.stepra, st.calibration,
              st.sample_points, st.case_dir) = _prediction._prediction_context(ctx)
             st.pc_ok = True

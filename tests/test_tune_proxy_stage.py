@@ -776,3 +776,21 @@ def test_an_n_far_slower_on_one_node_is_timed_no_further(tmp_path, monkeypatch, 
     assert fake.dropped == ["one-N2-rest"] and "band-N2" not in [a[0] for a in fake.added]
     assert [f for _c, _s, f in out[2]] == ["one-node"] and out[4][0][2] == "full"
     assert "N2 fastest of its ANCHOR and seeds 0.8000 s/step on one node, more than 25% slower" in capsys.readouterr().out
+
+
+def test_a_refused_node_pool_is_tried_at_half_the_nodes_down_to_max_nodes(tmp_path, monkeypatch, capsys):
+    # f1: the default cap of 4 x max_nodes asked for 32 nodes, QOSMaxCpuPerJobLimit refused it and
+    # isc-synth's 73 runs went to 38 separate jobs
+    asked = []
+
+    def submit(root, nodes, limit, tasks_per_node=None):
+        asked.append(nodes)
+        return ("77", "ok") if nodes <= 8 else (None, "sbatch: error: QOSMaxCpuPerJobLimit")
+    monkeypatch.setattr(P, "submit_pool", submit)
+    ctx = types.SimpleNamespace(max_nodes=8, cores_per_node=112, owned_jobs=[], budget_s=float("inf"),
+                                elapsed=lambda: 0.0)
+    pool = S._Pool.start(ctx, str(tmp_path), 32)
+    assert asked == [32, 16, 8] and pool.nodes == 8 and ctx.owned_jobs == ["77"]
+    assert "node pool of 32 node(s) not submitted" in capsys.readouterr().out
+    monkeypatch.setattr(P, "submit_pool", lambda *a, **k: (None, "no"))
+    assert S._Pool.start(ctx, str(tmp_path), 8) is None

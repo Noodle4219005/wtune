@@ -686,18 +686,15 @@ def test_without_neighbors_or_samples_the_pool_queues_the_anchor_and_seeds_only(
     assert fake.added[0][:2] == ("one-N4", "1-995") and fake.added[0][3] == ["N4_16x36_o1_nt1", "N4_24x24_o1_nt1"]
 
 
-def test_a_leader_that_cannot_be_banded_re_times_the_leaders_on_the_whole_domain(tmp_path, monkeypatch, capsys):
+def test_the_whole_domain_re_times_n4_and_n5_only(tmp_path, monkeypatch, capsys):
     # Sundowner N=4 at 36 cores: 8x18 (4.5 process-grid rows a node) read the fastest on one node in
     # three tunes and was never re-timed; here 128x2 at 64 cores (0.5 rows a node)
     ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
     pool = {S._tag(c): c for c in (_cfg("D0001", 128, 3), _cfg("ANCHOR", 16, 24), _cfg("D0002", 32, 12))}
     scores = {"128x3_o1_nt1": 0.30, "16x24_o1_nt1": 0.35, "32x12_o1_nt1": 0.36}
+    # from N = 6 on the band, the next leader in 128x3's place: conus25 N=8's whole-domain runs
+    # read 4-13 % above the real ones and were compared with the 110-core slot's bands
     size, plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 6, scores, pool, 2, [], max_size=8)
-    assert size == 6 and plan["proxy_nodes"] == 6
-    assert sorted({r["layout"] for r in runs}) == ["N6_128x3_o1_nt1", "N6_16x24_o1_nt1"]
-    assert "N6 128x3_o1_nt1 cannot be banded" in capsys.readouterr().out
-    # a pool of 3 nodes cannot hold the whole domain: the band, without 128x3, as before
-    size, _plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 6, scores, pool, 2, [], max_size=3)
     assert size == 3 and sorted({r["layout"] for r in runs}) == ["N6_16x24_o1_nt1", "N6_32x12_o1_nt1"]
     # N < 6 in a pool that holds it: always the whole domain (3 runs for a band's 6)
     p4 = {S._tag(c): c for c in (_cfg("ANCHOR", 16, 16), _cfg("D0002", 32, 8))}

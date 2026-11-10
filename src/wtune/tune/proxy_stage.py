@@ -333,9 +333,8 @@ def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None, ma
     """(size, plan, runs) re-timing N=n's `leaders` fastest distinct shapes that can be re-timed:
     a band beyond PROXY_BAND_NODES, the whole domain on n nodes at 2..PROXY_BAND_NODES (one node
     alone reads 0-18 % low; N=1's one-node run is the whole domain). A leader that cannot be
-    banded (6x56 at N=6: no whole rows per node) gives way to the next; when the fastest cannot
-    and N nodes fit (the cap, and `max_size`: the node pool's), the leaders are re-timed on the
-    whole domain on N nodes instead. None when nothing can."""
+    banded (6x56 at N=6: no whole rows per node) gives way to the next. N = 4, 5 in a node pool
+    of `max_size` >= N nodes run on the whole domain instead. None when nothing can."""
     label = label or "N%d" % n
     size = PROXY_BAND_NODES if n > PROXY_BAND_NODES else n
     cap = min(ctx.max_nodes, proxy_node_cap(ctx))
@@ -343,21 +342,15 @@ def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None, ma
         return None
     if max_size and size < n <= min(cap, max_size) and n < 2 * PROXY_BAND_NODES:
         # the node pool holds N nodes and not two bands: the whole domain has one crop position,
-        # 3 runs for a band's 6 (Sundowner N=4: the six band runs took 210 s, one at a time)
+        # 3 runs for a band's 6 (Sundowner N=4: the six band runs took 210 s, one at a time), and
+        # it takes the layouts with no whole process-grid rows per node, which cannot be banded
+        # (Sundowner N=4 at 36 cores: 8x18, the fastest on one node, was never re-timed).
+        # Not from N = 6 on: conus25 N=8 on 8 nodes read 0.4065 / 0.4085 / 0.4226 for layouts
+        # whose real 30-step runs are 0.3782 / 0.3912 / 0.3748, where bands were within 0.2 %,
+        # and its 110-core slot, banded, then looked 8 % faster than the 112-core one
         size = n
     ranked = _distinct_shapes(sorted(scores, key=scores.get), len(scores))
     plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
-    if size < n <= min(cap, max_size or cap):
-        # a leader with no whole process-grid rows per node cannot be banded, and the next took its
-        # place: Sundowner N=4 at 36 cores, 8x18 (4.5 rows a node) read 1.82-1.87 on one node, the
-        # fastest of three tunes, and was never re-timed. The whole domain on N nodes takes all
-        banded = {r["layout"] for r in got}
-        lost = [t for t in ranked[:1] if "%s_%s" % (label, t) not in banded]
-        if lost:
-            print("proxy: %s %s cannot be banded (no whole process-grid rows per node): its leaders "
-                  "re-timed on the whole domain on %d nodes" % (label, ", ".join(lost), n))
-            size = n
-            plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
     if not got:
         return None
     keep = [t for t in ranked if any(r["layout"] == "%s_%s" % (label, t) for r in got)][:leaders]

@@ -177,10 +177,11 @@ def _pipeline_start(ctx: Ctx, minutes: float | None, level: int, physics: bool,
     physics = bool(physics and level_req >= 3)       # physics advice is opt-in (--physics-advice)
     guard = bool(stop_if_short)                      # the step-down guard is opt-in
     missing = _prediction.rebuild_env_missing()
-    fracs, cum = _pipeline_shares(physics, rebuild=not missing)
-    if minutes is not None and missing and not physics:
-        print("pipeline: phase 2 rebuild cannot run (%s not set): its time goes to the layout "
-              "search" % ", ".join(missing))
+    short = None if missing or minutes is None else _prediction.rebuild_space_short(ctx.out_dir)
+    fracs, cum = _pipeline_shares(physics, rebuild=not missing and not short)
+    if minutes is not None and (missing or short) and not physics:
+        print("pipeline: phase 2 rebuild cannot run (%s): its time goes to the layout search"
+              % (", ".join(missing) + " not set" if missing else short))
     B = float(minutes) * 60.0 if minutes is not None else float("inf")
     pipe = PipelineSummary(
         total_steps=total_steps, B_s=(B if B != float("inf") else None),

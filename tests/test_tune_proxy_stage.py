@@ -295,14 +295,14 @@ def test_the_node_pool_bands_an_n_as_soon_as_its_one_node_runs_are_timed(tmp_pat
     # N=2's are as close, but 100 % slower than N=5
     assert [(b, f, k) for b, f, k, _l in fake.added] == [
         ("one-N5", "1-994", 1), ("one-N4", "1-995", 1), ("one-N2", "1-997", 1),
-        ("band-N5", "0-994", 5), ("band-N4", "0-995", 3), ("band-N4", "0-r995", 3),
+        ("band-N5", "0-994", 5), ("band-N4", "0-995", 4), ("band-N4", "0-r995", 4),
         ("band-N2", "0-997", 2)]
     assert fake.added[5][3] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
     assert dict((b, ls) for b, _f, _k, ls in fake.added)["band-N4"] == ["N4_12x24_o2_nt24", "N4_24x24_o1_nt1"]
     assert fake.closed and not fake.stopped
     # the same ranking as one batch of jobs per round
     assert [(S._tag(c), t, f) for c, t, f in out[4]] == [
-        ("24x24_o1_nt1", 0.46, "band"), ("12x24_o2_nt24", 0.47, "band"), ("18x32_o1_nt1", 0.47, "one-node")]
+        ("24x24_o1_nt1", 0.46, "full"), ("12x24_o2_nt24", 0.47, "full"), ("18x32_o1_nt1", 0.47, "one-node")]
     assert [(c["id"], f) for c, _t, f in out[2]] == [("ANCHOR", "full"), ("D0001", "full"), ("D0002", "one-node")]
 
 
@@ -653,7 +653,8 @@ def test_the_node_pool_times_an_ns_neighbours_before_its_sampled_layouts(tmp_pat
     # 18x32 nt1, a neighbour queued among the samples already, moves up instead
     assert promoted == [("one-N4-rest", ["N4_18x32_o1_nt1"], "1-995-3", "1-995-2")]
     assert order[:3] == ["1-995-1", "1-995-2", "1-995-3"]
-    assert (S._tag(out[4][0][0]), out[4][0][0]["id"], out[4][0][2]) == ("16x36_o1_nt2", "B0002", "band")
+    # N=4 fits the pool: its leaders run on the whole domain
+    assert (S._tag(out[4][0][0]), out[4][0][0]["id"], out[4][0][2]) == ("16x36_o1_nt2", "B0002", "full")
     text = capsys.readouterr().out
     assert "N4 fastest of its ANCHOR and seeds 16x36_o1_nt1" in text
     assert "N4 18x32_o1_nt1 moved ahead of its other sampled layouts" in text
@@ -689,12 +690,35 @@ def test_a_leader_that_cannot_be_banded_re_times_the_leaders_on_the_whole_domain
     # Sundowner N=4 at 36 cores: 8x18 (4.5 process-grid rows a node) read the fastest on one node in
     # three tunes and was never re-timed; here 128x2 at 64 cores (0.5 rows a node)
     ctx, _ = _joint(tmp_path, monkeypatch, POOLS, {}, {})
-    pool = {S._tag(c): c for c in (_cfg("D0001", 128, 2), _cfg("ANCHOR", 16, 16), _cfg("D0002", 32, 8))}
-    scores = {"128x2_o1_nt1": 0.30, "16x16_o1_nt1": 0.35, "32x8_o1_nt1": 0.36}
-    size, plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 4, scores, pool, 2, [], max_size=4)
-    assert size == 4 and plan["proxy_nodes"] == 4
-    assert sorted({r["layout"] for r in runs}) == ["N4_128x2_o1_nt1", "N4_16x16_o1_nt1"]
-    assert "N4 128x2_o1_nt1 cannot be banded" in capsys.readouterr().out
-    # a pool of 3 nodes cannot hold the whole domain: the band, without 128x2, as before
-    size, _plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 4, scores, pool, 2, [], max_size=3)
-    assert size == 3 and sorted({r["layout"] for r in runs}) == ["N4_16x16_o1_nt1", "N4_32x8_o1_nt1"]
+    pool = {S._tag(c): c for c in (_cfg("D0001", 128, 3), _cfg("ANCHOR", 16, 24), _cfg("D0002", 32, 12))}
+    scores = {"128x3_o1_nt1": 0.30, "16x24_o1_nt1": 0.35, "32x12_o1_nt1": 0.36}
+    size, plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 6, scores, pool, 2, [], max_size=8)
+    assert size == 6 and plan["proxy_nodes"] == 6
+    assert sorted({r["layout"] for r in runs}) == ["N6_128x3_o1_nt1", "N6_16x24_o1_nt1"]
+    assert "N6 128x3_o1_nt1 cannot be banded" in capsys.readouterr().out
+    # a pool of 3 nodes cannot hold the whole domain: the band, without 128x3, as before
+    size, _plan, runs = S._leader_plan(ctx, str(tmp_path / "case"), 6, scores, pool, 2, [], max_size=3)
+    assert size == 3 and sorted({r["layout"] for r in runs}) == ["N6_16x24_o1_nt1", "N6_32x12_o1_nt1"]
+    # N < 6 in a pool that holds it: always the whole domain (3 runs for a band's 6)
+    p4 = {S._tag(c): c for c in (_cfg("ANCHOR", 16, 16), _cfg("D0002", 32, 8))}
+    size, _plan, _runs = S._leader_plan(ctx, str(tmp_path / "case"), 4, {"16x16_o1_nt1": 0.3, "32x8_o1_nt1": 0.4},
+                                        p4, 2, [], max_size=4)
+    assert size == 4 and capsys.readouterr().out == ""
+
+
+def test_a_kept_pool_stops_at_the_soft_deadline_and_drops_its_queue_not_the_job(tmp_path, monkeypatch):
+    # the cores/node sweep reuses the main search's node pool: a second pool job queued again
+    pool = S._Pool(types.SimpleNamespace(elapsed=lambda: 50.0, budget_s=100.0), str(tmp_path / "pool"), 4, "1")
+    (tmp_path / "pool" / "tasks").mkdir(parents=True)
+    pool.add(str(tmp_path / "b"), {}, [dict(tag="a", layout="a")], 1, "1-995")
+    pool.soft = 40.0
+    monkeypatch.setattr(S._jobs, "wait_for_jobs", lambda *a, **k: pytest.fail("past the soft deadline: no wait"))
+    assert pool.wait(lambda: False) is False
+    pool.clear()
+    assert not list((tmp_path / "pool" / "tasks").iterdir()) and not (tmp_path / "pool" / "CLOSE").exists()
+    box = {"pool": pool}
+    fake = _FakePool()
+    ctx = _pool_joint(tmp_path, monkeypatch, TIMINGS, BAND, fake)
+    fake.clear = lambda: setattr(fake, "cleared", True)
+    S.rank_across_nodes(ctx, [4], pool_box={"pool": fake}, soft_budget_s=7.0)
+    assert fake.cleared and not fake.closed and fake.soft == 7.0 and box["pool"] is pool

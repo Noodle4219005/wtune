@@ -186,7 +186,8 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
                       leaders: int | None = None, cores: list[int] | None = None,
                       cores_by_n: dict | None = None,
                       out_name: str = "proxy-joint", neighbors: bool = False,
-                      sample: bool = True) -> tuple[dict, dict]:
+                      sample: bool = True, pool_box: dict | None = None,
+                      soft_budget_s: float | None = None) -> tuple[dict, dict]:
     """Joint (N, layout) proxy ranking: at every N its ANCHOR plus PROXY_JOINT_PER_N-1 diverse
     layouts, one node each; then the `leaders` (PROXY_JOINT_LEADERS) fastest one-node layouts of
     each N that can be re-timed are, so that N compare: as band proxies when N > PROXY_BAND_NODES,
@@ -204,7 +205,10 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     largest cannot be the fastest). With `neighbors` (node pool only), an N's ANCHOR and seed
     shapes run first, then up to PROXY_NEIGHBORS layouts next to the fastest of them (the grids
     on either side, numtiles on either side), then the sampled ones: at the deadline the samples
-    are what is cut. `sample` False times the ANCHOR and the seed shapes only."""
+    are what is cut. `sample` False times the ANCHOR and the seed shapes only. `pool_box` ({} at
+    first) keeps the node pool job for the caller's next call (its "pool": the caller closes it);
+    past `soft_budget_s` of ctx.elapsed() the search stops and ranks what finished, the pool job
+    left running."""
     leaders = leaders or PROXY_JOINT_LEADERS
     case_dir = os.path.dirname(os.path.abspath(ctx.namelist_path))
     full = cores_used(ctx)
@@ -252,10 +256,14 @@ def rank_across_nodes(ctx: Ctx, legal_nodes: list[int], anchor_only_below: int =
     sizes = [PROXY_BAND_NODES if sl.n > PROXY_BAND_NODES else sl.n for sl in slots.values()]
     points = _time_points(ctx, case_dir) if any(1 < z <= ctx.max_nodes for z in sizes) else []
     npool = _pool_nodes(ctx, sum(len(g) for _p, g in plans.values()))
-    pool = _Pool.start(ctx, out_root, npool) if npool else None
+    pool = (pool_box or {}).get("pool") or (_Pool.start(ctx, out_root, npool) if npool else None)
     if pool is not None:
+        pool.ctx, pool.soft = ctx, soft_budget_s
+        if pool_box is not None:
+            pool_box["pool"] = pool
         one, band, one_pos, band_pos = _time_in_pool(ctx, pool, case_dir, pools, plans, out_root,
-                                                     leaders, points, slots, first, explore)
+                                                     leaders, points, slots, first, explore,
+                                                     keep=pool_box is not None)
     else:
         one, band, one_pos, band_pos = _time_in_jobs(ctx, case_dir, pools, plans, out_root,
                                                      leaders, points, slots)
@@ -324,6 +332,10 @@ def _leader_plan(ctx, case_dir, n, scores, pool, leaders, points, label=None, ma
     cap = min(ctx.max_nodes, proxy_node_cap(ctx))
     if size <= 1 or cap < size or not scores:
         return None
+    if max_size and size < n <= min(cap, max_size) and n < 2 * PROXY_BAND_NODES:
+        # the node pool holds N nodes and not two bands: the whole domain has one crop position,
+        # 3 runs for a band's 6 (Sundowner N=4: the six band runs took 210 s, one at a time)
+        size = n
     ranked = _distinct_shapes(sorted(scores, key=scores.get), len(scores))
     plan, got = _joint_plan(ctx, case_dir, n, {t: pool[t] for t in ranked}, size, points, label=label)
     if size < n <= min(cap, max_size or cap):
@@ -399,7 +411,7 @@ def _time_in_jobs(ctx, case_dir, pools, plans, out_root, leaders, points, slots=
 
 
 def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, slots=None,
-                  first=None, explore=None):
+                  first=None, explore=None, keep=False):
     """Every slot's one-node runs queued at once, the largest N first; a slot's leaders queued as
     soon as its one-node runs are timed, ahead of the one-node runs still waiting. Stops at the
     --minutes deadline (the pool job is cancelled) or when the pool job ends; what finished is
@@ -518,7 +530,8 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
     if early or waiting or banding:
         print("proxy: stopped with %s not fully timed (%s): ranked from the runs that finished"
-              % (_stopped_names(slots, early + waiting + banding), "deadline" if ctx.elapsed() >= ctx.budget_s
+              % (_stopped_names(slots, early + waiting + banding),
+                 "deadline" if ctx.elapsed() >= min(ctx.budget_s, getattr(pool, "soft", None) or ctx.budget_s)
                  else getattr(pool, "halted", None) or "the node pool job ended"))
         for k in early + waiting:
             take_one(k)
@@ -526,7 +539,10 @@ def _time_in_pool(ctx, pool, case_dir, pools, plans, out_root, leaders, points, 
             band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
     for k in retiming:                     # the first runs count; finished re-runs join them
         band.update(_collect_jobs(dict(out_dirs=[band_dir(k)]), band_pos))
-    pool.close(stopped=bool(early or waiting or banding or retiming))
+    if keep:
+        pool.clear()                       # the caller queues more: this search's leftovers go
+    else:
+        pool.close(stopped=bool(early or waiting or banding or retiming))
     return one, band, one_pos, band_pos
 
 
@@ -589,7 +605,7 @@ class _Pool:
 
     def __init__(self, ctx, root, nodes, job):
         self.ctx, self.root, self.nodes, self.job = ctx, root, nodes, job
-        self.seq, self.batches, self.halted = 0, {}, None
+        self.seq, self.batches, self.halted, self.soft = 0, {}, None, None
 
     @classmethod
     def start(cls, ctx, out_root, nodes):
@@ -659,14 +675,26 @@ class _Pool:
     def wait(self, pred) -> bool:
         """Wait, the running budget charged while the pool runs, until pred(); False when the pool
         job ended or the deadline cancelled it first."""
+        over = lambda: self.soft is not None and self.ctx.elapsed() >= self.soft   # noqa: E731
         if pred():
             return True
+        if over():
+            return False
         try:
-            _jobs.wait_for_jobs(self.ctx, [self.job], "proxy", until=pred)
+            # the soft deadline ends the wait, not the job (wait_for_jobs cancels at ctx.budget_s)
+            _jobs.wait_for_jobs(self.ctx, [self.job], "proxy", until=lambda: pred() or over())
         except QueueCapExceeded as e:      # --max-queue-hours or wtune stop: what finished counts
             self.halted = e
             return False
         return pred()
+
+    def clear(self):
+        """Drop the tasks still queued (running ones finish); the pool job stays for more."""
+        for name in os.listdir(os.path.join(self.root, "tasks")):
+            try:
+                os.remove(os.path.join(self.root, "tasks", name))
+            except OSError:
+                pass                       # the worker took it
 
     def close(self, stopped=False):
         open(os.path.join(self.root, "CLOSE"), "w").close()

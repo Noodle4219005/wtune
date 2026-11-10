@@ -279,3 +279,14 @@ def test_rebuild_jobs_cancelled_at_the_budget_are_not_called_an_infrastructure_f
                                       str(tmp_path), str(tmp_path / "out"), _dt.datetime(2017, 7, 31))
     # the cancelled point's grib/ and wps/ go too (Sundowner: 2-5.7 GB left per tune)
     assert not (tmp_path / "out" / "pt_0" / "wps").exists() and (tmp_path / "out" / "pt_0" / "win_0").exists()
+
+
+def test_rebuild_space_is_judged_before_the_layout_search(monkeypatch, tmp_path):
+    # Sundowner on f1-arm, four tunes: the refusal came after the layout search, 4:45 kept for
+    # phase 2 unused; judged up front, that time goes to the layout search
+    import wtune.tune.prediction as PR
+    from wtune.run import space
+    monkeypatch.setattr(space, "writable_bytes", lambda path, runner=None: (5e9, "quota"))
+    assert "need ~10.4 GB" in PR.rebuild_space_short(str(tmp_path / "out"))
+    monkeypatch.setattr(space, "writable_bytes", lambda path, runner=None: (20e9, "quota"))
+    assert PR.rebuild_space_short(str(tmp_path / "out")) is None

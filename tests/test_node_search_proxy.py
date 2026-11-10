@@ -45,9 +45,11 @@ def _patch(monkeypatch, ranking, calls, consistent=None, extra_cores=None):
                         else (None, "no legal decomposition"))
 
     def rank(ctx, legal, anchor_only_below=0, leaders=3, cores=None, cores_by_n=None, **kw):
-        if kw.get("out_name") == "proxy-cores":    # the finalists' cores/node sweep
+        if kw.get("out_name", "").startswith("proxy-cores"):    # the finalists' cores/node sweep, one count a call
             calls.append(("cores", legal, cores_by_n))
-            return extra_cores.get("ranking", {}), {}
+            at = lambda n, c: c["ranks"] * c.get("omp", 1) // n in cores_by_n.get(n, [])   # noqa: E731
+            return {n: [r for r in rows if at(n, r[0])] for n, rows in extra_cores.get("ranking", {}).items()
+                    if n in legal and any(at(n, r[0]) for r in rows)}, {}
         calls.append(("rank", legal))
         calls.append(("below", anchor_only_below))
         calls.append(("leaders", leaders))
@@ -160,8 +162,9 @@ def test_the_finalists_are_timed_at_the_other_core_counts_and_a_faster_one_wins(
     ctx = _ctx(tmp_path)
     report, collect = _search(ctx, 2)
     sweep = [c for c in calls if c[0] == "cores"]
-    options = [142, 128, 108, 96, 72]                              # 144's options but 144
-    assert sweep == [("cores", [4, 8], {8: options, 4: options})]
+    # 144's options but 144, one count a call; N=4 stops at 108 (0.30, 15 % slower than its 0.26)
+    assert sweep == [("cores", [4, 8], {4: [c], 8: [c]}) for c in (142, 128, 108)] + [
+        ("cores", [8], {8: [96]}), ("cores", [8], {8: [72]})]
     assert collect["outcomes"][8].cores == 108 and collect["outcomes"][8].best_median == 0.22
     assert collect["outcomes"][4].cores == 144                     # 0.30 at 108 is slower than 0.26
     ns = report["node_selection"]
@@ -264,12 +267,14 @@ def test_joint_proxy_keeps_a_share_of_the_budget_for_the_cores_sweep(tmp_path, m
     fake = PS.rank_across_nodes
 
     def spy(ctx, legal, **kw):
-        seen.append((ctx.budget_s, kw.get("out_name", "proxy-joint"), kw.get("neighbors"), kw.get("sample", True)))
+        seen.append((kw.get("soft_budget_s"), kw.get("out_name", "proxy-joint"), kw.get("neighbors"),
+                     kw.get("sample", True), kw.get("pool_box") is not None))
         return fake(ctx, legal, **kw)
     monkeypatch.setattr(PS, "rank_across_nodes", spy)
     ctx = _ctx(tmp_path)
     _search(ctx, 2)
     left = 3600.0 - ctx.elapsed()
-    assert seen[0][1:] == ("proxy-joint", True, True)
+    # the main search stops at a soft deadline and hands its node pool to the sweep
+    assert seen[0][1:] == ("proxy-joint", True, True, True)
     assert abs(seen[0][0] - (3600.0 - left * NS.PROXY_CORE_SHARE)) < 1.0
-    assert seen[1][1:] == ("proxy-cores", None, False) and seen[1][0] == 3600.0
+    assert seen[1][1:] == ("proxy-cores-c142", None, False, True) and seen[1][0] is None

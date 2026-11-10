@@ -212,6 +212,29 @@ def _check_rebuild_space(out_dir: str, grib_bytes: list) -> None:
                                                                   src))
 
 
+REBUILD_NOMINAL_GRIB = 1.05e9       # per point: GFS 0.25 deg (Sundowner: 1049 MB fetched); ERA5 514 MB
+REBUILD_NOMINAL_POINTS = 2
+
+
+def rebuild_space_short(out_dir: str) -> str | None:
+    """Why the rebuild points cannot fit under out_dir, judged before anything is fetched from the
+    nominal forcing size, or None. _check_rebuild_space refuses after the layout search, when the
+    time kept for phase 2 can no longer go to it (Sundowner on f1-arm, four tunes: 4:45 unused)."""
+    from wtune.run import space
+    need = REBUILD_NOMINAL_POINTS * (REBUILD_WPS_PER_GRIB * REBUILD_NOMINAL_GRIB + REBUILD_WINDOW_BYTES)
+    where = os.path.abspath(out_dir)
+    while not os.path.isdir(where) and os.path.dirname(where) != where:
+        where = os.path.dirname(where)
+    try:
+        free, src = space.writable_bytes(where)
+    except OSError:
+        return None
+    if need > free:
+        return "rebuilt points need ~%.1f GB under %s, %.1f GB writable (%s)" % (
+            need / 1e9, out_dir, free / 1e9, src)
+    return None
+
+
 def _clean_rebuild_points(plans: list) -> None:
     """Drop each scored point's grib/ and wps/ (3 GB per point on haitang2017; reproducible),
     keeping plan.json, the logs and win_*/ (rsl files, the I/O probe). WTUNE_KEEP_REBUILD=1 keeps

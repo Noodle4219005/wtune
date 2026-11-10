@@ -981,10 +981,11 @@ def _proxy_cores_for(ctx: Ctx, n: int, smaller: list[int], mem) -> tuple[int | N
 
 
 PROXY_CORE_SHARE = 0.35   # joint proxy search: share of the budget left kept for the cores/node sweep
+PROXY_CORE_STOP = 0.06    # cores/node sweep: an N stops at a count this much slower than its best (2 x noise)
 
 
 def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: dict,
-                      others: list[int], mem=None) -> tuple[dict, dict]:
+                      others: list[int], mem=None, pool_box: dict | None = None) -> tuple[dict, dict]:
     """The finalists timed at the `others` cores per node too (one leader re-timed each), merged
     into `ranking` in place; per finalist the core count by wtune.nodes.choose_cores over the best
     score at each count of the leading fidelity. Sundowner on f1-arm: 4 nodes x 54 cores 1.040
@@ -1002,17 +1003,41 @@ def _proxy_core_sweep(ctx: Ctx, finals: list[int], ranking: dict, consistent: di
                 fit.append(c)
         if fit:
             by_n[n] = fit
-    halted = bool((getattr(ctx, "shared_queue", None) or {}).get("cap_hit")) or bool(STOP["reason"])
-    if by_n and ctx.elapsed() < ctx.budget_s and not halted:
+    halted = lambda: (bool((getattr(ctx, "shared_queue", None) or {}).get("cap_hit"))  # noqa: E731
+                      or bool(STOP["reason"]))
+    # one count at a time, the most cores first, in the main search's node pool; an N stops at the
+    # first count more than PROXY_CORE_STOP slower than its best (Sundowner N=4, four tunes: 36
+    # cores 2.06, 32 2.31, 27 2.55 -- the counts below only cost time)
+    best = {n: min(s for _c, s, f in ranking[n] if f == ranking[n][0][2]) for n in by_n if ranking.get(n)}
+    active, ran = set(best), False
+    for c in sorted({c for v in by_n.values() for c in v}, reverse=True):
+        todo = {n: [c] for n in sorted(active) if c in by_n[n]}
+        if not todo:
+            continue
+        if ctx.elapsed() >= ctx.budget_s or halted():
+            print("node search: %s -- %s, %d cores per node"
+                  % ("stopped" if halted() else "no time left",
+                     "the cores/node sweep ends before %d cores" % c if ran else "no cores/node sweep",
+                     ctx.cores_per_node))
+            break
+        ran = True
         # the ANCHOR and the seed shapes at each count: the count is what is compared
-        more, agree = proxy_stage.rank_across_nodes(ctx, sorted(by_n), leaders=1, cores_by_n=by_n,
-                                                    out_name="proxy-cores", sample=False)
-        for n, rows in more.items():
+        more, agree = proxy_stage.rank_across_nodes(ctx, sorted(todo), leaders=1, cores_by_n=todo,
+                                                    out_name="proxy-cores-c%d" % c, sample=False,
+                                                    pool_box=pool_box)
+        for n in todo:
+            rows = more.get(n) or []
             ranking[n] = sorted(ranking.get(n, []) + rows, key=lambda r: (r[2] == "one-node", r[1]))
             consistent[n] = consistent.get(n, True) and agree.get(n, True)
-    elif by_n:
-        print("node search: %s -- no cores/node sweep, %d cores per node"
-              % ("stopped" if halted else "no time left", ctx.cores_per_node))
+            at_c = [s for _c, s, f in rows if f != "one-node"] or [s for _c, s, _f in rows]
+            if not at_c:
+                continue                   # nothing timed at this count: the next one is tried
+            if min(at_c) > best[n] * (1 + PROXY_CORE_STOP):
+                print("node search: N=%d at %d cores/node %.4f s/step, more than %d%% slower than its "
+                      "best %.4f: fewer cores not timed" % (n, c, min(at_c), round(100 * PROXY_CORE_STOP), best[n]))
+                active.discard(n)
+            else:
+                best[n] = min(best[n], min(at_c))
     tables, choice = {}, {}
     for n in finals:
         rows = ranking.get(n) or []
@@ -1085,16 +1110,16 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
     first_job = len(ctx.owned_jobs)
     # the cores/node sweep (O2 up) keeps PROXY_CORE_SHARE of what is left: run after the main
     # search, it got none on Sundowner (f1-arm, -O2 --minutes 15, two tunes: "no time left")
-    sctx = ctx
+    soft, box = None, {}
     left = ctx.budget_s - ctx.elapsed()
     if smaller and leaders != 1 and math.isfinite(ctx.budget_s) and left > 0:
-        sctx = dataclasses.replace(ctx, budget_s=ctx.elapsed() + left * (1 - PROXY_CORE_SHARE))
+        soft = ctx.elapsed() + left * (1 - PROXY_CORE_SHARE)
         print("node search: %s of the %s left kept for the cores/node sweep"
               % (_fmt_hms(left * PROXY_CORE_SHARE), _fmt_hms(left)))
     # objective time: N under half the largest legal N would need > 2x superlinear speedup to win
     ranking, consistent = proxy_stage.rank_across_nodes(
-        sctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0,
-        leaders=leaders, cores_by_n=cores_by_n, neighbors=True)
+        ctx, legal, anchor_only_below=(max(legal) + 1) // 2 if objective == "time" and legal else 0,
+        leaders=leaders, cores_by_n=cores_by_n, neighbors=True, pool_box=box, soft_budget_s=soft)
     proxy_jobs = list(ctx.owned_jobs[first_job:])
     if not ranking:
         print("node search: the joint proxy search ranked nothing; running the real node sweep")
@@ -1141,8 +1166,12 @@ def _run_node_search_proxy(ctx: Ctx, objective: str, deadline_s: float | None, m
                   % (",".join(map(str, slow)), round(100 * proxy_stage.PROXY_FINALIST_MARGIN), order[0]))
             finals = [n for n in finals if n not in slow]
     # c < C only (a pool node holds C tasks; the real sweep drops c >= C too), and from O2 on
-    core_tables, core_choice = _proxy_core_sweep(ctx, finals, ranking, consistent,
-                                                 smaller if leaders != 1 else [], mem)
+    try:
+        core_tables, core_choice = _proxy_core_sweep(ctx, finals, ranking, consistent,
+                                                     smaller if leaders != 1 else [], mem, pool_box=box)
+    finally:
+        if box.get("pool") is not None:    # the node pool the main search and the sweep shared
+            box["pool"].close(stopped=ctx.elapsed() >= ctx.budget_s)
     best = {n: rows[0] for n, rows in ranking.items()}
     anchors = {n: next((c for c, _t, _f in ranking[n] if c.get("id") == "ANCHOR"), None)
                or _sweep_anchor(ctx, n)[0] for n in finals}

@@ -11,7 +11,7 @@ import os
 import shlex
 import subprocess
 
-DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (scc GH200)
+DEFAULTS = {"cores_per_node": 72,       # cores of one compute node WRF may use (scc GH200: all)
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
             "partition": "compute",     # Slurm partition, or a list tried in order
             "login_nodes": ("head",),   # nodes no job is sent to
@@ -28,15 +28,18 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "node_preflight": True,     # one srun per node before a tune (wtune.tune.preflight)
             "node_memory_gib": 0,       # memory of one compute node; 0 = unknown, no memory check
             "copy_probe_inputs": True,  # each probe job reads its own copy of the BP inputs
+            "exclusive": True,          # jobs hold whole nodes; off: only their tasks' cores
+            "hardware_cores_per_node": 0,   # cores Slurm bills for an --exclusive node; 0 = the same
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
+       "hardware_cores_per_node": "WTUNE_HARDWARE_CORES_PER_NODE",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
        "account": "WTUNE_ACCOUNT", "hardware_id": "WTUNE_HARDWARE_ID",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
        "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "max_omp": "WTUNE_MAX_OMP",
        "node_preflight": "WTUNE_NODE_PREFLIGHT", "node_memory_gib": "WTUNE_NODE_MEMORY_GIB",
-       "copy_probe_inputs": "WTUNE_COPY_PROBE_INPUTS",
+       "copy_probe_inputs": "WTUNE_COPY_PROBE_INPUTS", "exclusive": "WTUNE_EXCLUSIVE",
        "measured": "WTUNE_MEASURED"}
 
 # Numbers measured on scc that estimates fall back on when nothing was measured for the
@@ -106,12 +109,16 @@ def check(block, where="machine") -> dict:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise MachineError("%s: %r must be a number of %s, 0 for %s"
                                    % ((at, value) + _NUMBER_UNITS[key]))
-        elif key in ("node_preflight", "copy_probe_inputs"):
+        elif key in ("node_preflight", "copy_probe_inputs", "exclusive"):
             if not isinstance(value, bool):
                 raise MachineError("%s: %r must be true or false" % (at, value))
         elif key == "max_omp":
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MachineError("%s: %r must be a number of threads, 0 for no cap"
+                                   % (at, value))
+        elif key == "hardware_cores_per_node":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MachineError("%s: %r must be a number of cores, 0 for cores_per_node"
                                    % (at, value))
         elif key == "measured":
             if not isinstance(value, dict):
@@ -221,6 +228,45 @@ def _positive_int(key: str) -> int:
 
 def cores_per_node() -> int:
     return _positive_int("cores_per_node")
+
+
+def hardware_cores_per_node() -> int:
+    raw = os.environ.get(ENV["hardware_cores_per_node"], "").strip() or "0"
+    if not raw.isdigit():
+        raise MachineError("%s=%r: must be a number of cores"
+                           % (ENV["hardware_cores_per_node"], raw))
+    return int(raw) or cores_per_node()
+
+
+def cpus_per_task_arg(tasks_per_node: int) -> str:
+    """'--cpus-per-task=K' when a node has more cores than its tasks use, so the CPUs a job
+    requests match the whole nodes --exclusive bills: f1-arm's partitions are tiered by CPU count
+    (arm576 needs >= 145 requested, arm144 bills <= 144), and 2 x 72 tasks of a 144-core node fit
+    neither without it. '' when K would be 1."""
+    k = hardware_cores_per_node() // max(1, tasks_per_node)
+    return "--cpus-per-task=%d" % k if k > 1 and exclusive() else ""
+
+
+def exclusive() -> bool:
+    """False where whole idle nodes are rare and a job may share its node: f1-arm on 2026-11-09
+    had no idle node, and a 4-node --exclusive tune was given a start 12 h out."""
+    raw = os.environ.get(ENV["exclusive"], "").strip().lower()
+    if raw in ("", "1", "true", "on"):
+        return True
+    if raw in ("0", "false", "off"):
+        return False
+    raise MachineError("%s=%r: must be 1 or 0" % (ENV["exclusive"], raw))
+
+
+def node_share_arg(tasks_per_node: int) -> str:
+    """How a job holds its nodes: '--exclusive', or, shared, only its tasks' cores -- kept on one
+    socket when the machine runs one NUMA domain per node (one Grace of f1-arm's two, as the
+    2026-11-05 Sundowner layout scan and run did)."""
+    if exclusive():
+        return "--exclusive"
+    if _positive_int("numa_per_node") == 1:
+        return "--ntasks-per-socket=%d -m block:block" % tasks_per_node
+    return ""
 
 
 def max_nodes() -> int:

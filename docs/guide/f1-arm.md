@@ -29,7 +29,7 @@
 |---|---|---|
 | `~/wtune-adios2/` | WTune 程式；`.deployed-commit` 記錄是哪個 commit | 你下的每個 `wtune` 指令 |
 | `~/wtune-adios2/envs/wtune/.pixi/` | WTune 的 Python 環境（pixi） | `bin/wtune` |
-| `~/wtune-envs/campaign/` | 有 `adios2` Python 綁定的 pixi 環境（BP 轉 netCDF） | 設 `WTUNE_ADIOS2_PYTHON` 時 |
+| `~/wtune-envs/campaign/` | 有 `adios2` Python 綁定的 pixi 環境（BP 轉 netCDF） | 量測與轉檔 job（site 檔的 `PIXI_ENV`；放別處就設 `WTUNE_PIXI_ENV`，例如 `~/wtune-adios2/envs/adios2`），以及設 `WTUNE_ADIOS2_PYTHON` 時 |
 | `~/wtune-f1arm/env.sh` | 執行環境：函式庫 view、`WRF_TREE`、`OMP_STACKSIZE`、地圖資料 | 每個 WTune job（`machine.env_source`） |
 | `~/.config/wtune/machine.yaml` | 機器設定 | 所有專案 |
 | `~/wtune-adios2/campaign/sites/f1arm.sh` | 怎麼啟動 MPI：`ulimit -s unlimited`、IPoIB 網段、`mpirun --map-by ppr:..:numa` | 每個 WTune job |
@@ -67,20 +67,25 @@ env_source: $HOME/wtune-f1arm/env.sh
 wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
 geog: /work2/u5727520/wrf-newcase/WPS_GEOG_LOW_RES
 max_hours: 8.0
-max_omp: 1
 node_preflight: false
 node_memory_gib: 218.0
 copy_probe_inputs: false
 measured:
   startup_s: 15.0
   init_s: 15.0
+  boundary_s_adios2: 9.7
+  history_write_s_adios2: 0.77
+  restart_write_s_adios2: 98.0
 ```
 
 | 欄位 | 為什麼是這個值 |
 |---|---|
 | `max_nodes: 8` | 測試時自訂的上限；`arm1440` 最多 10 節點 |
+| `hardware_cores_per_node` | 只用部分核心時（例如 `cores_per_node: 72`）設成 144：job 會加 `--cpus-per-task`，讓申請的 CPU 數等於 `--exclusive` 計費的整節點數。f1-arm 的 partition 依 CPU 數分層，不設的話 2 節點與 5–7 節點的 72 核 job 沒有 partition 能跑 |
+| `exclusive` | 預設 `true`，每個 job 獨占整個節點。arm 分區沒有全空節點時（2026-11-09 時，一個 4 節點 tune 被排到 12 小時後才能開始），可以用 `wtune project set --exclusive off`：job 只申請自己用的核心，`numa_per_node: 1` 時加 `--ntasks-per-socket` 綁在同一顆 Grace 上，也不再加 `--cpus-per-task`。代價是同一個節點的另一顆 Grace 可能有別人的 job，量測會比較吵 |
 | `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
-| `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
+| `measured.boundary_s_adios2`、`history_write_s_adios2`、`restart_write_s_adios2` | 整段預測的 I/O 項。內建值是 scc 的；f1-arm 上 haitang2017 72 h（job 57791，216 ranks，ADIOS2，work2 GPFS）實測：每次邊界更新那一步多 12.85 s（逐筆 BP 的 wrfbdy 開檔），history 每幀每個 domain 約 1.7 s 且與網格大小無關，restart 每次 6.4 s。用內建值時 I/O 只算 21 s，預測 24:37 比實際 35:05 少 30%；換成這三個值後 I/O 是 702 s，預測 35:59（+2.5%）。只量過這一個個案，網格差很多的個案要再對一次 |
+| 不設 `max_omp` | tune 會讀 `wrf.exe`：沒有 OpenMP 平行區（`__kmpc_fork_call`、`GOMP_parallel`）的 dmpar 版，自動把 OpenMP 執行緒限制在 1，並印出 `omp capped at 1`。`ldd` 看不出來：NVHPC 的 dmpar 版也會連到 `libnvomp.so`。只有要強制更低的上限時才設 `max_omp` |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |
 | `geog` | `wtune prep wps` 的 WPS 靜態資料。f1-arm 上只有低解析度版（1.5 G）；完整的 `geog_high_res_mandatory` 解開約 29 GB，home2 與 work2 的配額都放不下。所以個案要附 `namelist.wps` 並設 `geog_data_res = 'lowres'` |
@@ -153,6 +158,7 @@ setsid nohup wtune tune -O2 --minutes 45 --max-queue-hours 10 > tune.log 2>&1 < 
 ```
 
 - `-O2 --minutes 45`：量測時間（job 實際在跑的時間）最多 45 分鐘。排隊不算。
+- `-O2` 預設用小區域代理聯合搜尋挑節點數與切法，不送真實的 N 節點探測（做法見 [tune](../tutorial/tune.md) 的「小區域代理聯合搜尋」一節）。個案目錄要有 netCDF 的 `wrfinput_d01` 與 `wrfbdy_d01`，沒有的話改走真實量測。代理只送一個節點池 job，節點數預設是 `--max-nodes` 的 4 倍；要限制節點數，加 `--proxy-max-nodes <N>`，調校時間會跟著變長。有 `--minutes` 時，時間一到就用已經量到的結果寫出報告。
 - `--max-queue-hours 10`：累積「我們的 job 一個都沒在跑」的時間到 10 小時就停，用已量到最快的節點數交出 ANCHOR 設定。預設 6 小時。
 - `setsid nohup ... &`：tune 本身在登入節點上等 job，要好幾個小時；這樣登出也不會中斷。
 - 結果寫在 `tune/<id>/tune_report.json`，怎麼讀見 [tune](../tutorial/tune.md) 的「報告」一節。`wtune run` 會自動用最新那份的 `WINNER`。

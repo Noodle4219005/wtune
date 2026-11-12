@@ -10,6 +10,7 @@ import csv
 import glob
 import os
 import re
+from wtune.post import figdpi
 
 WRF_FRAME_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
 
@@ -24,7 +25,7 @@ def subplots(*args, **kwargs):
 
 
 class _LazyWrf:
-    """`from post import custom_api as api; api.wrf.getvar(...)` -- wrf-python imported only
+    """`from wtune.post import custom_api as api; api.wrf.getvar(...)` -- wrf-python imported only
     on first attribute access, not at post/custom_api.py import time."""
 
     def __getattr__(self, name):
@@ -36,9 +37,13 @@ wrf = _LazyWrf()
 
 
 class Context:
-    """One instance per analysis/*.py script run, created by post/custom.py."""
+    """One instance per analysis/*.py script run, created by post/custom.py. ctx.kit: shared
+    analysis pieces (post/analysis_kit.py: CWA scale, contingency scores, box means, nearest
+    points, Hovmoller, track error, observation/model panels)."""
 
     def __init__(self, project_dir, script_name, out_dir, run_dirs):
+        from wtune.post import analysis_kit
+        self.kit = analysis_kit
         self.project_dir = project_dir
         self.script_name = script_name
         self.out_dir = out_dir
@@ -69,19 +74,38 @@ class Context:
         from wtune.post.extract import list_frame_refs
         return list_frame_refs(run_dir, domain=domain)
 
+    def observations(self, kind=None):
+        """[(name, dir, provenance)] of the project's wtune-obs/1 datasets (input/obs/<name>/)
+        of `kind` that pass `wtune event obs-check`; read them with ctx.obs_module's read_grid /
+        read_gauges / read_extra."""
+        from wtune.post import agent_obs
+        kinds = [kind] if kind else agent_obs.KINDS
+        return [d for k in kinds for d in agent_obs.usable(self.project_dir, k)[0]]
+
+    @property
+    def obs_module(self):
+        from wtune.post import agent_obs
+        return agent_obs
+
+    def rain_focus(self, run_dir, domain, spinup_hours=6.0, box=None):
+        """The heaviest post-spin-up rain and its peak hour (post/focus.py), the point and time
+        the recipe's own point figures used."""
+        from wtune.post.focus import rain_focus
+        return rain_focus(run_dir, domain, spinup_hours, box=box)
+
     def open_wrfout(self, path):
         """A netCDF4.Dataset the caller must close (or use as a context manager)."""
         import netCDF4
         return netCDF4.Dataset(path)
 
     def find_run_track_csv(self, run_id):
-        """post/tc.py's own output convention: post/<id>/tc/<run_id>*.csv under this
-        project's post/ tree, most recent post/<id>/ first. None if not found."""
+        """post/tc.py's own output convention: post/<id>/tc/track_domains_<run_id>.csv under
+        this project's post/ tree, most recent post/<id>/ first. None if not found."""
         post_root = os.path.join(self.project_dir, "post")
         if not os.path.isdir(post_root):
             return None
         for post_id in sorted(os.listdir(post_root), reverse=True):
-            for pattern in ("%s*track*.csv" % run_id, "%s*adeck*.csv" % run_id, "%s*.csv" % run_id):
+            for pattern in ("track_domains_%s.csv" % run_id, "%s*track*.csv" % run_id, "%s*adeck*.csv" % run_id, "%s*.csv" % run_id):
                 hits = sorted(glob.glob(os.path.join(post_root, post_id, "tc", pattern)))
                 if hits:
                     return hits[0]
@@ -95,7 +119,7 @@ class Context:
     def save_figure(self, fig, filename, close=True):
         import matplotlib.pyplot as plt
         path = os.path.join(self.out_dir, filename)
-        fig.savefig(path)
+        fig.savefig(path, dpi=figdpi.dpi())
         if close:
             plt.close(fig)
         self.outputs.append(("figure", path, self.script_name))

@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=6000.0 min max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap 100:00:00 of RUNNING time (queue wait not charged; queue cap 6:00:00); phase limits (cumulative): plan 5:00:00, layout 55:00:00, predict 80:00:00, physics 100:00:00
-pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
@@ -75,9 +75,9 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
    1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
 WINNER:    N=4 c/n=72 ranks=288 omp=1 16x18 tiles=1 0.3000 s/step
-NOT TRIED: 17 (reasons below; full list in node_selection.untried)
+NOT TRIED: 19 (reasons below; full list in node_selection.untried)
+    10 x core sweep budget cap: used 0:00 >= 20% of the budget
      9 x sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:00)
-     8 x core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=3: sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:00)
 not run N=5: sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:00)
 not run N=7: sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:00)
@@ -89,10 +89,12 @@ not run N=12: sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:
 not run N=13: sweep budget cap: sweep used 85:00:00 >= 40% of the budget (22:00:00)
 not run N=4 c=70: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=64: core sweep budget cap: used 0:00 >= 20% of the budget
+not run N=4 c=54: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=48: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=4 c=36: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=70: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=64: core sweep budget cap: used 0:00 >= 20% of the budget
+not run N=6 c=54: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=48: core sweep budget cap: used 0:00 >= 20% of the budget
 not run N=6 c=36: core sweep budget cap: used 0:00 >= 20% of the budget
 

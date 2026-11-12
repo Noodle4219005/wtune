@@ -63,7 +63,9 @@ from wtune import predict as predict   # repo root -- delegates run-length resol
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
 # K5 ML apply: run with the grib-env python (needs numpy/netCDF4), never /usr/bin/python3.
-_SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "state_correction_model.py")
+# retired 2026-11-07 (archive/deprecated/README.md): LOCO on 18 targets was worse than no correction
+_SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "..", "..", "..", "archive", "deprecated",
+                         "state_correction_model.py")
 
 
 class ColdstartError(Exception):
@@ -1552,26 +1554,40 @@ def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=Fals
     # failure left 20 of 21 files and ungrib died later).
     import time
     sleep_fn = sleep_fn or time.sleep
-    missing = []
-    for vt in valid_times:
-        for filename, urls in source.urls_for(vt):
-            dest = os.path.join(cache_dir, filename)
-            for attempt in range(attempts):
+    jobs = [(filename, urls) for vt in valid_times for filename, urls in source.urls_for(vt)]
+
+    def fetch_one(job):
+        filename, urls = job
+        dest = os.path.join(cache_dir, filename)
+        for attempt in range(attempts):
+            if os.path.exists(dest):
+                break
+            if attempt:
+                sleep_fn(5 * 2 ** (attempt - 1))
+            for url in urls:
+                try:
+                    download_fn(url, dest)
+                except Exception:
+                    continue
                 if os.path.exists(dest):
                     break
-                if attempt:
-                    sleep_fn(5 * 2 ** (attempt - 1))
-                for url in urls:
-                    try:
-                        download_fn(url, dest)
-                    except Exception:
-                        continue
-                    if os.path.exists(dest):
-                        break
-            if os.path.exists(dest):
-                paths.add(os.path.abspath(dest))
-            else:
-                missing.append(filename)
+        return filename, dest
+
+    # one GFS/ERA file is ~0.5 GB and a single stream gets ~13 MB/s on f1-arm while 8 streams get
+    # ~43 MB/s, so the files are fetched concurrently (WTUNE_FETCH_WORKERS, default 8; 1 = serial)
+    workers = max(1, min(int(os.environ.get("WTUNE_FETCH_WORKERS", "8") or 8), len(jobs) or 1))
+    if workers == 1:
+        done = [fetch_one(j) for j in jobs]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            done = list(pool.map(fetch_one, jobs))     # map keeps the order of valid_times
+    missing = []
+    for filename, dest in done:
+        if os.path.exists(dest):
+            paths.add(os.path.abspath(dest))
+        else:
+            missing.append(filename)
     if missing:
         raise ColdstartError("fetch: %s: %d file(s) still missing after %d attempts: %s"
                              % (source.dataset, len(missing), attempts, ", ".join(missing)))
@@ -2118,6 +2134,17 @@ _RSL_WRITE_RE = re.compile(r"Timing for Writing (.+?) for domain\s+(\d+):\s+([\d
 _RSL_MAIN_RE = re.compile(r"Timing for main: time (\S+) on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
 
 
+def rsl_rank0_only_line(ranks: int) -> str:
+    """Shell line linking rsl.out/rsl.error of ranks >= 1 to /dev/null (strict_campaign's
+    rsl_rank0_only): on 16 MiB-block GPFS each open rsl file holds a full block against the
+    quota, and 4 rebuild points at 216 ranks (real + wrf) held ~29 GB -- every rank of the
+    later points died on "Disk quota exceeded" (haitang2017 tune, 2026-10-28). Scoring and
+    the I/O probe read rsl.error.0000 only. WTUNE_KEEP_ALL_RSL=1 keeps every rank's files."""
+    return ("  [ \"${WTUNE_KEEP_ALL_RSL:-0}\" = 1 ] || for ((r = 1; r < %d; r++)); do "
+            "printf -v n '%%04d' \"$r\"; ln -sf /dev/null \"rsl.out.$n\"; "
+            "ln -sf /dev/null \"rsl.error.$n\"; done" % ranks)
+
+
 def parse_rsl_write_seconds(path: str, history_prefix: str = "wrfout_d") -> dict:
     """{'history': {dom: [s, ...]}, 'restart': {dom: [s, ...]}, 'other': [(name, dom, s), ...]}
     from WRF's 'Timing for Writing <name> for domain N: <s> elapsed seconds' lines, in file order.
@@ -2616,7 +2643,8 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
         lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
     if wtune.machine.account_arg():
         lines.append("#SBATCH " + wtune.machine.account_arg())
-    lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
+    lines.append(("#SBATCH -N %d %s --ntasks-per-node=%d"
+                  % (nodes, wtune.machine.node_share_arg(ppn), ppn)).replace("  ", " "))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")
     plan_dir_abs = plan.get("_plan_dir")
@@ -2816,6 +2844,7 @@ def _run_window_real_lines(ranks, real_tpn):
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
     # real.exe hangs at some decompositions (3x3, 5x5; sc26p1/severe2023): the config's own under
     # REAL_TIMEOUT_S, then serial (nproc 1x1) under REAL_SERIAL_TIMEOUT_S on rc=124 or no output.
+    lines.append(rsl_rank0_only_line(ranks))
     lines.append("  timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
                   % (REAL_TIMEOUT_S, ranks, real_tpn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
@@ -2885,6 +2914,7 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     # measuring the same conditions the prediction will be compared against.
     lines.append("  export OMP_NUM_THREADS=%d" % omp)
     lines.append("  unset OMP_PLACES OMP_PROC_BIND")
+    lines.append(rsl_rank0_only_line(ranks))
     lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
     lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
     lines.append("  WRF_PID=$!")
@@ -3116,7 +3146,12 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
                                       % (k, rsl_path))
             fill = statistics.median(clean)
             wall = [fill if absorbed[i] else sec for i, sec in enumerate(wall)]
-        if plan.get("measure_steps", 2 * stepra) < 2 * stepra:
+        if stepra <= 1:
+            # radt no longer than the time step: every step calls radiation and there is no
+            # normal step to compare with -- the step time is the point's s_k, radiation in it
+            # (Sundowner, radt 1 min, dt 75 s: both rebuilt points ran and neither was scored)
+            flags = [False] * len(kept)
+        elif plan.get("measure_steps", 2 * stepra) < 2 * stepra:
             # An explicitly shortened window (compute_window_seconds' measure_steps) has too few
             # samples for classify_steps_detected's phase detection. Each window is a fresh run
             # starting at T, so its radiation steps are known: local step n (n*dt after T) with
@@ -3355,7 +3390,7 @@ def _build_arg_parser():
                     help="T2 (2026-09-24): each window stops after real.exe succeeds -- no "
                     "wrf.exe, no cost prediction. `score` refuses a --real-only plan.")
     sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
-                    help="K5 (2026-09-24): after each window's real.exe, apply "
+                    help="RETIRED (archive/deprecated; worse than no correction in LOCO). K5 (2026-09-24): after each window's real.exe, apply "
                     "state_correction_model.py's ML state correction (--targets-from-report) "
                     "to the fresh wrfinput_d01 before wrf.exe runs. Default: off.")
 

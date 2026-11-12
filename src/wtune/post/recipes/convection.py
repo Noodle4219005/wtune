@@ -134,7 +134,14 @@ def _max_reflectivity_point(run_dir, domain, time_str):
         return float(lat[j, i]), float(lon[j, i])
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
+_OWN_PEAK = object()     # figures(map_time=...) default: look for the rain peak here
+
+
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, focus_box=None,
+            map_time=_OWN_PEAK):
+    """map_time: the recipe's one-time-map time (post.times / rain peak, snapped to a frame of
+    the convective domain); None = the last post-spin-up frame (no usable rain); left out =
+    this function looks for the rain peak itself."""
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -146,15 +153,22 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                         "no frames found for the convection-permitting domain")]
     post_spinup = _post_spinup_frames(run_dir, domain, spinup_hours)
     last_time = post_spinup[-1][0]
+    # reflectivity map and sounding at the rain peak, in its core (post/focus.py)
+    from wtune.post.focus import frame_at, rain_focus
+    focus = rain_focus(run_dir, domain, spinup_hours, box=focus_box)   # the sounding's point
+    if map_time is _OWN_PEAK:
+        peak_time = focus["peak_time"] if focus else last_time
+    else:
+        peak_time = frame_at(frames, map_time)[0] if map_time else last_time
 
     out = []
     try:
-        path = _map_field(run_dir, domain, "mdbz", last_time,
+        path = _map_field(run_dir, domain, "mdbz", peak_time,
                           os.path.join(out_dir, "conv_max_reflectivity.png"),
-                          "%s d%02d max column reflectivity (NWS table)  {time}" % (run_label, domain),
-                          fill_label="reflectivity (dBZ)")
+                          "%s d%02d max column reflectivity, rain peak  {time}"
+                          % (run_label, domain), fill_label="reflectivity (dBZ)")
         out.append(fig("conv_max_reflectivity", path, run_label, domain="d%02d" % domain,
-                       valid_time=last_time))
+                       valid_time=peak_time))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_max_reflectivity", "wrf-python", str(e)))
     except FIELD_ERRORS as e:
@@ -162,12 +176,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
 
     try:
         for field, label in (("mcape", "MCAPE (J/kg)"), ("mcin", "MCIN (J/kg)")):
-            path = _map_field(run_dir, domain, field, last_time,
+            path = _map_field(run_dir, domain, field, peak_time,
                               os.path.join(out_dir, "conv_%s.png" % field),
                               "%s d%02d %s  {time}" % (run_label, domain, label),
                               cmap="plasma", fill_label=label)
             out.append(fig("conv_%s" % field, path, run_label, domain="d%02d" % domain,
-                           valid_time=last_time))
+                           valid_time=peak_time))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_mcape_mcin", "wrf-python", str(e)))
     except FIELD_ERRORS as e:
@@ -196,13 +210,17 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         out.append(missing("conv_uh25_max", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        lat, lon = _max_reflectivity_point(run_dir, domain, last_time)
+        if focus:
+            lat, lon, why = focus["lat"], focus["lon"], focus["rule"]
+        else:
+            lat, lon = _max_reflectivity_point(run_dir, domain, peak_time)
+            why = "max-reflectivity column"
         from wtune.post.sounding import make_sounding
         path = os.path.join(out_dir, "conv_skewt.png")
-        make_sounding(run_dir, lat, lon, last_time, path, domain=domain)
+        make_sounding(run_dir, lat, lon, peak_time, path, domain=domain)
         out.append(fig("conv_skewt", path, run_label, domain="d%02d" % domain,
-                       valid_time=last_time,
-                       extra={"point": "%.3f,%.3f (max-reflectivity column)" % (lat, lon)}))
+                       valid_time=peak_time,
+                       extra={"point": "%.3f,%.3f (%s)" % (lat, lon, why)}))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_skewt", "MetPy", str(e)))
     except FIELD_ERRORS as e:
@@ -268,7 +286,13 @@ def _nearest(vols, t, tol_min=8):
 
 def radar_missing_reason(project_dir, run_dir, frame_times, bbox):
     """The missing() reason: coverage (data does not exist) or the fetch command."""
-    from wtune.post.fetch import mrms
+    from wtune.post.fetch import mrms, nexrad
+    if bbox is not None and not nexrad.covers(bbox):
+        return ("NEXRAD and MRMS do not cover this region (bbox %s; US radars only) -- radar "
+                "observations for it come as an agent `radar` dataset in wtune-obs/1 under "
+                "<project>/input/obs/<name>/ (skills/wtune-event, part 2), e.g. the national "
+                "radar composite, checked by `wtune event obs-check`"
+                % ", ".join("%.1f" % v for v in bbox))
     t0 = frame_times[0] if frame_times else None
     cmd = "wtune post fetch nexrad --project %s --run-dir %s" % (project_dir or "<project>", run_dir)
     if t0 is not None and t0 >= mrms.FIRST_DAY:

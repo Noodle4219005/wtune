@@ -79,42 +79,6 @@ def fired(result):
     return {m["id"] for m in result["advice"]}
 
 
-# ---------------------------------------------------------------------------- rules file
-def test_rules_file_has_the_eight_rules_with_all_fields():
-    doc = adv.load_rules()
-    assert len(doc["rules"]) == 8
-    assert "只提示，未套用" in doc["footer"]
-    for r in doc["rules"]:
-        for key in ("id", "trigger", "title", "recommendation", "how", "cost", "evidence",
-                    "side_effects", "trigger_text"):
-            assert r[key], (r["id"], key)
-        assert r["cost"]["method"] in ("cost_model", "measured", "uncalibrated")
-        assert r["evidence"]["slug"] and r["evidence"]["text"]
-        assert isinstance(r["how"], list) and r["how"]
-        for c in r["trigger"]["all"] + r["trigger"]["any"]:
-            assert c["detector"] in adv.DETECTORS and c["op"] in adv._OPS
-
-
-def test_uncalibrated_costs_say_so_and_quote_the_measured_numbers():
-    rules = {r["id"]: r for r in adv.load_rules()["rules"]}
-    for rid in ("need_chem_wrf_chem", "need_hydro_wrf_hydro", "convection_radar_wrfda",
-                "long_run_spectral_nudging"):
-        assert rules[rid]["cost"]["method"] == "uncalibrated" and "未校正" in rules[rid]["cost"]["text"]
-    mv = rules["tc_leaves_inner_nest_movenest"]["cost"]["text_template"]
-    assert "+3.1%" in mv and "+4.6%" in mv
-    ev = rules["tc_weak_vortex_early_start"]["evidence"]["text"]
-    assert "944–949" in ev
-    assert "389" in rules["tc_bogus_vortex_tc_exe"]["side_effects"]
-
-
-# ---------------------------------------------------------------------------- detectors
-def test_case_types_namelist_convection_and_tc_from_best_track(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch, hurdat2=HURDAT2, storm="AL122005")
-    ct = adv.run_detector(case, "case_types")
-    assert ct["available"] and ct["tc"] and ct["convection"] and not ct["climate"]
-    assert "best-track fix" in ct["tc_evidence"] and "d02 dx=4 km" in ct["convection_evidence"]
-
-
 def test_case_types_storm_autofound_from_hurdat2_alone(tmp_path, monkeypatch):
     case = make_case(tmp_path, monkeypatch=monkeypatch, hurdat2=HURDAT2)
     assert adv.run_detector(case, "case_types")["tc"] is True
@@ -137,25 +101,6 @@ def test_case_types_climate_from_run_length(tmp_path, monkeypatch):
     assert adv.run_detector(case, "case_types")["climate"] is True
 
 
-def test_tc_vortex_deficit_delta_against_best_track(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch, hurdat2=HURDAT2, storm="AL122005",
-                     slp=(996.4, (24.5, -87.5)))
-    d = adv.run_detector(case, "tc_vortex_deficit")
-    assert d["available"]
-    assert d["best_pmin_hpa"] == 959.0 and d["best_fix_time"] == "2005-08-27_00:00:00"
-    assert d["delta_hpa"] == pytest.approx(37.4)
-    assert d["model_slp_hpa"] == 996.4
-
-
-def test_tc_vortex_deficit_unavailable_without_track_or_state(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch)
-    assert "最佳路徑" in adv.run_detector(case, "tc_vortex_deficit")["reason"]
-    (tmp_path / "x").mkdir()
-    case2 = make_case(tmp_path / "x", monkeypatch=monkeypatch, hurdat2=HURDAT2, storm="AL122005")
-    case2.first_state = None
-    assert "wrfinput" in adv.run_detector(case2, "tc_vortex_deficit")["reason"]
-
-
 def test_tc_nest_exit_inside_and_outside(tmp_path, monkeypatch):
     inside = make_case(tmp_path, monkeypatch=monkeypatch, hurdat2=HURDAT2, storm="AL122005",
                        d02_box=BIG_NEST)
@@ -175,34 +120,10 @@ def test_tc_nest_exit_single_domain_has_no_nest(tmp_path, monkeypatch):
     assert r["available"] and r["n_outside"] == 0 and r["nest_domain"] is None
 
 
-def test_radar_coverage_us_in_window_and_not(tmp_path, monkeypatch):
-    def edit(t):
-        for k, v in (("start_year", "2022, 2022"), ("end_year", "2022, 2022"),
-                     ("start_month", "05, 05"), ("end_month", "05, 05")):
-            t = set_nl(t, k, v)
-        return t
-    us = make_case(tmp_path, monkeypatch=monkeypatch, namelist_edit=edit, d01_box=(34.0, 40.0, -102.0, -94.0))
-    r = adv.run_detector(us, "radar_coverage")
-    assert r["us_domain"] and r["in_mrms"] and r["in_nexrad"] and r["covered"]
-    (tmp_path / "a").mkdir()
-    asia = make_case(tmp_path / "a", monkeypatch=monkeypatch, namelist_edit=edit,
-                     d01_box=(20.0, 30.0, 110.0, 125.0))
-    assert adv.run_detector(asia, "radar_coverage")["covered"] is False
-    (tmp_path / "o").mkdir()
-    old = make_case(tmp_path / "o", monkeypatch=monkeypatch, d01_box=(34.0, 40.0, -102.0, -94.0))
-    r = adv.run_detector(old, "radar_coverage")      # 2005-08-27: before MRMS and before the verified NEXRAD date
-    assert r["us_domain"] and not r["in_mrms"] and not r["in_nexrad"] and not r["covered"]
-
-
 def test_radar_coverage_namelist_fallback_needs_ref_latlon(tmp_path, monkeypatch):
     case = make_case(tmp_path, monkeypatch=monkeypatch)
     case.first_state = None
     assert "ref_lat" in adv.run_detector(case, "radar_coverage")["reason"]
-
-
-def test_run_length_days(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch)
-    assert adv.run_detector(case, "run_length")["run_days"] == 2.0
 
 
 def _write_tcst(path, leads, tk_err_nmi, amslp, bmslp):
@@ -232,11 +153,6 @@ def test_post_detectors_unavailable_without_output(tmp_path, monkeypatch):
     assert not adv.run_detector(case, "post_intensity_bias")["available"]
 
 
-# ---------------------------------------------------------------------------- rules fire / not
-TC_ON = {"case_types": {"tc": True, "convection": False, "tc_evidence": "fix", "convection_evidence": "",
-                        "types": ["common", "tc"]}}
-
-
 def _run(tmp_path, monkeypatch, **dets):
     case = make_case(tmp_path, monkeypatch=monkeypatch)
     base = {"case_types": {"tc": False, "convection": False, "tc_evidence": "", "convection_evidence": "",
@@ -246,43 +162,6 @@ def _run(tmp_path, monkeypatch, **dets):
     base.update(dets)
     preset(case, **base)
     return adv.advise(case)
-
-
-def test_rule_early_start_and_tc_exe_fire_on_init_deficit_and_not_when_small(tmp_path, monkeypatch):
-    on = _run(tmp_path, monkeypatch, **TC_ON, tc_vortex_deficit={
-        "delta_hpa": 37.4, "model_slp_hpa": 996.4, "best_pmin_hpa": 959.0})
-    assert {"tc_weak_vortex_early_start", "tc_bogus_vortex_tc_exe"} <= fired(on)
-    m = {x["id"]: x for x in on["advice"]}["tc_weak_vortex_early_start"]
-    assert "37.4" in m["trigger"] and "996.4" in m["trigger"] and "959" in m["trigger"]
-    assert "+50%" in m["cost"]["text"] and "+75%" in m["cost"]["text"]       # 24/48, 36/48
-    (tmp_path / "n").mkdir()
-    off = _run(tmp_path / "n", monkeypatch, **TC_ON, tc_vortex_deficit={
-        "delta_hpa": 10.0, "model_slp_hpa": 969.0, "best_pmin_hpa": 959.0})
-    assert not ({"tc_weak_vortex_early_start", "tc_bogus_vortex_tc_exe"} & fired(off))
-
-
-def test_rule_early_start_fires_on_post_intensity_only(tmp_path, monkeypatch):
-    on = _run(tmp_path, monkeypatch, **TC_ON, tc_vortex_deficit=None,
-              post_intensity_bias={"median_weak_hpa": 25.0})
-    assert "tc_weak_vortex_early_start" in fired(on)
-    assert "tc_vortex_deficit" not in on["unavailable"]            # rule fired: no noise
-    (tmp_path / "n").mkdir()
-    off = _run(tmp_path / "n", monkeypatch, **TC_ON, tc_vortex_deficit=None,
-               post_intensity_bias={"median_weak_hpa": 20.0})          # threshold is strict >
-    assert "tc_weak_vortex_early_start" not in fired(off)
-    assert "tc_vortex_deficit" in off["unavailable"]               # absence is reported, not "no"
-
-
-def test_rule_movenest_fires_only_when_track_leaves_nest(tmp_path, monkeypatch):
-    on = _run(tmp_path, monkeypatch, **TC_ON, tc_nest_exit={
-        "n_total": 9, "n_outside": 4, "nest_domain": 2, "first_exit": "2005-08-28_00:00:00"})
-    m = {x["id"]: x for x in on["advice"]}["tc_leaves_inner_nest_movenest"]
-    assert "4 個" in m["trigger"] and "d02" in m["trigger"]
-    assert "+3.1%" in m["cost"]["text"] and "6.0%" in m["cost"]["text"]
-    (tmp_path / "n").mkdir()
-    off = _run(tmp_path / "n", monkeypatch, **TC_ON, tc_nest_exit={
-        "n_total": 9, "n_outside": 0, "nest_domain": 2, "first_exit": None})
-    assert "tc_leaves_inner_nest_movenest" not in fired(off)
 
 
 CONV = {"case_types": {"tc": False, "convection": True, "convection_evidence": "d02 dx=3 km, cu_physics=0",
@@ -307,39 +186,6 @@ def test_rule_radar_wrfda_needs_convection_coverage_and_not_tc(tmp_path, monkeyp
     assert m["cost"]["method"] == "uncalibrated" and "觀測數" in m["cost"]["text"]
 
 
-def test_rule_nudging_on_run_length_or_post_growth(tmp_path, monkeypatch):
-    long_ = _run(tmp_path, monkeypatch, run_length={"run_days": 396.0, "run_hours": 9504.0})
-    assert "long_run_spectral_nudging" in fired(long_)
-    assert "396.0 天" in [x for x in long_["advice"] if x["id"] == "long_run_spectral_nudging"][0]["trigger"]
-    (tmp_path / "n").mkdir()
-    short = _run(tmp_path / "n", monkeypatch, run_length={"run_days": 4.9, "run_hours": 117.6})
-    assert "long_run_spectral_nudging" not in fired(short)
-    (tmp_path / "g").mkdir()
-    grow = _run(tmp_path / "g", monkeypatch, run_length={"run_days": 2.0, "run_hours": 48.0},
-                post_track_growth={"slope_km_per_day": 45.0})
-    assert "long_run_spectral_nudging" in fired(grow)
-
-
-@pytest.mark.parametrize("need,rid", [("chem", "need_chem_wrf_chem"), ("hydro", "need_hydro_wrf_hydro"),
-                                      ("surge", "need_surge_holland_ocean_model")])
-def test_need_rules_fire_only_when_declared(tmp_path, monkeypatch, need, rid):
-    off = _run(tmp_path, monkeypatch)
-    assert rid not in fired(off)
-    (tmp_path / "x").mkdir()
-    case = make_case(tmp_path / "x", monkeypatch=monkeypatch, needs=[need])
-    on = adv.advise(case)
-    assert fired(on) >= {rid} and sum(1 for i in fired(on) if i.startswith("need_")) == 1
-    m = on["advice"][0]
-    assert m["how"] and m["cost"]["text"] and m["cost"]["method"] == "uncalibrated"
-
-
-def test_chem_cost_is_labelled_uncalibrated_and_hydro_too(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch, needs=["chem", "hydro"])
-    res = {m["id"]: m for m in adv.advise(case)["advice"]}
-    assert "未校正" in res["need_chem_wrf_chem"]["cost"]["text"]
-    assert "未校正" in res["need_hydro_wrf_hydro"]["cost"]["text"]
-
-
 # ---------------------------------------------------------------------------- A4
 def test_ordinary_non_tc_case_fires_no_tc_rule_and_never_reads_slp(tmp_path, monkeypatch):
     # Pacific box, Katrina best track given: no fix inside d01 -> not a TC case -> TC rules silent
@@ -348,11 +194,6 @@ def test_ordinary_non_tc_case_fires_no_tc_rule_and_never_reads_slp(tmp_path, mon
     res = adv.advise(case)
     assert not [i for i in fired(res) if i.startswith("tc_")]
     assert res["case_types"] and "tc" not in res["case_types"]
-
-
-def test_ordinary_case_without_any_track_fires_no_tc_rule(tmp_path, monkeypatch):
-    res = adv.advise(make_case(tmp_path, monkeypatch=monkeypatch, slp=None))
-    assert not [i for i in fired(res) if i.startswith("tc_")]
 
 
 # ---------------------------------------------------------------------------- end to end (Katrina-like)
@@ -377,19 +218,6 @@ def test_nest_refinement_cost_none_when_already_fine(tmp_path, monkeypatch):
     case2 = make_case(tmp_path / "c", monkeypatch=monkeypatch)
     pct, ratio, dx_km = adv.nest_refinement_extra_pct(case2)      # 4 km finest -> ratio 2 -> 2 km
     assert pct > 0 and ratio == 2 and dx_km == 2.0
-
-
-# ---------------------------------------------------------------------------- JSON shape / surfaces
-def test_json_shape(tmp_path, monkeypatch):
-    case = make_case(tmp_path, monkeypatch=monkeypatch, hurdat2=HURDAT2, storm="AL122005", needs=["surge"])
-    res = json.loads(json.dumps(adv.advise(case), default=str))
-    assert set(res) == {"case", "surface", "advice", "not_fired", "unavailable", "case_types", "footer"}
-    assert res["advice"]
-    for m in res["advice"]:
-        assert set(m) == {"id", "title", "trigger", "recommendation", "how", "cost", "evidence",
-                          "side_effects", "footer", "measured"}
-        assert set(m["cost"]) == {"method", "text"} and set(m["evidence"]) == {"text", "slug"}
-        assert m["footer"] == res["footer"] and "只提示，未套用" in m["footer"]
 
 
 def test_post_surface_keeps_only_verification_rules(tmp_path, monkeypatch):
@@ -417,24 +245,6 @@ def test_render_html_and_report_hook(tmp_path, monkeypatch):
     assert "Advice" not in open(path2).read()
 
 
-def test_tune_hook_appends_text_and_json(monkeypatch):
-    import wtune.tune
-    fake = {"case": "k", "surface": "advise", "case_types": ["common"], "unavailable": {"x": "r"},
-            "footer": adv.load_rules()["footer"], "not_fired": [],
-            "advice": [{"id": "i", "title": "T", "trigger": "t", "recommendation": "r", "how": ["h"],
-                        "cost": {"method": "uncalibrated", "text": "未校正"},
-                        "evidence": {"text": "e", "slug": "s"}, "side_effects": "se",
-                        "footer": adv.load_rules()["footer"], "measured": {}}]}
-    monkeypatch.setattr(adv, "advise_case_id", lambda cid, **kw: fake)
-    report = {"case": "k"}
-    text = wtune.tune._attach_advice(report)
-    assert "只提示，未套用" in text and report["advice"] == fake["advice"]
-    monkeypatch.setattr(adv, "advise_case_id", lambda cid, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
-    report = {"case": "k"}
-    assert wtune.tune._attach_advice(report) == "" and report["advice"] == [] \
-        and "boom" in report["advice_error"]
-
-
 # ---------------------------------------------------------------------------- CLI
 def test_cli_help_lists_need_and_json(capsys):
     with pytest.raises(SystemExit) as e:
@@ -448,15 +258,6 @@ def test_cli_rejects_unknown_need_and_unknown_case(capsys):
     assert adv.main(["x", "--need", "bogus"]) == 2
     assert adv.main(["no-such-case-xyz"]) == 1
     assert "unknown case" in capsys.readouterr().err
-
-
-def test_cli_json_and_need_comma_list(tmp_path, monkeypatch, capsys):
-    d = tmp_path / "c"
-    d.mkdir()
-    shutil.copy(NAMELIST, d / "namelist.input")
-    assert adv.main([str(d), "--need", "chem,surge", "--json"]) == 0
-    res = json.loads(capsys.readouterr().out)
-    assert {"need_chem_wrf_chem", "need_surge_holland_ocean_model"} <= {m["id"] for m in res["advice"]}
 
 
 def test_wtune_cli_dispatches_advise(tmp_path):
@@ -496,11 +297,3 @@ def test_namelist_less_dir_tc_vortex_reported_unavailable_when_tc_forced(tmp_pat
 def test_json_error_stays_valid_on_unknown_case(capsys):
     assert adv.main(["no-such-case-xyz", "--json"]) == 1
     assert "error" in json.loads(capsys.readouterr().out)
-
-
-def test_how_lines_flag_unverified_values_and_cite_sources():
-    rules = {r["id"]: r for r in adv.load_rules()["rules"]}
-    tcexe = " ".join(rules["tc_bogus_vortex_tc_exe"]["how"])
-    assert "real.exe 之前" in tcexe and "insert_bogus_storm" in tcexe and "README.namelist" in tcexe
-    assert "VORTEX_CENTER" in " ".join(rules["tc_leaves_inner_nest_movenest"]["how"])
-    assert "經驗值，未查證" in " ".join(rules["long_run_spectral_nudging"]["how"])

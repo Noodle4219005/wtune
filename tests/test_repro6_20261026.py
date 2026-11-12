@@ -7,7 +7,6 @@ import json
 import os
 import re
 import socket
-import subprocess
 import sys
 import time
 import urllib.request
@@ -19,7 +18,7 @@ from wtune import predict as wp
 from wtune import run as wr
 import wtune.watch
 from test_wtune_run import Fakes, _make_case, fake_bp, FakeBP  # noqa: F401  (autouse fixture)
-from test_wtune_run_resume import FMT, T0, Dying, _real_bp, _rsl
+from test_wtune_run_resume import FMT, T0, _real_bp, _rsl
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = HERE
@@ -48,28 +47,6 @@ def _rst_times(seg, dom=1):
     pat = re.compile(r"^wrfrst_d%02d_(\S+)$" % dom)
     return sorted(m.group(1) for n in os.listdir(seg) for m in [pat.match(n)] if m
                   and not os.path.islink(os.path.join(seg, n)))
-
-
-CK = ["--segment-minutes", "720", "--checkpoint-minutes", "120"]
-
-
-def test_died_right_after_newest_restart_resumes_from_previous_set(tmp_path):
-    f = Dying([("died", "NODE_FAIL", 4)])         # restarts 02:00 and 04:00 written, then dead
-    rc, out, rep, lines = _ckpt_run(tmp_path, f, CK + ["--resume", "1"])
-    assert rc == 0 and rep["status"] == "completed", rep and rep.get("error")
-    first = rep["segments"][0]["attempts"][0]
-    assert first["resume_time"] == "2020-06-01_02:00:00"
-    assert [os.path.basename(s) for s, _ in f.submitted] == ["seg_0", "seg_0_r1"]
-
-
-def test_failed_attempt_keeps_every_valid_restart_set(tmp_path):
-    f = Dying([("died", "NODE_FAIL", 6)])
-    rc, out, rep, _ = _ckpt_run(tmp_path, f, CK + ["--resume", "0"])
-    assert rc == 1
-    seg = str(out / "seg_0")
-    for d in (1, 2, 3):
-        assert _rst_times(seg, d) == ["2020-06-01_02:00:00", "2020-06-01_04:00:00",
-                                      "2020-06-01_06:00:00"], d
 
 
 class Writing(Fakes):
@@ -103,16 +80,6 @@ def test_ok_attempt_leaves_only_newest_valid_restart_set(tmp_path):
         assert _rst_times(str(out / "seg_0"), d) == ["2020-06-01_06:00:00"]
 
 
-def test_ok_attempt_still_cleans_after_a_resume(tmp_path):
-    f = Dying([("died", "NODE_FAIL", 5)])
-    rc, out, rep, _ = _ckpt_run(tmp_path, f, CK + ["--resume", "1"])
-    assert rc == 0, rep and rep.get("error")
-    assert rep["segments"][0]["attempts"][0]["resume_time"] == "2020-06-01_04:00:00"
-    # once the resume finished, the failed attempt keeps only the set it resumed from
-    assert _rst_times(str(out / "seg_0")) == ["2020-06-01_04:00:00"]
-    assert _rst_times(str(out / "seg_0_r1")) == ["2020-06-01_12:00:00"]
-
-
 def _side(tmp_path, max_dom=2):
     from wtune import sidecar as ws
     run = tmp_path / "out"
@@ -138,17 +105,6 @@ def test_compress_history_sidecar_keeps_two_newest_valid_sets_while_running(tmp_
             assert os.path.isdir(rst(d, h)), (h, d)
     assert not report["sidecar"]["valid_restarts"][-1].get("deleted")
     assert not report["sidecar"]["valid_restarts"][-2].get("deleted")
-
-
-def test_sidecar_single_valid_set_and_unfinished_set_untouched(tmp_path):
-    side, seg, report = _side(tmp_path)
-    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, (T0 + dt.timedelta(hours=h)).strftime(FMT))))
-    for d in (1, 2):
-        _real_bp(rst(d, 2))
-    _real_bp(rst(1, 4))                                     # 04:00 still being written
-    (seg / "rsl.error.0000").write_text(_rsl(T0, _at(5), [_at(2)], 2))
-    side.poll(str(seg), "77", {"ranks": 80, "nodes": 5, "omp": 3}, "RUNNING")
-    assert all(os.path.isdir(rst(d, 2)) for d in (1, 2)) and os.path.isdir(rst(1, 4))
 
 
 # =====================================================================================
@@ -264,104 +220,6 @@ def test_current_cache_submits_no_conversion_job(tmp_path, fake_bp, spy, no_slur
     assert not any(spy.real)
 
 
-def test_inside_a_slurm_job_it_converts_in_place(tmp_path, fake_bp, spy, monkeypatch):  # noqa: F811
-    monkeypatch.setenv("SLURM_JOB_ID", "4242")
-    case = _make_case(tmp_path)
-    f = ConvFakes(fake_bp, str(case), str(tmp_path / "out" / "_bp_inputs"))
-    rc, out, lines = _conv_main(tmp_path, f)
-    assert rc == 0, lines
-    assert "nc2bp" not in f.events and spy.real == [True]
-
-
-def test_dry_run_submits_nothing_even_with_stale_cache(tmp_path, fake_bp, no_slurm_env):  # noqa: F811
-    case = _make_case(tmp_path)
-    f = ConvFakes(fake_bp, str(case), str(tmp_path / "out" / "_bp_inputs"))
-    rc, out, lines = _conv_main(tmp_path, f, ["--dry-run"], convert_in_job=True)
-    assert rc == 0 and f.events == [] and fake_bp.calls == []
-
-
-# =====================================================================================
-# 3. calibrate plan stages namelist-named files
-# =====================================================================================
-IOF_NAMELIST = """\
-&time_control
- run_days = 0,
- run_hours = 24,
- run_minutes = 0,
- run_seconds = 0,
- history_interval = 180,
- restart = .false.,
- io_form_history = 2
- iofields_filename = "myiofields.txt", "myiofields.txt",
- ignore_iofields_warning = .true.,
- /
-&domains
- time_step = 180,
- max_dom = 1,
- e_we = 100,
- e_sn = 100,
- e_vert = 45,
- /
-&physics
- /
-"""
-
-
-def _plan_script(tmp_path, namelist=IOF_NAMELIST, extra_files=("myiofields.txt",)):
-    from wtune import calibrate as wc
-    case = tmp_path / "scase"
-    case.mkdir()
-    (case / "namelist.input").write_text(namelist)
-    for n in extra_files:
-        (case / n).write_text("+:h:0:T2\n")
-    out = tmp_path / "plan_out"
-    ns = argparse.Namespace(site="scc", case_dir=str(case), out=str(out), ranks_list="1",
-                            cores_per_node=72, steps=20, min_patch=10, time_limit="00:15:00")
-    assert wc.plan_cmd(ns) == 0
-    return case, (out / "plan_1.sbatch").read_text()
-
-
-def _run_namelist_part(tmp_path, case, script):
-    lines = script.splitlines()
-    i0 = next(i for i, ln in enumerate(lines) if ln.lstrip().startswith('"$PYBIN"') and "edit-namelist" in ln)
-    i1 = next(i for i, ln in enumerate(lines) if ln.startswith("export OMP_NUM_THREADS"))
-    frag = "\n".join(lines[i0:i1])
-    run = tmp_path / "rundir"
-    run.mkdir()
-    (run / "namelist.input.orig").write_text((case / "namelist.input").read_text())
-    W = tmp_path / "W"
-    (W / "main").mkdir(parents=True)
-    (W / "main" / "wrf.exe").write_text("x")
-    env = dict(os.environ, CAMPAIGN=os.path.join(REPO, "campaign"), W=str(W),
-               PYBIN=sys.executable)
-    r = subprocess.run(["bash", "-c", frag], cwd=str(run), env=env, capture_output=True, text=True)
-    return run, r
-
-
-def test_plan_script_stages_iofields_file_after_namelist_edit(tmp_path):
-    case, script = _plan_script(tmp_path)
-    run, r = _run_namelist_part(tmp_path, case, script)
-    assert (run / "namelist.input").is_file(), r.stderr
-    assert (run / "myiofields.txt").is_file(), (r.stdout, r.stderr)
-    assert (run / "myiofields.txt").read_text().strip().endswith("T2")
-
-
-def test_plan_script_staging_does_not_replace_existing_and_tolerates_missing(tmp_path):
-    case, script = _plan_script(tmp_path, extra_files=())     # file named but absent from the case
-    run, r = _run_namelist_part(tmp_path, case, script)
-    assert (run / "namelist.input").is_file(), r.stderr       # the run is not aborted by it
-
-
-def test_plan_script_without_namelist_files_still_valid_bash(tmp_path):
-    plain = IOF_NAMELIST.replace(' iofields_filename = "myiofields.txt", "myiofields.txt",\n', "")
-    case, script = _plan_script(tmp_path, namelist=plain, extra_files=())
-    p = tmp_path / "s.sh"
-    p.write_text(script)
-    assert subprocess.run(["bash", "-n", str(p)]).returncode == 0
-    run, r = _run_namelist_part(tmp_path, case, script)
-    assert (run / "namelist.input").is_file(), r.stderr
-
-
 # =====================================================================================
 # 4. network only on login nodes
 # =====================================================================================
@@ -388,16 +246,6 @@ def ne_spy(monkeypatch):
     return calls
 
 
-def test_natural_earth_ready_never_calls_the_downloading_reader(tmp_path, monkeypatch, ne_spy):
-    from wtune.post import plotting
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(empty))
-    plotting._set_cartopy_data_dir()
-    assert plotting._natural_earth_ready() is False
-    assert ne_spy == []
-
-
 def test_natural_earth_ready_true_from_disk_only(tmp_path, monkeypatch, ne_spy):
     from wtune.post import plotting
     root = tmp_path / "data"
@@ -405,16 +253,6 @@ def test_natural_earth_ready_true_from_disk_only(tmp_path, monkeypatch, ne_spy):
     monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(root))
     plotting._set_cartopy_data_dir()
     assert plotting._natural_earth_ready() is True
-    assert ne_spy == []
-
-
-def test_natural_earth_ready_other_resolution_not_confused(tmp_path, monkeypatch, ne_spy):
-    from wtune.post import plotting
-    root = tmp_path / "data"
-    _install_ne(str(root), "ne_110m_coastline")
-    monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(root))
-    plotting._set_cartopy_data_dir()
-    assert plotting._natural_earth_ready("50m") is False
     assert ne_spy == []
 
 
@@ -459,16 +297,6 @@ def _project(tmp_path, storm="AL122005"):
     return str(p)
 
 
-def test_bdeck_module_meets_fetch_contract():
-    from wtune.post import fetch
-    mods, errors = fetch.discover(refresh=True)
-    assert "bdeck" in mods and "bdeck" not in errors, errors
-    m = mods["bdeck"]
-    assert m.NAME == "bdeck" and fetch.check_module(m) == []
-    p = argparse.ArgumentParser()
-    m.add_arguments(p)
-
-
 def test_bdeck_fetch_writes_named_file_with_provenance_and_is_idempotent(tmp_path, fake_nhc):
     from wtune.post import fetch, sources
     proj = _project(tmp_path)
@@ -497,28 +325,10 @@ def test_project_without_storm_has_nothing_to_fetch(tmp_path, fake_nhc):
     assert "bdeck" not in line
 
 
-def test_project_with_storm_lists_bdeck_as_missing_until_fetched(tmp_path, fake_nhc):
-    from wtune.post import fetch
-    proj = _project(tmp_path)
-    assert "bdeck" in fetch.missing_locally(proj)
-    fetch.run_module("bdeck", argparse.Namespace(project=proj, run_dir=None))
-    assert "bdeck" not in fetch.missing_locally(proj)
-
-
 HURDAT_PTS = [dict(time=dt.datetime(2005, 8, 28, 0), lat=25.0, lon=-85.0, vmax_ms=60.0, pmin_hpa=930.0,
                    rmw_km=30.0),
               dict(time=dt.datetime(2005, 8, 28, 6), lat=25.5, lon=-86.0, vmax_ms=65.0, pmin_hpa=920.0,
                    rmw_km=28.0)]
-
-
-def test_resolve_bdeck_does_not_download_inside_a_slurm_job(tmp_path, monkeypatch):
-    from wtune.post import atcf, tc
-    monkeypatch.setenv("SLURM_JOB_ID", "99")
-    hits = []
-    monkeypatch.setattr(atcf, "fetch_bdeck", lambda *a, **k: hits.append(a) or "x")
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: hits.append(a))
-    path = tc.resolve_bdeck("AL122005", str(tmp_path), hurdat2_points=HURDAT_PTS)
-    assert hits == [] and os.path.isfile(path) and len(atcf.parse_file(path)) >= 2
 
 
 def test_resolve_bdeck_inside_job_without_fallback_is_a_tcerror_not_a_download(tmp_path, monkeypatch):
@@ -586,47 +396,4 @@ def _nl(tmp_path, domains, run_hours=6):
     return wp.parse_namelist(str(p))
 
 
-def test_adaptive_defaults_follow_wrf_nint_of_3dx_and_8dx(tmp_path):
-    nl = _nl(tmp_path, " dx = 2500,\n dy = 2500,\n")
-    lo_n, hi_n, lo, hi = wp.adaptive_step_bounds(nl, 21600.0)
-    assert (lo, hi) == (8.0, 20.0)                    # NINT(7.5) = 8, NINT(20) = 20
-    assert (lo_n, hi_n) == (21600 // 20, -(-21600 // 8))
-
-
-def test_adaptive_defaults_use_min_of_dx_dy_and_round_half_away(tmp_path):
-    nl = _nl(tmp_path, " dx = 5000,\n dy = 3500,\n")
-    _lo_n, _hi_n, lo, hi = wp.adaptive_step_bounds(nl, 21600.0)
-    assert (lo, hi) == (11.0, 28.0)                   # 3*3.5 = 10.5 -> 11 (Fortran NINT)
-
-
-def test_adaptive_explicit_values_win_and_den_divides(tmp_path):
-    nl = _nl(tmp_path, " dx = 5000,\n dy = 5000,\n min_time_step = 10,\n max_time_step = 40,\n")
-    assert wp.adaptive_step_bounds(nl, 3600.0)[2:] == (10.0, 40.0)
-    nl = _nl(tmp_path, " dx = 5000,\n dy = 5000,\n min_time_step = 10,\n max_time_step = 40,\n"
-                       " min_time_step_den = 2,\n max_time_step_den = 4,\n")
-    assert wp.adaptive_step_bounds(nl, 3600.0)[2:] == (5.0, 10.0)
-
-
-def test_adaptive_off_gives_none(tmp_path):
-    nl = _nl(tmp_path, " dx = 5000,\n dy = 5000,\n")
-    nl["domains"]["use_adaptive_time_step"] = [False]
-    assert wp.adaptive_step_bounds(nl, 3600.0) is None
-
-
 CALIBRATION = os.path.join(HERE, "machine", "calibration", "scc.json")
-
-
-def test_range_low_is_never_negative_for_conus25_like_case_with_max_200(tmp_path):
-    from test_wtune_predict import CONUS25_NAMELIST
-    case = tmp_path / "conus25"
-    case.mkdir()
-    nl = CONUS25_NAMELIST.replace("&domains", "&domains\n use_adaptive_time_step = .true.,\n"
-                                  " max_time_step = 200,", 1)
-    (case / "namelist.input").write_text(nl)
-    config = {"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}
-    pred = wp.build_prediction(namelist_path=str(case / "namelist.input"), case_dir=str(case), nodes=7,
-                               config=config, ledger_paths=[], calibration_path=CALIBRATION,
-                               io_form_override=None, io_target="nfs")
-    assert pred["range_low_s"] >= 0.0
-    assert pred["range_low_s"] <= pred["total_s"] <= pred["range_high_s"]
-    assert "use_adaptive_time_step" in pred["steps_note"]

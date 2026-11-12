@@ -92,12 +92,13 @@ def _in_flight(job_ids: list, states: dict, misses: dict, stage: str) -> list:
 
 
 def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
-                  exempt_budget: bool = False) -> dict:
-    """Poll sacct until `job_ids` leave PENDING/RUNNING, printing one progress line per poll; at
-    the budget deadline cancel those ids only. Returns the last {job: (State, Elapsed)} ({} for
-    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget). The jobs' input
-    copies are removed once they have ended, whatever their state."""
-    states = _wait_for_jobs(ctx, job_ids, stage, note, exempt_budget)
+                  exempt_budget: bool = False, until: Callable[[], bool] | None = None) -> dict:
+    """Poll sacct until `job_ids` leave PENDING/RUNNING (or `until()` is true: a node pool's
+    batch done while the pool job runs on), printing one progress line per poll; at the budget
+    deadline cancel those ids only. Returns the last {job: (State, Elapsed)} ({} for no ids).
+    budget_mode "running" uses _wait_running_budget (exempt_budget). The jobs' input copies are
+    removed once they have ended, whatever their state."""
+    states = _wait_for_jobs(ctx, job_ids, stage, note, exempt_budget, until)
     for j in job_ids:
         d = ctx.input_copies.pop(j, None)
         if d:
@@ -106,19 +107,19 @@ def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
 
 
 def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
-                   exempt_budget: bool) -> dict:
+                   exempt_budget: bool, until: Callable[[], bool] | None = None) -> dict:
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return {}
     if ctx.budget_mode == "running":
-        return _wait_running_budget(ctx, job_ids, stage, note, exempt_budget)
+        return _wait_running_budget(ctx, job_ids, stage, note, exempt_budget, until)
     misses: dict = {}
     while True:
         elapsed = ctx.elapsed()
         states = sweep.sacct_states(job_ids, sacct_runner=ctx.sacct_runner, sacct_cmd=ctx.sacct_cmd)
         in_flight = _in_flight(job_ids, states, misses, stage)
         print_progress(stage, elapsed, ctx.budget_s, note)
-        if not in_flight:
+        if not in_flight or (until is not None and until()):
             return states
         _stop_if_requested(ctx, in_flight)
         if elapsed >= ctx.budget_s:
@@ -128,11 +129,15 @@ def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
 
 
 def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
-                         exempt_budget: bool = False) -> dict:
+                         exempt_budget: bool = False, until: Callable[[], bool] | None = None) -> dict:
     """wait_for_jobs on the RUNNING-time budget (decision 0055 gap 3): a poll interval is charged
     only when one of our jobs (or ctx.background_jobs) runs, else counted as queue wait (capped by
     max_queue_s). Cancels at the budget (not when `exempt_budget`) or the wall cap."""
     misses: dict = {}
+    # each poll is charged from the end of the last one: the sacct query and the progress line
+    # take seconds with many jobs, and charging the sleep alone left them uncounted (isc-synth on
+    # f1: 18:40 charged of 22:11 with a job in flight, the rest shown as controller time)
+    t0 = ctx.clock.now()
     while True:
         elapsed = ctx.elapsed()
         wall = ctx.wall_elapsed()
@@ -146,7 +151,7 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
         print_progress(stage, elapsed, ctx.budget_s,
                        (note + " " if note else "") + "(running budget; wall %s, queue-only %s)"
                        % (_fmt_hms(wall), _fmt_hms(ctx.queue_wait_s)))
-        if not in_flight:
+        if not in_flight or (until is not None and until()):
             return states
         _stop_if_requested(ctx, in_flight)
         over_budget = elapsed >= ctx.budget_s and not exempt_budget
@@ -166,12 +171,13 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
         if not running:            # nothing consumes budget: only the wall cap bounds the poll
             step = ctx.poll_interval if ctx.max_wall_s is None else \
                 min(ctx.poll_interval, max(0.0, ctx.max_wall_s - wall))
-        t0 = ctx.clock.now()
         ctx.clock.sleep(step)
+        t1 = ctx.clock.now()
+        charged, t0 = t1 - t0, t1
         if running:
-            ctx.add_running(ctx.clock.now() - t0)
+            ctx.add_running(charged)
         if not running:
-            ctx.add_queue_wait(ctx.clock.now() - t0)
+            ctx.add_queue_wait(charged)
             if ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s:
                 if ctx.shared_queue is not None:
                     ctx.shared_queue["cap_hit"] = True

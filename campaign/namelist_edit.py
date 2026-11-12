@@ -10,8 +10,9 @@ import re
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from namelist_adios2 import _apply_adios2
-from namelist_text import (_delete_key_lines, _insert_after_domains, _insert_after_section_header,
-                           _replace_list_line, _set_or_insert_time_control_scalar, _set_scalar)
+from namelist_text import (_delete_key_lines, _force_gsfcgce_radar_ref, _insert_after_domains,
+                           _insert_after_section_header, _replace_list_line,
+                           _set_or_insert_time_control_scalar, _set_scalar)
 from physics_templates import Template, apply_physics_template
 
 HISTORY_NEVER_MINUTES = 1000000  # ~694 days: longer than any campaign run, fits int32 as seconds
@@ -264,4 +265,4 @@ def edit_namelist(text: str, nproc_x: int, nproc_y: int, numtiles: int, run_minu
     if physics_template:
         text = _apply_named_template(text, physics_template, physics_templates or {}, max_dom,
                                      physics_case)
-    return text
+    return _force_gsfcgce_radar_ref(text)

@@ -1,0 +1,37 @@
+&share
+ wrf_core = 'ARW',
+ max_dom = 3,
+ start_date = '2017-07-31_00:00:00','2017-07-31_00:00:00','2017-07-31_00:00:00',
+ end_date   = '2017-08-03_00:00:00','2017-08-03_00:00:00','2017-08-03_00:00:00',
+ interval_seconds = 10800,
+ io_form_geogrid = 2,
+/
+
+&geogrid
+ parent_id         =   1,   1,   2,
+ parent_grid_ratio =   1,   3,   5,
+ i_parent_start    =   1,  83,  66,
+ j_parent_start    =   1,  22,  77,
+ e_we              = 221, 187, 221,
+ e_sn              = 126, 196, 301,
+ geog_data_res = 'lowres', 'gmted2010_30s+modis_30s_lake+lowres', 'gmted2010_30s+modis_30s_lake+lowres',
+ dx = 45000,
+ dy = 45000,
+ map_proj  = 'lambert',
+ ref_lat   =  26.54,
+ ref_lon   = 119.10,
+ truelat1  =  10.0,
+ truelat2  =  40.0,
+ stand_lon = 118.5,
+ geog_data_path = '/home/alvin0418/nkli/geog/WPS_GEOG_MIX'
+/
+
+&ungrib
+ out_format = 'WPS',
+ prefix = 'FILE',
+/
+
+&metgrid
+ fg_name = 'FILE'
+ io_form_metgrid = 2,
+/

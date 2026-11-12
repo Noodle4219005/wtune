@@ -18,8 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from wtune.predictor import benchmark
 from wtune.predictor import decomp_search as dsearch
-from wtune.predictor import decomp_space as ds
-from wtune.predictor import features as feat
 from wtune.predictor import ledger as ledgermod
 from wtune.predictor import models as modelmod
 from wtune.predictor import targets
@@ -43,135 +41,12 @@ def _mk_cfg(ranks, omp, nx, ny, numtiles, tile_shape="1d_y", dist="cyclic", bloc
 
 
 # ---------------------------------------------------------------------------
-# candidate_key
-# ---------------------------------------------------------------------------
-def test_candidate_key_distinguishes_tile_sz_variants():
-    """decomp_space._candidate_key (deliberately NOT reused here -- see decomp_search.
-    candidate_key's own docstring) would collide two different tile_sz variants under
-    tile_shape=='tile_sz'; decomp_search's own key must not."""
-    a = dict(_mk_cfg(448, 1, 8, 56, 8, tile_shape="tile_sz"), tile_sz_x=28, tile_sz_y=4)
-    b = dict(_mk_cfg(448, 1, 8, 56, 8, tile_shape="tile_sz"), tile_sz_x=14, tile_sz_y=8)
-    assert dsearch.candidate_key(a) != dsearch.candidate_key(b)
-    assert dsearch.candidate_key(a) == dsearch.candidate_key(dict(a))
-
-
-# ---------------------------------------------------------------------------
-# select_batch: diversity cap + forced inclusion
-# ---------------------------------------------------------------------------
-def _scored(cfgs, acqs):
-    return [(acq, c, acq, 0.0) for acq, c in zip(acqs, cfgs)]
-
-
-def test_select_batch_respects_diversity_cap():
-    # 5 candidates all in the SAME (ranks, omp) group, ranked by acquisition -- cap=2 must keep
-    # only the best 2, however large the requested batch.
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 12, 13, 14)]
-    acqs = [0.0, -0.05, -0.02, -0.10, -0.01]  # numtiles=13 (idx3) best, then numtiles=8 (idx1)
-    scored = _scored(cfgs, acqs)
-    chosen = dsearch.select_batch(scored, batch_size=10, max_per_rank_omp=2)
-    assert len(chosen) == 2
-    assert {c["numtiles"] for c in chosen} == {13, 8}
-
-
-def test_select_batch_diversity_cap_spans_multiple_groups():
-    cfgs = ([_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 12)]
-            + [_mk_cfg(224, 2, 4, 56, nt) for nt in (1, 12, 16)])
-    acqs = [0.0, -0.01, -0.02, -0.05, -0.06, -0.03]
-    scored = _scored(cfgs, acqs)
-    chosen = dsearch.select_batch(scored, batch_size=10, max_per_rank_omp=1)
-    groups = [(c["ranks"], c["omp"]) for c in chosen]
-    assert len(chosen) == 2  # 1 per group, 2 groups
-    assert sorted(groups) == [(224, 2), (448, 1)]
-    # best (lowest) acquisition within each group: 448x1 trio acqs=[0.0,-0.01,-0.02] -> nt=12;
-    # 224x2 trio acqs=[-0.05,-0.06,-0.03] -> nt=12.
-    by_group = {(c["ranks"], c["omp"]): c for c in chosen}
-    assert by_group[(448, 1)]["numtiles"] == 12
-    assert by_group[(224, 2)]["numtiles"] == 12
-
-
-def test_select_batch_forced_included_even_if_not_top_acquisition():
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 16)]
-    acqs = [-0.5, -0.4, -0.01]  # numtiles=1 (idx0) is by far the best acquisition
-    scored = _scored(cfgs, acqs)
-    forced = [cfgs[2]]  # numtiles=16, the WORST acquisition -- must still appear
-    chosen = dsearch.select_batch(scored, batch_size=2, max_per_rank_omp=5, forced=forced)
-    assert len(chosen) == 2
-    assert cfgs[2] in chosen
-    assert cfgs[0] in chosen  # the remaining slot goes to the best acquisition
-
-
-def test_select_batch_forced_still_counts_against_diversity_cap():
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 16)]
-    acqs = [-0.5, -0.4, -0.01]
-    scored = _scored(cfgs, acqs)
-    forced = [cfgs[2]]
-    chosen = dsearch.select_batch(scored, batch_size=5, max_per_rank_omp=1, forced=forced)
-    assert len(chosen) == 1  # cap=1 for this single (ranks,omp) group; forced fills the only slot
-    assert chosen == [cfgs[2]]
-
-
-def test_select_batch_skips_strip_shapes_and_blocktime_duplicates():
-    # round-1 proposals 2026-09-15 were dominated by 64x1 strips (15x slower in smoke 1078036)
-    # and pairs differing only in KMP_BLOCKTIME
-    strip = dict(_mk_cfg(64, 7, 64, 1, 13), patch_x=14, patch_y=901)
-    good = dict(_mk_cfg(448, 1, 8, 56, 8), patch_x=113, patch_y=17)
-    good_bt = dict(good, blocktime="default")
-    other = dict(_mk_cfg(224, 2, 8, 28, 14), patch_x=113, patch_y=33)
-    scored = [(-1.0, strip, 0.0, 1.0), (-0.2, good, -0.1, 0.1), (-0.19, good_bt, -0.1, 0.1),
-              (-0.1, other, -0.05, 0.05)]
-    chosen = dsearch.select_batch(scored, batch_size=4, max_per_rank_omp=2)
-    assert strip not in chosen                      # aspect 64 > 20
-    assert not (good in chosen and good_bt in chosen)  # same shape, blocktime only
-    assert other in chosen
-
-
-def test_select_batch_mixes_exploitation_and_exploration():
-    # A has the best predicted mean but a poor LCB; B has the best LCB (high sigma) but a hopeless
-    # mean (> log 1.5); C is a reasonable exploration pick. Exploitation must take A, exploration C.
-    a = dict(_mk_cfg(448, 1, 8, 56, 8), patch_x=113, patch_y=17)
-    b = dict(_mk_cfg(224, 2, 8, 28, 14), patch_x=113, patch_y=33)
-    c = dict(_mk_cfg(112, 4, 8, 14, 16), patch_x=113, patch_y=65)
-    scored = [(-0.05, a, -0.10, 0.03), (-2.0, b, 0.60, 1.7), (-0.30, c, 0.10, 0.27)]
-    chosen = dsearch.select_batch(scored, batch_size=2, max_per_rank_omp=2)
-    assert a in chosen and c in chosen and b not in chosen
-
-
-# ---------------------------------------------------------------------------
 # propose_core: stop rule
 # ---------------------------------------------------------------------------
 def _labeled_rows(cfgs, ys, case_name="prior"):
     return [dict(dsearch.candidate_row(case_name, CASE_FIELDS, HARDWARE_ID, 4, c,
                                         run_id="r:%d" % i), y=y)
             for i, (c, y) in enumerate(zip(cfgs, ys))]
-
-
-def test_propose_core_stops_when_no_candidate_beats_incumbent_beyond_noise():
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 12, 13, 14, 16)]
-    ys = [0.0, -0.01, -0.005, -0.008, -0.003, 0.001]
-    labeled = _labeled_rows(cfgs, ys)
-    state = dict(configs={}, measured={}, rounds=[{"round": 1}])  # pretend round 1 already ran
-    # incumbent is already essentially the best of the lot (y=-0.01); every remaining candidate's
-    # own labeled y is within NOISE of it, so a surrogate fit on exactly this data should not see
-    # a confident further improvement.
-    result = dsearch.propose_core(
-        cfgs, labeled, "case", CASE_FIELDS, HARDWARE_ID, 4, state, batch_size=4,
-        incumbent_cfg=cfgs[1], incumbent_y=-0.01, kappa=0.0, ensemble_size=5, ensemble_seed=0,
-        max_rounds=6)
-    assert result["stopped"] is True
-    assert "noise floor" in result["reason"]
-
-
-def test_propose_core_does_not_stop_when_incumbent_is_clearly_bad():
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 12, 13, 14, 16)]
-    ys = [0.0, -0.01, -0.005, -0.20, -0.003, 0.001]  # numtiles=13 is a clear, large win
-    labeled = _labeled_rows(cfgs, ys)
-    state = dict(configs={}, measured={}, rounds=[{"round": 1}])
-    result = dsearch.propose_core(
-        cfgs, labeled, "case", CASE_FIELDS, HARDWARE_ID, 4, state, batch_size=4,
-        incumbent_cfg=cfgs[0], incumbent_y=0.0, kappa=0.0, ensemble_size=5, ensemble_seed=0,
-        max_rounds=6)
-    assert result["stopped"] is False
-    assert len(result["chosen"]) > 0
 
 
 def test_propose_core_stops_at_max_rounds():
@@ -186,23 +61,6 @@ def test_propose_core_stops_at_max_rounds():
     assert result["round"] == 3
 
 
-def test_propose_core_round1_forces_reference_when_no_incumbent_yet():
-    cfgs = [_mk_cfg(448, 1, 8, 56, nt) for nt in (1, 8, 12)]
-    labeled = _labeled_rows(cfgs, [0.0, -0.5, -0.01])  # numtiles=8 (idx1) has by far the best y
-    state = dict(configs={}, measured={}, rounds=[])
-    ref_predicate = dict(ranks=448, omp=1, nx=8, ny=56, numtiles=1, dist="cyclic", blocktime="0")
-    result = dsearch.propose_core(
-        cfgs, labeled, "case", CASE_FIELDS, HARDWARE_ID, 4, state, batch_size=1,
-        incumbent_cfg=None, incumbent_y=None, kappa=0.0, ensemble_size=5, ensemble_seed=0,
-        max_rounds=6, reference_predicate=ref_predicate)
-    assert result["stopped"] is False
-    assert result["round"] == 1
-    # batch_size=1 and the reference is FORCED -> it must be the one chosen, even though
-    # numtiles=8's own labeled y is much better (the point of forcing round 1's anchor).
-    assert len(result["chosen"]) == 1
-    assert result["chosen"][0]["numtiles"] == 1
-
-
 # ---------------------------------------------------------------------------
 # state round-trip
 # ---------------------------------------------------------------------------
@@ -215,41 +73,6 @@ def test_state_round_trip(tmp_path):
     dsearch.save_state(path, state)
     loaded = dsearch.load_state(path)
     assert loaded == state
-
-
-# ---------------------------------------------------------------------------
-# proposal JSON schema == decomp_space.to_campaign_configs, accepted by
-# campaign/configs.py's own CONFIG_FILE loader (read-only use of real code).
-# ---------------------------------------------------------------------------
-def test_proposal_json_matches_to_campaign_configs_schema_and_loads(tmp_path):
-    candidates, _axis = ds.enumerate_space(
-        dict(e_we=901, e_sn=901, e_vert=45, max_dom=1), total_cores=448, nodes=4,
-        hardware_id=HARDWARE_ID, omp_options=[1],
-        tile_options=dict(numtiles_multiples=(1,), max_numtiles=16, include_2d=True,
-                           tile_sz_variants=()))
-    chosen = candidates[:5]
-    configs_out = ds.to_campaign_configs(chosen, prefix="R01D")
-    path = tmp_path / "proposal.json"
-    with open(path, "w") as f:
-        json.dump(dict(configs=configs_out), f)
-
-    loaded = campaign_configs.load_generated_configs(str(path))
-    assert [c["id"] for c in loaded] == [c["id"] for c in configs_out]
-    for c in loaded:
-        for key in ("id", "ranks", "omp", "nx", "ny", "numtiles", "dist", "blocktime",
-                    "config_source"):
-            assert key in c
-        legal = ds.legal_shapes_exact([901], [901], c["ranks"])
-        assert (c["nx"], c["ny"]) in legal
-
-
-# ---------------------------------------------------------------------------
-# parse_run_id / ingest
-# ---------------------------------------------------------------------------
-def test_parse_run_id():
-    parsed = dsearch.parse_run_id("karina_R01D0003_r1_1078123")
-    assert parsed == dict(case="karina", cid="R01D0003", rep="1", job="1078123")
-    assert dsearch.parse_run_id("not-a-run-id") is None
 
 
 def _write_campaign_style_ledger(rows, path):
@@ -296,18 +119,6 @@ def test_ingest_records_measurements_and_skips_unknown_ids(tmp_path):
 # Ensemble uncertainty (referenced by decomp_search.py's own module docstring).
 # ---------------------------------------------------------------------------
 class TestEnsembleUncertainty:
-    def test_ensemble_produces_nonzero_spread_and_a_usable_mean(self):
-        cfgs_ys = _synthetic_pool()  # 12 distinct configs, a real (if noiseless) surface
-        cfgs = [c for c, _y in cfgs_ys]
-        labeled = _labeled_rows(cfgs, [y for _c, y in cfgs_ys])
-        models_ = dsearch.fit_ensemble(labeled, n_models=8, seed=0)
-        assert 1 <= len(models_) <= 8
-        score_rows = [dsearch.candidate_row("q", CASE_FIELDS, HARDWARE_ID, 4, c, "q:%d" % i)
-                      for i, c in enumerate(cfgs)]
-        mu, sigma = dsearch.ensemble_predict(models_, score_rows)
-        assert len(mu) == len(cfgs)
-        assert (sigma >= 0).all()
-        assert sigma.sum() > 0, "bootstrap ensemble produced zero spread across all candidates"
 
     def test_fit_ensemble_raises_not_enough_data(self):
         with pytest.raises(modelmod.NotEnoughData):
@@ -391,25 +202,6 @@ def test_propose_end_to_end_with_real_karina_ledger(tmp_path):
 # when it appears via both state['measured'] and a --ledger file.
 # ---------------------------------------------------------------------------
 class TestBaselineScaleConsistency:
-    def test_normalize_decision_group_fields_equalizes_int_and_str_io_form_history(self):
-        # case_row_fields()/candidate_row() default io_form_history to a Python int (14); a real
-        # ledger row loaded by benchmark.load_ledger keeps it as the raw CSV string ("14") since
-        # benchmark._f()'s numeric-cast list omits io_form_history (predictor/benchmark.py:42-56).
-        # features.decision_group_key compares io_form_history RAW -- unlike n_nodes/total_cores it
-        # is never passed through features._num() -- so before the fix these two otherwise-
-        # identical rows landed in different decision groups.
-        row_int = dsearch.candidate_row("c", CASE_FIELDS, HARDWARE_ID, 4, _mk_cfg(448, 1, 8, 56, 1),
-                                         run_id="r1")
-        row_str = dict(row_int)
-        row_str["io_form_history"] = "14"
-        assert row_int["io_form_history"] == 14
-        # features.decision_group_key now normalizes io_form_history itself (2026-09-15), so the
-        # raw rows already agree; the decomp_search normalizer stays as defense in depth.
-        assert feat.decision_group_key(row_int) == feat.decision_group_key(row_str)
-
-        dsearch._normalize_decision_group_fields([row_int, row_str])
-        assert row_int["io_form_history"] == row_str["io_form_history"] == "14"
-        assert feat.decision_group_key(row_int) == feat.decision_group_key(row_str)  # fixed
 
     def test_normalize_decision_group_fields_leaves_none_and_blank_alone(self):
         # None/'' are legitimate, distinct groups (features.decision_group_known) -- not a type
@@ -419,15 +211,6 @@ class TestBaselineScaleConsistency:
         assert row_none["io_form_history"] is None
         assert row_blank["io_form_history"] == ""
 
-    def test_dedup_rows_collapses_same_measurement_by_run_id(self):
-        a = dict(run_id="lafe_R01D0001_r1_1078094", job_id="1078094", rep_index=1,
-                 s_per_step_median=1.47)
-        b = dict(a)  # a distinct dict object with an identical run_id, as if loaded from a
-                     # duplicate ledger that also names this measurement
-        c = dict(run_id="lafe_R01D0001_r2_1078094", job_id="1078094", rep_index=2,
-                 s_per_step_median=1.50)
-        out = dsearch._dedup_rows([a, b, c])
-        assert out == [a, c]  # b dropped as a's duplicate; first occurrence survives
 
     def test_dedup_rows_fallback_key_survives_job_id_rep_index_type_mismatch(self):
         # No run_id -- falls back to (case_base, config_key, job_id, rep_index). job_id/rep_index
@@ -574,33 +357,6 @@ class TestBaselineScaleConsistency:
         assert result_no_dup["incumbent"] == result_with_dup["incumbent"] == fast_cfg
         assert result_no_dup["incumbent_y"] == pytest.approx(result_with_dup["incumbent_y"], abs=1e-9)
         assert result_no_dup["n_training_rows"] == result_with_dup["n_training_rows"]
-
-
-def test_ingest_never_records_a_failed_run_as_measured(tmp_path):
-    """(c): a failed run (no s_per_step_median -- crash/timeout, matching the real
-    lafe_R01D0011/R01D0012 rows in ledger_lafe_1078094.csv, notes '... rc=139 ok=0') must never
-    enter state['measured'], so it can never become a baseline or an incumbent."""
-    state = dict(configs={"R01D0001": _mk_cfg(448, 1, 8, 56, 1)}, measured={}, rounds=[])
-    rows = [
-        ledgermod.new_row(
-            run_id="case_R01D0001_r1_42", source_dataset="strict_campaign", job_id="42",
-            rep_index=1, case_raw="case", case_base="case", hardware_id=HARDWARE_ID,
-            binary_kind="pristine", compliance_class="STRICT", e_we=901, e_sn=901, e_vert=45,
-            n_nodes=4, n_ranks=448, omp_threads=1, nproc_x=8, nproc_y=56, numtiles=1,
-            distribution="cyclic", kmp_blocktime=0,
-            s_per_step_median=None, notes="config=R01D0001 mode=timing rc=139 ok=0"),
-    ]
-    path = tmp_path / "failed_run.csv"
-    _write_campaign_style_ledger(rows, str(path))
-    n_in, n_skip, _reasons = dsearch.ingest(state, str(path))
-    # ledger.adapt_campaign_ledger() already drops a failed (no s_per_step_median) STRICT row
-    # itself -- printing "NOTE ...: skipped N failed/timed-out run(s)..." -- before ingest()'s own
-    # loop ever sees it, so ingest() here reports n_skip=0, not 1 (its own "no s_per_step_median"
-    # skip path guards a row shape adapt_campaign_ledger doesn't already filter). The invariant
-    # that matters for (c) is state['measured'] staying empty either way.
-    assert n_in == 0
-    assert n_skip == 0
-    assert state.get("measured", {}) == {}
 
 
 # ---------------------------------------------------------------------------

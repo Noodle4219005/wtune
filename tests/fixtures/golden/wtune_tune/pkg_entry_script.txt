@@ -2,11 +2,11 @@ rc=0
 usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
                   [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
-                  [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
-                  [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
-                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check] [--no-node-preflight]
-                  [-O0] [-O1] [-O2] [-O3] [--precision PRECISION] [--level {0,1,2,3}]
-                  [--stop-if-short] [--physics-advice] [--keep-frames]
+                  [--proxy {on,off}] [--proxy-max-nodes PROXY_MAX_NODES] [--hotspot-fill {on,off}]
+                  [--node-seeds {geometric,all}] [--cores-per-node-options CORES_PER_NODE_OPTIONS]
+                  [--pipeline {full}] [--max-queue-hours MAX_QUEUE_HOURS] [--no-space-check]
+                  [--no-node-preflight] [-O0] [-O1] [-O2] [-O3] [--precision PRECISION]
+                  [--level {0,1,2,3}] [--stop-if-short] [--physics-advice] [--keep-frames]
                   [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
                   [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
                   [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
@@ -46,6 +46,18 @@ options:
                         --nodes search: share of --minutes the node sweep may use; once spent,
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
+  --proxy {on,off}      small-domain proxy (`wtune proxy`; a nested case per domain). -O1/-O2: the
+                        joint (N, layout) search times every legal N's layouts on one node each,
+                        re-times the leaders as 3-node bands (N > 3) or the whole domain (N <= 3)
+                        and picks (N, layout) from those scores with no real N-node probe, every
+                        run placed in one node pool (one job of --proxy-max-nodes nodes); at
+                        --minutes what was timed is ranked. --nodes N: round0 sends only the
+                        proxy's picks to real probes. Needs netCDF wrfinput/wrfbdy, else the real
+                        search runs (default on, or --config's budget.proxy)
+  --proxy-max-nodes PROXY_MAX_NODES
+                        nodes of the proxy's node pool, the nodes its runs hold at once (default 4
+                        x --max-nodes, no more than the one-node runs, or --config's
+                        budget.proxy_max_nodes); the tune takes longer when lower
   --hotspot-fill {on,off}
                         --nodes search: measure untried N near the best one in the nodes a sweep
                         wave leaves idle, when no longer than the wave (default on, or --config's
@@ -60,9 +72,9 @@ options:
                         hardware core count C: C, C-2, round(C*8/9), round(C*2/3), C/2 (72 ->
                         72,70,64,48,36); layouts that are not legal are skipped. '--cores-per-
                         node-options 72' disables the dimension
-  --pipeline {full}     full = -O3 (kept for compatibility): one pass -- layout search (node,
-                        cores/node, ranks, threads, decomposition, tiles), whole-run prediction
-                        from rebuilt points, physics advice (decision 0059)
+  --pipeline {full}     DEPRECATED alias of -O3: one pass -- layout search (node, cores/node,
+                        ranks, threads, decomposition, tiles), whole-run prediction from rebuilt
+                        points, physics advice (decision 0059)
   --max-queue-hours MAX_QUEUE_HOURS
                         --pipeline full: safety cap on the accumulated queue-only wait (hours,
                         default 6); queue wait is not charged to --minutes, but past this the run
@@ -75,19 +87,22 @@ options:
                         the healthy node count
   -O0                   effort level 0: no jobs: cold-start predict + proxy layout (layout search
                         effort + physics advice; the prediction points come from the case type)
-  -O1                   effort level 1: one t0 wave over N in {1,2,4,8,max healthy} (layout search
-                        effort + physics advice; the prediction points come from the case type)
-  -O2                   effort level 2: O1 + refinement, cores/node, sampled round0 at the winner
+  -O1                   effort level 1: joint (N, layout) proxy search, one leader per N re-timed
+                        (without the proxy: one t0 wave over N in {1,2,4,8,max healthy}) (layout
+                        search effort + physics advice; the prediction points come from the case
+                        type)
+  -O2                   effort level 2: joint (N, layout) proxy search over every legal N, no real
+                        N-node probe (the real node sweep when the proxy cannot run) (layout
+                        search effort + physics advice; the prediction points come from the case
+                        type)
+  -O3                   effort level 3: full layout search: every legal N (coarse-to-fine),
+                        cores/node, ranks x omp, nx x ny, numtiles at the finalists + confirm reps
                         (layout search effort + physics advice; the prediction points come from
                         the case type)
-  -O3                   effort level 3: DEFAULT, full layout search: every legal N (coarse-to-
-                        fine), cores/node, ranks x omp, nx x ny, numtiles at the finalists +
-                        confirm reps (layout search effort + physics advice; the prediction points
-                        come from the case type)
   --precision PRECISION
-                        whole-run wall time needed to +-MIN minutes (default 15): the case type
-                        decides how many prediction points that takes
-                        (wtune.cost_drivers.plan_points_for_case)
+                        whole-run wall time needed to +-N% of the run (e.g. 10%) or +-MIN minutes
+                        (e.g. 15); default 10%, at least 2 min: the case type decides how many
+                        prediction points that takes (wtune.cost_drivers.plan_points_for_case)
   --level {0,1,2,3}     same as -O<level>; selects the one-pass pipeline (default level when only
                         --pipeline full is given: 3). The estimated tuning time of every level is
                         printed before anything runs; --minutes is an optional hard cap

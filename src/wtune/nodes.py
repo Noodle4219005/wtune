@@ -176,9 +176,11 @@ def bracket(best, known):
 # cores-per-node dimension
 # ---------------------------------------------------------------------------
 def default_core_options(cores_per_node):
-    """{C, C-2 (OS reserve), round(C*8/9), round(C*2/3), C/2}, descending; 72 -> 72,70,64,48,36."""
+    """{C, C-2 (OS reserve), round(C*8/9), round(C*3/4), round(C*2/3), C/2}, descending; 72 ->
+    72,70,64,54,48,36. 3/4: Sundowner on f1-arm ran fastest at 54 of a Grace's 72 cores (1.040
+    s/step vs 1.103 at 48 and 1.123 at 72, 4 nodes)."""
     c = int(cores_per_node)
-    vals = {c, c - 2, int(round(c * 8 / 9.0)), int(round(c * 2 / 3.0)), c // 2}
+    vals = {c, c - 2, int(round(c * 8 / 9.0)), int(round(c * 3 / 4.0)), int(round(c * 2 / 3.0)), c // 2}
     return sorted((v for v in vals if 1 <= v <= c), reverse=True)
 
 

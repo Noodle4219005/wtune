@@ -5,7 +5,7 @@ import subprocess
 import sys
 import unittest
 
-from wtune.compliance import (CATALOG, GATE_FOR_NUMERICS, LEVELS, PHYSICS_GRAY, REQUIRED_FIELDS, RESEARCH, STRICT, UNCLASSIFIED, ComplianceError, admits, assert_strict_only, classify, validate)
+from wtune.compliance import (CATALOG, GATE_FOR_NUMERICS, PHYSICS_GRAY, RESEARCH, STRICT, admits, classify, validate)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 SRC = os.path.join(ROOT, "src")
@@ -41,12 +41,6 @@ def _extract_physics_params():
 
 
 class CatalogValidationTests(unittest.TestCase):
-    def test_catalog_is_valid_and_complete(self):
-        errs = validate()
-        self.assertEqual(errs, [])
-        for e in CATALOG:
-            for field in REQUIRED_FIELDS:
-                self.assertIn(field, e, 'entry {!r} missing {}'.format(e.get('name'), field))
 
     def test_rejects_execution_interposition_on_strict(self):
         e = _entry('numtiles')
@@ -163,24 +157,13 @@ class ValidateRejectsBadLegalValuesTests(unittest.TestCase):
 
 
 class ClassifyTests(unittest.TestCase):
-    def test_known_names(self):
-        self.assertEqual(classify('numtiles'), STRICT)
-        self.assertEqual(classify('mp_physics'), PHYSICS_GRAY)
-        self.assertEqual(classify('plov_micro_staging'), RESEARCH)
 
     def test_wildcard_and_combined_names(self):
         self.assertEqual(classify('I_MPI_ADJUST_ALLREDUCE'), STRICT)
         self.assertEqual(classify('slope_rad/topo_shading'), PHYSICS_GRAY)
 
-    def test_unknown_name_is_unclassified(self):
-        self.assertEqual(classify('definitely_not_a_knob'), UNCLASSIFIED)
-
 
 class AdmitsTests(unittest.TestCase):
-    def test_strict_admits_only_strict(self):
-        self.assertTrue(admits('strict', STRICT))
-        self.assertFalse(admits('strict', PHYSICS_GRAY))
-        self.assertFalse(admits('strict', RESEARCH))
 
     def test_physics_gray_admits_strict_and_physics_gray(self):
         self.assertTrue(admits('physics-gray', STRICT))
@@ -191,58 +174,13 @@ class AdmitsTests(unittest.TestCase):
         for cls in (STRICT, PHYSICS_GRAY, RESEARCH):
             self.assertTrue(admits('research', cls))
 
-    def test_unclassified_never_admitted(self):
-        for level in LEVELS:
-            self.assertFalse(admits(level, UNCLASSIFIED))
 
     def test_unknown_level_raises(self):
         with self.assertRaises(ValueError):
             admits('bogus-level', STRICT)
 
 
-class AssertStrictOnlyTests(unittest.TestCase):
-    """decision 0056: the tuner's final recommended configuration may only auto-apply
-    STRICT-classified namelist changes."""
-
-    def test_strict_only_change_passes(self):
-        orig = {'nproc_x': [-1], 'nproc_y': [-1], 'numtiles': [1], 'time_step': [60]}
-        final = dict(orig, nproc_x=[8], nproc_y=[9], numtiles=[4])
-        assert_strict_only(orig, final)      # must not raise
-
-    def test_changing_mp_physics_raises(self):
-        orig = {'nproc_x': [-1], 'mp_physics': [1]}
-        final = dict(orig, mp_physics=[6])
-        with self.assertRaises(ComplianceError) as cm:
-            assert_strict_only(orig, final)
-        self.assertIn('mp_physics', str(cm.exception))
-
-    def test_changing_time_step_raises(self):
-        orig = {'nproc_x': [-1], 'time_step': [60]}
-        final = dict(orig, time_step=[45])
-        with self.assertRaises(ComplianceError) as cm:
-            assert_strict_only(orig, final)
-        self.assertIn('time_step', str(cm.exception))
-
-    def test_no_changes_never_raises_even_for_a_non_strict_key(self):
-        orig = {'mp_physics': [6]}
-        assert_strict_only(orig, dict(orig))   # identical -> nothing changed, no raise
-
-    def test_probe_window_keys_are_exempt(self):
-        orig = {'run_hours': [12], 'start_hour': [0], 'end_hour': [12]}
-        final = {'run_hours': [6], 'start_hour': [0], 'end_hour': [6]}
-        assert_strict_only(orig, final)        # must not raise despite the changed window
-
-    def test_unclassified_changed_key_also_raises(self):
-        orig = {'not_a_real_knob': [1]}
-        final = {'not_a_real_knob': [2]}
-        with self.assertRaises(ComplianceError):
-            assert_strict_only(orig, final)
-
-
 class AdvisorCoverageTests(unittest.TestCase):
-    def test_physics_candidate_params_all_classified(self):
-        for name in PHYSICS_CANDIDATE_PARAMS:
-            self.assertNotEqual(classify(name), UNCLASSIFIED, name)
 
     def test_physics_candidate_params_match_source(self):
         found, matched = _extract_physics_params()

@@ -68,7 +68,9 @@
     "7028",
     "7029",
     "7030",
-    "7031"
+    "7031",
+    "7032",
+    "7033"
   ],
   "layout_table": {
     "comparison": {
@@ -259,6 +261,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -374,6 +391,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -617,6 +649,7 @@
       72,
       70,
       64,
+      54,
       48,
       36
     ],
@@ -659,6 +692,19 @@
           "omp": 1,
           "ranks": 256,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.3,
+          "n": 2,
+          "nx": 12,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 216,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -726,6 +772,19 @@
           "omp": 1,
           "ranks": 320,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.305,
+          "n": 2,
+          "nx": 15,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 270,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -971,6 +1030,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -1086,6 +1160,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -1454,7 +1543,7 @@
       "estimate_info": {
         "nodes": 13,
         "points_source": "fallback band table",
-        "precision_min": 15.0,
+        "precision_min": "10%",
         "prediction_points": 0,
         "s_per_step_n": 10.0,
         "source": "ledger estimate (fallback_10s)",
@@ -1527,7 +1616,9 @@
           "7028",
           "7029",
           "7030",
-          "7031"
+          "7031",
+          "7032",
+          "7033"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -1553,7 +1644,7 @@
         "queue_wait_s": 0.0,
         "running_s": 0.0,
         "start_s": 0.0,
-        "status": "not run (the t0 anchor suffices for this case at \u00b115 min: cold-start predict, band \u00b125%)",
+        "status": "not run (the t0 anchor suffices for this case at \u00b110%: cold-start predict, band \u00b125%)",
         "wall_s": 0.0
       },
       {
@@ -1619,7 +1710,7 @@
       "measured": true,
       "method": "cold-start predict",
       "points": [],
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "source": "fallback band table"
     },
     "queue_cap_hit": false,

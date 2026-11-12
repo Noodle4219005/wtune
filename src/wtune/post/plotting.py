@@ -17,6 +17,8 @@ from __future__ import annotations
 import os
 
 from wtune.post.extract import _level_base_field, _surface_field, list_frame_refs, UNITS
+from wtune.post import figdpi
+from wtune.post.conventions import continuous_lons
 
 WIND_SUBSAMPLE = 8      # every Nth grid point in each direction for the wind overlay
 
@@ -144,34 +146,42 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             if basemap == "cartopy":
                 crs = wrf_mod.get_cartopy(var=var)
                 lats, lons = wrf_mod.latlon_coords(var, as_np=True)
+                lons = continuous_lons(lons)
                 fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": crs})
                 tkw = {"transform": ccrs.PlateCarree()}
             else:
                 lats = np.asarray(ds.variables["XLAT"][0])
-                lons = np.asarray(ds.variables["XLONG"][0])
+                lons = continuous_lons(ds.variables["XLONG"][0])
                 fig, ax = plt.subplots(figsize=(8, 6))
             if field == "slp" and level_hpa is None:
                 # surface chart convention (decision 0064): black isobars every 4 hPa with H/L
                 # (none over terrain > 500 m, where SLP is a reduction), not a colour fill
                 from wtune.post.recipes.mapfig import highs_lows
+                from wtune.post.recipes.mapfig import slp_isobar_field
                 iso = np.arange(4.0 * np.floor(np.nanmin(data) / 4.0), np.nanmax(data) + 4.0, 4.0)
-                cs = ax.contour(lons, lats, data, levels=iso, colors="k", linewidths=0.8, **tkw)
-                ax.clabel(cs, inline=True, fontsize=7, fmt="%d")
                 hgt = np.asarray(ds.variables["HGT"][0]) if "HGT" in ds.variables else None
+                cs = ax.contour(lons, lats, slp_isobar_field(data, hgt), levels=iso, colors="k",
+                                linewidths=0.8, **tkw)
+                ax.clabel(cs, inline=True, fontsize=7, fmt="%d")
                 for j, i, kind in highs_lows(data, exclude=None if hgt is None else hgt > 500.0):
                     ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
                             fontsize=13, fontweight="bold", ha="center", va="center", **tkw)
             else:
+                norm = None
+                if levels is not None and cmap is not None and not isinstance(cmap, str):
+                    from matplotlib.colors import BoundaryNorm     # one colour per bin
+                    norm = BoundaryNorm(levels, cmap.N, extend=extend
+                                        if cmap.N > len(levels) - 1 else "neither")
                 cf = ax.contourf(lons, lats, data, levels=20 if levels is None else levels,
-                                 cmap=cmap or "viridis", extend=extend, **tkw)
+                                 cmap=cmap or "viridis", norm=norm, extend=extend, **tkw)
                 cbar = fig.colorbar(cf, ax=ax)
                 cbar.set_label(MAP_UNITS.get(field, ""))
-            _coastline(ax, ds, ccrs)
+            _coastline(ax, ds, ccrs, muted=field == "slp" and level_hpa is None)
 
             if overlay_wind:
                 from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
                 lat2d = np.asarray(ds.variables["XLAT"][0])
-                lon2d = np.asarray(ds.variables["XLONG"][0])
+                lon2d = continuous_lons(ds.variables["XLONG"][0])
                 u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
                 v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
                 barb_kwargs = {"transform": ccrs.PlateCarree()} if basemap == "cartopy" else {}
@@ -194,8 +204,12 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             out_path = os.path.join(out_dir, "%s_d%02d_%s%s.%s"
                                     % (field, domain, time_str.replace(":", ""), lev_tag, fmt))
             from wtune.post.basemap import caption_rect
+            if basemap == "cartopy":
+                # a tall nest on a fixed 8x6 left a third of the width blank (haitang2017 d03)
+                from wtune.post.recipes.mapfig import MAP_WIDTH_IN, map_height_in
+                fig.set_size_inches(MAP_WIDTH_IN, map_height_in(ax.get_extent(crs=crs)))
             fig.tight_layout(rect=caption_rect(fig))
-            fig.savefig(out_path)
+            fig.savefig(out_path, dpi=figdpi.dpi(), bbox_inches="tight", pad_inches=0.1)
             plt.close(fig)
             written.append(out_path)
     return written

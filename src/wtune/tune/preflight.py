@@ -61,7 +61,7 @@ def _sinfo_states(text: str) -> dict[str, str]:
 
 
 def _probe_node(runner: Runner, n: str, state: str, script: str,
-                timeout_s: float) -> tuple[str, dict]:
+                timeout_s: float, _retried: bool = False) -> tuple[str, dict]:
     """(node, {state, ok, probed, reason}) of one srun probe. Kept, unprobed: a node the
     scheduler did not allocate within IMMEDIATE_S or refused to (reserved, busy, a per-user
     limit -- scc 2026-10-13 excluded such nodes as unhealthy), and a timeout on a node other
@@ -83,8 +83,10 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
         if state.lower().startswith(BUSY_STATES):
             return n, dict(state=state, ok=True, probed=False,
                            reason="in use by another job: not probed (timed out waiting)")
+        if not _retried:       # an idle node another job grabs meanwhile times out: ask once more
+            return _probe_node(runner, n, state, script, timeout_s, _retried=True)
         return n, dict(state=state, ok=False, probed=True,
-                       reason="probe timed out after %gs" % timeout_s)
+                       reason="probe timed out twice (%gs each)" % timeout_s)
     except (OSError, subprocess.SubprocessError) as e:
         return n, dict(state=state, ok=False, probed=True, reason="probe error: %s" % e)
     if rc == 0:

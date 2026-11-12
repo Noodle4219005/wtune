@@ -15,6 +15,18 @@
       "common_misreadings": "Reading the nest outline as a straight lon/lat box -- it is curved under WRF's Lambert/Mercator projection; the terrain colour scale carries no simulated variable."
     }
   },
+  "common_sounding_obs": {
+    "zh": {
+      "question": "模式的探空和實際的無線電探空差多少？（任何個案，只要有 IGRA2 資料）",
+      "how_to_read": "每個測站一張圖，每個時刻一個 Skew-T：實線是 WRF、虛線是 IGRA2 探空（溫度與露點，風標內側 WRF、外側探空），並列出 1000–500 hPa 的 T、Td、風速 RMSE。測站畫在涵蓋它的最細網格上，時刻取最接近雨峰的探空；數值在 soundings/sounding_obs_stats.csv。",
+      "common_misreadings": "把探空的漂移（氣球在上升中飄離測站）與探空時間差忽略；一個測站的一次探空不代表整個區域的環境，1000–500 hPa 之外不計入 RMSE。"
+    },
+    "en": {
+      "question": "How far is the model sounding from the radiosonde? (any case with IGRA2 data)",
+      "how_to_read": "One figure per station, one Skew-T per time: WRF solid, IGRA2 radiosonde dashed (temperature and dew point; barbs WRF inner, sonde outer), with the 1000-500 hPa RMSE of T, Td and wind speed. Each station is drawn on the finest domain holding it, at the soundings nearest the rain peak; numbers in soundings/sounding_obs_stats.csv.",
+      "common_misreadings": "Ignoring balloon drift and the sonde-to-model time offset; one sounding is not the whole region's environment; levels outside 1000-500 hPa are not in the RMSE."
+    }
+  },
   "common_repro_envelope": {
     "zh": {
       "question": "只改變 decomposition（切法）而不改變物理，答案漂移了多少？",
@@ -219,6 +231,18 @@
       "common_misreadings": "As for precipitation FSS: rare thresholds have small f0 so low FSS is built in; cells outside radar range are excluded."
     }
   },
+  "precip_hovmoller": {
+    "zh": {
+      "question": "雨帶在什麼時候、落在跨雨帶方向的哪裡？模式與觀測的位置和時間差多少？",
+      "how_to_read": "橫軸是沿一條線的距離（km，0 為線的中心），縱軸是時間（UTC，往上為後）。預設的線穿過雨核、垂直於雨峰時 0–1.5 km 的平均風，所以順著低層氣流排列的雨帶會在圖上呈現跨氣流方向的位置；負值在氣流右側、正值在左側（西南氣流時是東南→西北）。每個觀測資料集兩欄（觀測與同時窗的模式累積），最後一欄是模式逐時雨量；灰色是 spin-up，虛線是雨峰時刻。線可用 `wtune project set --cross-section hovmoller=lat0,lon0,lat1,lon1` 指定；數值在 precip_hovmoller_<run>.csv。",
+      "common_misreadings": "把一條線上的位置差當成整個雨帶的位移；觀測時窗（例如 6 小時）比模式逐時粗，時間差小於時窗長度時看不出來；格點雨量（如 CMORPH 0.25°）解析不了 3 km 模式的地形雨核。"
+    },
+    "en": {
+      "question": "When, and where across the rain band, did it rain? How far off are the model's position and timing?",
+      "how_to_read": "x: distance along a line (km, 0 = the line centre); y: time (UTC, later upward). The default line crosses the rain core perpendicular to the 0-1.5 km mean wind at the rain peak, so a band lying along the low-level flow shows its cross-flow position; negative = right of the flow, positive = left (south-east -> north-west for south-west flow). Two columns per observation dataset (observed and the model over the same windows), then the model's hourly rain; grey = spin-up, dashed = the rain peak. Set the line with `wtune project set --cross-section hovmoller=lat0,lon0,lat1,lon1`; values in precip_hovmoller_<run>.csv.",
+      "common_misreadings": "Reading a position difference on one line as the displacement of the whole band; an observation window (e.g. 6 h) coarser than the model's hour hides timing errors shorter than it; gridded estimates (e.g. CMORPH 0.25 deg) do not resolve a 3 km model's terrain rain cores."
+    }
+  },
   "precip_accum": {
     "zh": {
       "question": "從模擬開始累積到目前，降水總量與空間分佈如何？",
@@ -349,6 +373,18 @@
       "question": "Where and how large is the model's 500 hPa height bias against the ERA5 analysis?",
       "how_to_read": "Fill: model minus ERA5 z500 (m); on the ERA5 0.25 deg grid, model interior only; black solid = model, black dashed = ERA5 z500 every 60 m, so a displaced feature shows as offset contours and a +/- dipole in the fill. RMSE/bias in the title come from MET Grid-Stat.",
       "common_misreadings": "Reading the pale fill as 'no error': the bin around zero (about +/-8 m) is deliberately white, and the lateral boundary zone (spec_bdy_width) is excluded from the statistics and shares that white background."
+    }
+  },
+  "syn_era5_850_diff": {
+    "zh": {
+      "question": "模式的低層噴流和它帶的水氣，與 ERA5 再分析差多少？",
+      "how_to_read": "左圖：850 hPa 風速 model − ERA5（m/s），黑色箭頭是模式風、灰色是 ERA5；右圖：850 hPa 比濕 model − ERA5（g/kg）。紅色＝模式風較強，棕色＝模式較乾。時刻同其他單時刻地圖（雨峰）；RMSE 與偏差由 MET Grid-Stat 在 ERA5 0.25° 網格、模式內部範圍計算。",
+      "common_misreadings": "把 ERA5 當成觀測——它是再分析，在海上與資料稀少處本身也有誤差；850 hPa 在高山（青藏高原、中央山脈）位於地面以下，那裡沒有差值；0.25° 的 ERA5 無法解析 3 km 網格的地形噴流。"
+    },
+    "en": {
+      "question": "How far are the model's low-level jet and the moisture it carries from ERA5?",
+      "how_to_read": "Left: 850 hPa wind speed, model - ERA5 (m/s), model wind black, ERA5 grey; right: 850 hPa specific humidity, model - ERA5 (g/kg). Red = the model's wind is stronger, brown = the model is drier. Same time as the other one-time maps (the rain peak); RMSE and bias from MET Grid-Stat on the ERA5 0.25 deg grid over the model interior.",
+      "common_misreadings": "Taking ERA5 for an observation: it is a reanalysis with its own error over the ocean and where data are sparse; 850 hPa is below the ground over high terrain, where there is no difference; 0.25 deg ERA5 does not resolve terrain jets of a 3 km grid."
     }
   },
   "pbl_cross_terrain": {
@@ -831,6 +867,18 @@
       "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
     }
   },
+  "timeseries_pw": {
+    "zh": {
+      "question": "可降水量（PW，整層水氣總量）隨時間如何演變？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間；PW 增加代表整層水氣在累積，常先於降水發生，可與雨量圖對照。",
+      "common_misreadings": "把 PW 的大值直接當成降水量；PW 是整層水氣的存量，不是會落下的雨。"
+    },
+    "en": {
+      "question": "Precipitable water (column-integrated water vapour) evolution over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; rising PW means the column is moistening, which often precedes rain, so read it next to the rain maps.",
+      "common_misreadings": "Taking a large PW as the rain amount; PW is the stored vapour in the column, not what will fall."
+    }
+  },
   "timeseries_mcape": {
     "zh": {
       "question": "最大 CAPE 隨時間如何演變（對流潛勢）？",
@@ -1261,6 +1309,30 @@
       "question": "Which stations show the largest model visibility error?",
       "how_to_read": "Each dot is a station coloured by its mean model-minus-observation visibility (m); symmetric scale (95th percentile). The observation is a dataset an agent fetched in wtune-obs/1 format that passed `wtune event obs-check`; the source tag names it.",
       "common_misreadings": "The 16.1 km cap makes clear-sky bias zero; a large negative bias means too much model fog or precipitation there."
+    }
+  },
+  "common_domain_map_zoom": {
+    "zh": {
+      "question": "指定的巢狀網格（post.map_domains）內，地形與（若開啟）10 m 風長什麼樣子？",
+      "how_to_read": "地圖範圍就是該層網格的邊界，底色是該層自己的地形高度（解析度比 d01 高）；風羽（若有）是畫圖時刻的 10 m 風，一個全羽 10 節、半羽 5 節，朝向為風的來向。",
+      "common_misreadings": "把風羽當成時間平均；它只是單一時刻。地形色階和 d01 總覽圖相同但解析度不同，山谷在 d01 上可能整條不見。"
+    },
+    "en": {
+      "question": "What do the terrain and (when enabled) the 10 m wind look like inside the nests listed in post.map_domains?",
+      "how_to_read": "The extent is that nest's own boundary and the shading is that nest's own terrain height (finer than d01); barbs, when present, are the 10 m wind at the stated valid time (full barb 10 kt, half barb 5 kt, pointing into the wind).",
+      "common_misreadings": "Reading the barbs as a time mean; they are one instant. The colour scale matches the d01 overview but the nest resolves valleys that d01 smooths away."
+    }
+  },
+  "station_series": {
+    "zh": {
+      "question": "模式在這個測站的 T2、露點、10 m 風速／風向、陣風，和觀測差多少？各層巢狀網格哪一層較接近？",
+      "how_to_read": "黑線是測站觀測（風向圖只畫觀測風速不小於靜風門檻的點），每條彩線是一個包含該站的 domain（圖例括號為所取格點的模式地形高）。模式值取最近格點或雙線性內插（標題寫明），沒有做站高修正，所以山區或海岸站的溫度差要和 station_stats.csv 的 model_hgt_minus_elev_m 一起看；站高未提供時該欄為空。觀測時間與最近的模式輸出時間差在容許值（預設 10 分鐘）內才配對。標題的 bias 是模式減觀測，RMSE 同單位。風向差用環狀差 ((模式-觀測+180) mod 360) - 180，bias 是環狀差的平均，RMSE 是環狀差的均方根；觀測風速低於靜風門檻（預設 3 kt）的配對不進風向統計，筆數記在 n_calm_excluded。陣風的模式值是 WSPD10MAX（有寫出時）或 UPP 式估計，不是同一個取樣間隔的極大值。ASOS 只在有陣風時才填 gust（M 代表沒有陣風），所以陣風面板只含有陣風的時刻（標題 gust reports only，n 通常很小），bias/RMSE 不是全時段的陣風表現；station_stats.csv 的 note 欄同樣標示。最外一圈邊界格點不比較。",
+      "common_misreadings": "把風向在 0/360 附近的跳動當成誤差（線在跨越時已斷開，統計用環狀差）；把不同高度的格點與站的溫度差全當成物理偏差（沒有站高修正）；把最近格點的值當成站點周圍的平均。"
+    },
+    "en": {
+      "question": "How far are the model's T2, dew point, 10 m wind speed / direction and gust from the station observations, and which nest is closer?",
+      "how_to_read": "The black line is the station observation (the wind-direction panel draws only observations at or above the calm threshold); each coloured line is one domain that contains the station, the legend giving the model terrain height at the sampled grid point. The model value is the nearest grid point or a bilinear interpolation (named in the title); there is NO station-height correction, so read temperature differences together with model_hgt_minus_elev_m in station_stats.csv (empty when the station height was not supplied). An observation is paired with the nearest model output time only within the tolerance (default 10 min). bias in the title is model minus observation. Direction differences are circular, d = ((model - obs + 180) mod 360) - 180; bias is the mean of d, RMSE the root mean square of d; pairs with observed speed below the calm threshold (default 3 kt) are excluded from the direction statistics and counted in n_calm_excluded. The model gust is WSPD10MAX when the run wrote it, else a UPP-style estimate, and is not a maximum over the same sampling interval as the observation. ASOS fills gust only when a gust occurred (M = no gust), so the gust panel holds gust reports only (title: gust reports only; n is often small) and its bias/RMSE is not gust skill over all hours; the note column of station_stats.csv says so too. Grid points on the outermost ring are not compared.",
+      "common_misreadings": "Reading 0/360 wrap-around as error (the line is broken there and the statistics are circular); attributing a temperature difference at a station whose grid point is hundreds of metres off in height entirely to physics; treating the nearest-point value as an average around the station."
     }
   }
 }

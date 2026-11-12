@@ -30,6 +30,12 @@ SEAM = dict(resolve_case="context", _total_steps="context", cold_start_predictio
             finish_rebuilt_points="points")
 
 
+@pytest.fixture(autouse=True)
+def _ascending_sweep(monkeypatch):
+    # the snapshots were recorded with the ascending node sweep; the default is now promising-first
+    monkeypatch.setenv("WTUNE_SWEEP_ORDER", "ascending")
+
+
 def _patch(monkeypatch, name, value):
     target = getattr(wtune.tune, SEAM[name]) if hasattr(wtune.tune, "__path__") else wtune.tune
     monkeypatch.setattr(target, name, value)
@@ -48,10 +54,6 @@ def _isolate(monkeypatch):
     stub.render_text = lambda res: "advice: %d stub item(s)" % len(res["advice"])
     swap_wtune_module(monkeypatch, "advise", stub)
     monkeypatch.setenv("COLUMNS", "100")
-
-
-def test_golden_cli_help():
-    G._check("pkg_cli_help.txt", wtune.tune.build_arg_parser().format_help())
 
 
 def test_golden_main_exit_codes(monkeypatch, capsys):

@@ -148,10 +148,17 @@ def _print_tc_summary(tc, summary: dict, out: str) -> None:
 
 
 def _project_bdeck(bdeck, project_dir, hurdat2, storm):
-    """--bdeck, else the project's `wtune post fetch bdeck` file, else None (tc downloads it,
-    outside a Slurm job)."""
-    if bdeck or not (project_dir and storm):
+    """--bdeck, else project.yaml's storm.bdeck, else the project's `wtune post fetch bdeck`
+    file, else None (tc downloads it, outside a Slurm job)."""
+    if bdeck or not project_dir:
         return bdeck
+    import wtune.project
+    try:
+        own = wtune.project.project_bdeck(wtune.project.load_project(project_dir))
+    except (OSError, ValueError, wtune.project.ProjectError):
+        own = None
+    if own or not storm:
+        return own
     import wtune.post.tc as tc
     from wtune.post.fetch import bdeck as fetched
     try:
@@ -170,16 +177,18 @@ def cmd_tc(args: argparse.Namespace) -> int:
     if project_dir and not hurdat2 and not storm:
         import wtune.project
         storm, hurdat2 = wtune.project.project_storm(project_doc)
-    if not (hurdat2 and storm):
-        raise SystemExit("--hurdat2/--storm required (or set them in project.yaml's storm:)")
+    bdeck = _project_bdeck(args.bdeck, project_dir, hurdat2, storm)
+    if not (storm and (hurdat2 or bdeck)):
+        raise SystemExit("--storm with --hurdat2 or --bdeck required (or set them in "
+                         "project.yaml's storm:)")
 
     out = _resolve_out(args, project_dir, "tc")
     summary = tc.run_tc_report(run_dirs, labels, hurdat2, storm, out,
-                               ebtrk_path=args.ebtrk,
-                               bdeck_path=_project_bdeck(args.bdeck, project_dir, hurdat2, storm),
+                               ebtrk_path=args.ebtrk, bdeck_path=bdeck,
                                smooth_km=args.track_smooth_km)
     _print_tc_summary(tc, summary, out)
-    _record_manifest(project_dir, ["wtune", "post", "tc"] + run_dirs, out, run_dirs + [hurdat2])
+    _record_manifest(project_dir, ["wtune", "post", "tc"] + run_dirs, out,
+                     run_dirs + [hurdat2 or bdeck])
     return 0
 
 
@@ -211,9 +220,8 @@ def cmd_report(args: argparse.Namespace) -> int:
 def _recipe_cross_sections(project_doc: dict) -> tuple[dict, float | None, float | None]:
     """(cross_sections, xsec_top_km, xsec_halfwidth_km) from the project doc."""
     import wtune.project
-    cross_sections = dict(
-        terrain=wtune.project.project_cross_section(project_doc, "terrain"),
-        moisture=wtune.project.project_cross_section(project_doc, "moisture"))
+    cross_sections = {kind: wtune.project.project_cross_section(project_doc, kind)
+                      for kind in wtune.project.CROSS_SECTION_KINDS}
     xsec_cfg = wtune.project.project_xsec_config(project_doc)
     return cross_sections, xsec_cfg.get("top_km"), xsec_cfg.get("halfwidth_km")
 
@@ -230,6 +238,71 @@ def cmd_preview(args: argparse.Namespace) -> int:
     for n in result["notes"]:
         print("note: %s" % n)
     print("report: %s" % result["report_path"])
+    return 0
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    from wtune.post import brief
+    project_dir, project_doc = _project_context(args)
+    path = brief.write_brief(args.post_dir, project_dir=project_dir, project_doc=project_doc,
+                             spinup_hours=args.spinup_hours)
+    print("brief: %s" % path)
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    from wtune.post import check
+    project_dir, _doc = _project_context(args)
+    errors, warnings = check.check(args.post_dir, project_dir=project_dir)
+    for w in warnings:
+        print("warning: %s" % w)
+    for e in errors:
+        print("error: %s" % e)
+    print("%s: %d error(s), %d warning(s)" % (args.post_dir, len(errors), len(warnings)))
+    return 1 if errors else 0
+
+
+def _station_settings(args: argparse.Namespace) -> tuple:
+    """(stations, vars, method, calm_kt) of `post stations`: each flag as given, else (with an
+    explicit --project) project.yaml's post.stations / station_vars / station_method / calm_kt,
+    else the built-in default (all, all, nearest, 3.0)."""
+    from_project = {}
+    if getattr(args, "project", None):
+        import wtune.project
+        _dir, doc = _project_context(args)
+        defaults = wtune.project.project_post_defaults(doc)
+        from_project = dict(stations=",".join(defaults["stations"]),
+                            vars=",".join(defaults["station_vars"]),
+                            method=defaults["station_method"], calm_kt=defaults["calm_kt"])
+
+    def pick(name, given, builtin):
+        if given is not None:
+            return given
+        return from_project.get(name) or builtin
+    return (pick("stations", args.stations, "all"), pick("vars", args.vars, "all"),
+            pick("method", args.method, "nearest"), pick("calm_kt", args.calm_kt, 3.0))
+
+
+def cmd_stations(args: argparse.Namespace) -> int:
+    import wtune.post.station_compare as sc
+    stations, variables, method, calm_kt = _station_settings(args)
+    try:
+        res = sc.compare(args.run, args.obs, _parse_vars(stations), _parse_vars(variables),
+                         method=method, calm_kt=calm_kt, tol_min=args.tol_min,
+                         domains=[int(d) for d in _parse_vars(args.domains)] if args.domains
+                         else None, out_dir=args.out)
+    except sc.StationError as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    for n in res["notes"]:
+        print("note: %s" % n)
+    for st in res["stats"]:
+        print("%-6s %-4s %-7s n=%-4d bias=%s rmse=%s" % (
+            st["station"], st["domain"], st["variable"], st["n"],
+            "nan" if st["bias"] != st["bias"] else "%.2f" % st["bias"],
+            "nan" if st["rmse"] != st["rmse"] else "%.2f" % st["rmse"]))
+    print("wrote %s and %d figure(s) under %s" % (", ".join(os.path.basename(f) for f in res["files"]),
+                                                  len(res["figures"]), args.out))
     return 0
 
 
@@ -259,6 +332,13 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         if args.types is None and defaults["types"]:
             args.types = defaults["types"]
             used.append("--types %s" % args.types)
+        if args.times is None and defaults["times"]:
+            try:
+                args.times = ",".join(recipe.resolve_project_times(run_dirs[0], defaults["times"]))
+            except ValueError as e:
+                print("error: %s" % e, file=sys.stderr)
+                return 1
+            used.append("--times %s" % ",".join(defaults["times"]))
         if args.every is None and args.times is None and defaults["every"]:
             args.every = defaults["every"]
             used.append("--every %s" % args.every)
@@ -270,9 +350,10 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         import wtune.project
         storm, hurdat2 = wtune.project.project_storm(project_doc)
 
-    cross_sections = xsec_top_km = xsec_halfwidth_km = None
+    cross_sections = xsec_top_km = xsec_halfwidth_km = focus_box = None
     if project_dir:
         cross_sections, xsec_top_km, xsec_halfwidth_km = _recipe_cross_sections(project_doc)
+        focus_box = wtune.project.project_post_defaults(project_doc)["focus"]
         from wtune.post import fetch
         line = fetch.offline_summary(project_dir, run_dirs[0])
         if line:
@@ -288,7 +369,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         every=args.every, times=_parse_vars(args.times) if args.times else None,
         cross_sections=cross_sections, animate=args.animate,
         xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir,
-        spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km)
+        spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km,
+        focus_box=focus_box)
     _print_recipe_result(result)
     argv = getattr(args, "argv", ["recipe"] + run_dirs)
     _record_manifest(project_dir, ["wtune", "post"] + argv, out, run_dirs)
@@ -394,6 +476,17 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         raise SystemExit("wtune post fetch <name> --project P [--run-dir R] ... (or --list); "
                          "available: %s" % ", ".join(sorted(fetch.discover()[0])))
     from wtune.post import sources
+    import wtune.project
+    if not getattr(args, "project", None):
+        args.project = wtune.project.find_project()
+        if not args.project:
+            raise SystemExit("wtune post fetch %s: no project here -- pass --project DIR (or set "
+                             "$WTUNE_PROJECT)" % name)
+    if getattr(args, "run_dir", None) is None:
+        runs = wtune.project.discover_runs(os.path.abspath(args.project))
+        if runs:            # era5/igra/stations take the window and region from a run's wrfout
+            args.run_dir = runs[-1][1]
+            print("%s: --run-dir not given; using the project's %s" % (name, args.run_dir))
     try:
         paths = fetch.run_module(name, args)
     except sources.FetchIncomplete as e:
@@ -405,7 +498,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 def _add_fetch_module_parser(subparsers, name, mod, **kw):
     sp = subparsers.add_parser(name, help=mod.HELP, description=mod.HELP, **kw)
-    sp.add_argument("--project", required=True, help="project dir; data goes to its %s"
+    sp.add_argument("--project", default=None, help="project dir; data goes to its %s "
+                    "(default: $WTUNE_PROJECT or a project.yaml above the current directory)"
                     % ("input/era5/" if name == "era5" else "input/obs/%s/" % name))
     sp.add_argument("--run-dir", default=None, dest="run_dir", help="run whose wrfout gives the "
                     "time window and region")
@@ -575,6 +669,38 @@ _COMMANDS = [
              "or a project.yaml above the current directory"),
         _arg("--out", default=None, help="output directory (default: a project's "
              "post/<id>/)")]),
+    ("brief", dict(help="decision 0078 stage 2: write POST_DIR/brief.json -- case, runs, "
+                   "checked observations, drawn/missing figures with their questions, key "
+                   "numbers -- for the agent that reviews a recipe"), [
+        _arg("post_dir", help="a `wtune post recipe` output directory (has figures.json)"),
+        _PROJECT, _arg("--spinup-hours", type=float, default=6.0)]),
+    ("stations", dict(help="model vs. station observations (a wtune-obs/1 `stations` dataset): "
+                      "per station, variable and domain series, bias/RMSE (circular for wind "
+                      "direction, calm winds excluded), station-height mismatch"), [
+        _arg("--run", required=True, help="a wrfout directory (or a project with one run)"),
+        _arg("--obs", required=True, help="stations dataset folder (see `wtune event obs-convert`)"),
+        _arg("--stations", default=None, help="comma-separated station ids, or all (default: with "
+             "--project its post.stations, else every station in the dataset; a subset is "
+             "reported as a partial analysis)"),
+        _arg("--vars", default=None, help="of t2,td2,wspd10,wdir10,gust, or all (default: with "
+             "--project its post.station_vars, else every variable the dataset has and the "
+             "model side supports)"),
+        _arg("--method", choices=["nearest", "bilinear"], default=None,
+             help="default: with --project its post.station_method, else nearest"),
+        _arg("--calm-kt", type=float, default=None, dest="calm_kt",
+             help="observed speed below this is left out of the direction statistics "
+             "(default: with --project its post.calm_kt, else 3.0)"),
+        _arg("--project", default=None, help="project dir whose project.yaml post.stations / "
+             "station_vars / station_method / calm_kt fill in the flags not given (an explicit "
+             "--project only; no walk-up discovery here)"),
+        _arg("--tol-min", type=float, default=None, dest="tol_min",
+             help="pairing tolerance in minutes (default 10)"),
+        _arg("--domains", default=None, help="comma-separated domain numbers (default: all)"),
+        _arg("--out", required=True, help="post directory for the CSVs, figures and figures.json")]),
+    ("check", dict(help="decision 0078 stage 5: check the agent's POST_DIR/review.json and "
+                   "assessment.md (sections, citations, numbers against the cited CSVs); "
+                   "exit 1 on an error"), [
+        _arg("post_dir"), _PROJECT]),
 ]
 _WITH_NC_CACHE = ("inventory", "extract", "plot", "sounding", "tc", "compare", "recipe", "cf3d",
                   "vapor-bundle", "custom")
@@ -595,8 +721,8 @@ def _add_fetch_parsers(sub) -> dict:
         except argparse.ArgumentError as e:     # a module's own option clashes with --project/...
             print("post fetch: module %s disabled: %s" % (name, e), file=sys.stderr)
     if "era5" in mods:
-        p_e5 = sub.add_parser("fetch-era5", help="alias of `fetch era5`")
-        p_e5.add_argument("--project", required=True)
+        p_e5 = sub.add_parser("fetch-era5", help="DEPRECATED alias of `fetch era5`")
+        p_e5.add_argument("--project", default=None)
         p_e5.add_argument("--run-dir", default=None, dest="run_dir")
         mods["era5"].add_arguments(p_e5)
         p_e5.set_defaults(fetch_name="era5")
@@ -664,7 +790,8 @@ def main(argv: list[str] | None = None) -> int:
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
                     recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d,
-                    preview=cmd_preview)
+                    preview=cmd_preview, brief=cmd_brief, check=cmd_check,
+                    stations=cmd_stations)
     dispatch["fetch-era5"] = cmd_fetch
     dispatch["vapor-bundle"] = cmd_vapor_bundle
     fn = dispatch.get(args.post_command)

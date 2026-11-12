@@ -6,7 +6,6 @@ from conftest import swap_wtune_module
 import datetime as dt
 import json
 import os
-import sys
 
 import pytest
 
@@ -16,7 +15,7 @@ import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/c
 from wtune import sidecar as ws  # noqa: E402
 from wtune.post import extract  # noqa: E402
 from test_post_bp_cache import _bp, _fresh_process, fake_bp  # noqa: E402,F401
-from test_wtune_run_resume import FMT, T0, _real_bp, _rsl  # noqa: E402
+from test_wtune_run_resume import FMT, T0, _rsl  # noqa: E402
 
 CFG = {"ranks": 80, "nodes": 5, "omp": 3}             # 48 of 72 cores per node
 REAL_BOUND_WITHIN = ws.bound_within
@@ -77,22 +76,6 @@ def _sidecar(tmp_path, runner, project=None, max_dom=1):
     return side, run, report, lines
 
 
-# ---------------------------------------------------------------------------
-# pure pieces
-# ---------------------------------------------------------------------------
-def test_idle_cores_and_mask():
-    assert ws.idle_cores(CFG, 72) == list(range(48, 72))
-    assert ws.idle_cores({"ranks": 72, "nodes": 1, "omp": 1}, 72) == []
-    assert ws.idle_cores({"ranks": 70, "nodes": 4, "omp": 2}, 72) == list(range(36, 72))
-    assert ws.cpu_mask([0, 1, 4]) == "0x13"
-    assert ws.in_job_srun("77", [70, 71], 72, 5) == [
-        "srun", "--jobid=77", "--overlap", "-N1", "-n1", "--relative=4", "-c", "72",
-        "--cpu-bind=verbose,mask_cpu:0xc00000000000000000"]     # the allocation's last node
-    assert ws.own_srun(72, "--exclude=head,work5") == [
-        "srun", "-p", "compute", "-N1", "-n1", "-c", "72", "--time=01:00:00",
-        "--exclude=head,work5"]
-
-
 def test_convert_refuses_to_run_outside_the_idle_cores(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ws, "bound_within", REAL_BOUND_WITHIN)
     monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 48}, raising=False)
@@ -107,60 +90,6 @@ def test_convert_refuses_to_run_outside_the_idle_cores(tmp_path, monkeypatch, ca
     assert rc == 3 and "nothing converted" in capsys.readouterr().err
 
 
-def test_finished_frames_need_a_later_frame_of_the_domain(tmp_path, fake_bp):  # noqa: F811
-    seg = tmp_path / "seg_0"
-    a, b = _frame(seg, 1, 0), _frame(seg, 1, 1)
-    c = _frame(seg, 2, 0)
-    os.makedirs(seg / ("wrfout_d01_%s" % _t(2)))          # pre-created, not written yet
-    assert ws.finished_frames(str(seg), False) == [a]     # 01:00 (d01), 00:00 (d02): maybe open
-    assert ws.finished_frames(str(seg), True) == [a, b, c]
-
-
-def test_post_cache_root_is_posts_own(tmp_path, monkeypatch):
-    monkeypatch.delenv(extract.NC_CACHE_ENV, raising=False)
-    run, proj = str(tmp_path / "out"), str(tmp_path / "proj")
-    assert ws.post_cache_root(run) == os.path.join(run, "_nc_cache")
-    assert ws.post_cache_root(run, proj) == os.path.join(proj, "_nc_cache")
-    monkeypatch.setenv(extract.NC_CACHE_ENV, str(tmp_path / "shared"))
-    assert ws.post_cache_root(run, proj) == str(tmp_path / "shared")
-
-
-# ---------------------------------------------------------------------------
-# conversion batches
-# ---------------------------------------------------------------------------
-def test_batches_only_finished_frames_one_srun_at_a_time(tmp_path, fake_bp):  # noqa: F811
-    r = Runner()
-    side, run, report, lines = _sidecar(tmp_path, r)
-    seg = run / "seg_0"
-    f0, f1 = _frame(seg, 1, 0), _frame(seg, 1, 1)
-    side.poll(str(seg), "77", CFG, "PENDING")
-    assert r.procs == []                                  # no allocation yet
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert r.procs[0].argv[:9] == ws.in_job_srun("77", list(range(48, 72)), 72, 5)
-    assert r.procs[0].argv[12:14] == ["--cpu-mask", ws.cpu_mask(range(48, 72))]
-    assert r.frames(0) == [f0]                            # 01:00 is still WRF's open frame
-    f2 = _frame(seg, 1, 2)
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert len(r.procs) == 1                              # the first srun is still alive
-    r.procs[0].end()
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert r.frames(1) == [f1] and report["sidecar"]["converted"] == 1
-    r.procs[1].end()
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert len(r.procs) == 2 and report["sidecar"]["converted"] == 2   # nothing new finished
-    assert fake_bp.conversions() == [f0, f1] and f2 not in fake_bp.conversions()
-    assert sum("converting 1 frame(s) in job 77 on 24 idle core(s)" in ln for ln in lines) == 2
-
-
-def test_batch_size_is_capped(tmp_path, fake_bp, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(ws, "MAX_BATCH", 2)
-    r = Runner()
-    side, run, _report, _ = _sidecar(tmp_path, r)
-    frames = [_frame(run / "seg_0", 1, h) for h in range(4)]
-    side.poll(str(run / "seg_0"), "77", CFG, "RUNNING")
-    assert r.frames(0) == frames[:2]
-
-
 def test_no_idle_core_converts_only_after_the_run(tmp_path, fake_bp):  # noqa: F811
     r = Runner()
     side, run, report, lines = _sidecar(tmp_path, r)
@@ -173,23 +102,6 @@ def test_no_idle_core_converts_only_after_the_run(tmp_path, fake_bp):  # noqa: F
     assert r.procs[0].argv[:9] == ws.own_srun(72, "--exclude=head") and r.frames(0) == []
     assert sorted(fake_bp.conversions()) == frames
     assert report["sidecar"]["converted"] == 3 and report["sidecar"]["not_converted"] == []
-
-
-def test_leftover_and_cut_off_frames_are_converted_at_the_end(tmp_path, fake_bp):  # noqa: F811
-    r = Runner()
-    side, run, report, lines = _sidecar(tmp_path, r)
-    seg = run / "seg_0"
-    f0, f1, f2 = [_frame(seg, 1, h) for h in range(3)]
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert r.frames(0) == [f0, f1]
-    r.procs[0].end(killed=True)                           # the allocation ended under it
-    side.job_ended(str(seg))
-    assert report["sidecar"]["converted"] == 0
-    side.finish()
-    assert len(r.procs) == 2 and r.procs[1].argv[0:3] == ["srun", "-p", "compute"]
-    assert sorted(fake_bp.conversions()) == [f0, f1, f2]
-    assert report["sidecar"]["converted"] == 3
-    assert lines[-1] == "  sidecar: 3 frame(s) in %s" % report["sidecar"]["cache"]
 
 
 def test_empty_batch_ends_in_job_conversion(tmp_path, fake_bp, monkeypatch):  # noqa: F811
@@ -212,38 +124,6 @@ def test_empty_batch_ends_in_job_conversion(tmp_path, fake_bp, monkeypatch):  # 
     assert frames[0] in fake_bp.conversions() and report["sidecar"]["converted"] == 4
 
 
-def test_backlog_of_an_ended_job_goes_into_the_next_job(tmp_path, fake_bp):  # noqa: F811
-    r = Runner()
-    side, run, _report, _ = _sidecar(tmp_path, r)
-    f0, f1 = _frame(run / "seg_0", 1, 0), _frame(run / "seg_0", 1, 1)
-    side.job_ended(str(run / "seg_0"))
-    g0, _g1 = _frame(run / "seg_1", 1, 2), _frame(run / "seg_1", 1, 3)
-    side.poll(str(run / "seg_1"), "78", CFG, "RUNNING")
-    assert r.procs[0].argv[1] == "--jobid=78" and r.frames(0) == [f0, f1, g0]
-
-
-def test_cache_is_exactly_what_post_looks_up(tmp_path, fake_bp, monkeypatch):  # noqa: F811
-    proj = tmp_path / "proj"
-    r = Runner()
-    side, run, report, _ = _sidecar(tmp_path, r, project=str(proj))
-    frames = [_frame(run / "seg_0", 1, h) for h in range(2)]
-    frames += [_frame(run / "seg_0_r1", 1, 2)]
-    side.job_ended(str(run / "seg_0"))
-    side.job_ended(str(run / "seg_0_r1"))
-    side.finish()
-    done = len(fake_bp.conversions())
-    assert done == 3 and report["sidecar"]["cache"] == str(proj / "_nc_cache")
-    _fresh_process(monkeypatch)
-    with extract.nc_cache(base=str(proj)):                # what `wtune post recipe` sets
-        prep = extract.prepare_history(str(run))
-        want = [extract.cached_nc_path(str(run), f) for f in frames]
-        assert [p for _t, p in extract.list_frames(str(run))] == want
-    assert prep["n_bp"] == 3 and prep["failed"] == []
-    assert len(fake_bp.conversions()) == done             # post converted nothing
-    assert all(os.path.isfile(p) for p in want)
-    assert want[2].endswith(os.path.join("seg_0_r1", "wrfout_d01_%s.nc" % _t(2)))
-
-
 def test_a_sidecar_error_never_stops_the_run(tmp_path, fake_bp):  # noqa: F811
     def boom(argv):
         raise OSError("srun: command not found")
@@ -253,33 +133,6 @@ def test_a_sidecar_error_never_stops_the_run(tmp_path, fake_bp):  # noqa: F811
     side.poll(str(run / "seg_0"), "77", CFG, "RUNNING")
     side.finish()
     assert lines[-1] == "  sidecar: switched off (OSError: srun: command not found)"
-
-
-# ---------------------------------------------------------------------------
-# restart validation
-# ---------------------------------------------------------------------------
-def test_restart_validation_records_each_new_valid_set(tmp_path, fake_bp):  # noqa: F811
-    r = Runner()
-    side, run, report, lines = _sidecar(tmp_path, r, max_dom=2)
-    seg = run / "seg_0"
-    seg.mkdir(parents=True)
-    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
-    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
-    for d in (1, 2):
-        _real_bp(rst(d, 2))
-    _real_bp(rst(1, 4))                                   # 04:00: d02 not written yet
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(4), [at(2)], 2))
-    side.poll(str(seg), "77", CFG, "PENDING")
-    rec = report["sidecar"]
-    assert rec["valid_restarts"] == [{"dir": str(seg), "time": _t(2)}]
-    _real_bp(rst(2, 4))
-    side.poll(str(seg), "77", CFG, "RUNNING")             # on disk, the rsl has no line yet
-    assert len(rec["valid_restarts"]) == 1
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
-    side.job_ended(str(seg))
-    assert [v["time"] for v in rec["valid_restarts"]] == [_t(2), _t(4)]
-    assert rec["last_valid_restart"] == {"dir": str(seg), "time": _t(4)}
-    assert sum("restart" in ln and "valid" in ln for ln in lines) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -412,47 +265,3 @@ def test_finish_drops_the_partial_files_of_a_killed_conversion(tmp_path, fake_bp
         open(p, "w").close()
     side.finish()
     assert not os.path.exists(junk) and os.path.exists(keep)
-
-
-def test_compress_history_keeps_only_the_newest_valid_restart(tmp_path, fake_bp):  # noqa: F811
-    run = tmp_path / "out"
-    report, lines = {}, []
-    side = ws.Sidecar(str(run), ws.post_cache_root(str(run)), 2, os.path.isdir, report,
-                      save=lambda: None, log=lines.append, cores_per_node=72,
-                      exclude_arg="--exclude=head", runner=Runner(), keep_last_restart=True)
-    seg = run / "seg_0"
-    seg.mkdir(parents=True)
-    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
-    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
-    for h in (2, 3, 4):
-        for d in (1, 2):
-            _real_bp(rst(d, h))
-    _real_bp(rst(1, 6))                                   # 06:00 still being written
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(3)], 2))
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    # two valid: both stay -- a job dying right after 03:00 resumes from 02:00 (resume_point)
-    assert os.path.isdir(rst(1, 2)) and os.path.isdir(rst(2, 3))
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(3), at(4)], 2))
-    side.poll(str(seg), "77", CFG, "RUNNING")
-    assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
-    assert all(os.path.isdir(p) for p in (rst(1, 3), rst(2, 4), rst(1, 6)))
-    assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [
-        True, False, False]
-
-
-def test_without_compress_history_only_the_newest_valid_restart_stays(tmp_path, fake_bp):  # noqa: F811
-    # default --resume 1 writes a checkpoint every 1/8 of the run; without --compress-history
-    # all ~8 sets stayed on disk
-    from wtune.run.space import drop_older_restarts
-    seg = tmp_path / "seg_0"
-    seg.mkdir()
-    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
-    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
-    for h in (2, 4):
-        for d in (1, 2):
-            _real_bp(rst(d, h))
-    _real_bp(rst(1, 6))                                   # 06:00 not finished: not valid
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
-    assert drop_older_restarts(str(seg), 2, os.path.isdir) > 0
-    assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
-    assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))

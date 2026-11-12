@@ -24,7 +24,7 @@
    [
     "dispatch-convection",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, True, 6)",
-    "[]"
+    "[('focus_box', None), ('map_time', None)]"
    ],
    [
     "advice-none"
@@ -133,62 +133,62 @@
    [
     "tc_structure",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', '6h'), ('paraview', False), ('times', ['t1']), ('use_track', True)]"
+    "[('every', '6h'), ('paraview', False), ('spinup_hours', 3), ('times', ['t1']), ('use_track', True)]"
    ],
    [
     "dispatch-convection",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, False, 3)",
-    "[]"
+    "[('focus_box', None), ('map_time', None)]"
    ],
    [
     "dispatch-cloud",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', '6h'), ('paraview', False), ('times', ['t1'])]"
+    "[('every', '6h'), ('focus_box', None), ('map_time', None), ('paraview', False), ('times', ['t1'])]"
    ],
    [
     "dispatch-terrain",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'t': 1}), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'t': 1}), ('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-moisture",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'m': 2}), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'m': 2}), ('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-precip",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('hovmoller_line', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-synoptic",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-pbl",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-chem",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-climate",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "dispatch-ensemble",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+    "[('focus_box', None), ('map_time', None), ('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
    ],
    [
     "timeseries",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, '6h', ['t1'])",
-    "[('animate', True)]"
+    "[('animate', True), ('overlay', [])]"
    ],
    [
     "advice",
@@ -535,7 +535,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('map_time', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",
@@ -635,7 +635,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('map_time', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",
@@ -735,7 +735,7 @@
    [
     "dispatch-precip",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('project_dir', None), ('spinup_days', None), ('spinup_hours', 6)]"
+    "[('focus_box', None), ('hovmoller_line', None), ('map_time', None), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6)]"
    ],
    [
     "advice",
@@ -846,7 +846,7 @@
    [
     "tc_structure",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('every', None), ('paraview', True), ('times', None), ('use_track', False)]"
+    "[('every', None), ('paraview', True), ('spinup_hours', 6), ('times', None), ('use_track', False)]"
    ],
    [
     "advice",
@@ -854,7 +854,7 @@
    ],
    [
     "report",
-    "({'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'tc_figure', 'missing': True, 'dataset': 'HURDAT2/--storm', 'reason': 'tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison', 'run': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
+    "({'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'tc_figure', 'missing': True, 'dataset': 'HURDAT2 or b-deck, and --storm', 'reason': 'tc was detected but --storm with --hurdat2 or --bdeck is required to build the a-deck/b-deck comparison', 'run': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
    ]
   ],
   "out_exists": true,
@@ -901,10 +901,10 @@
      "valid_time": null
     },
     {
-     "dataset": "HURDAT2/--storm",
+     "dataset": "HURDAT2 or b-deck, and --storm",
      "id": "tc_figure",
      "missing": true,
-     "reason": "tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison",
+     "reason": "tc was detected but --storm with --hurdat2 or --bdeck is required to build the a-deck/b-deck comparison",
      "run": null
     },
     {

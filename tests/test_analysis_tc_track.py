@@ -19,7 +19,7 @@ tempest-extremes 2.4.2 (conda-forge nompi build 103) before being written into t
 see analysis/tc_track.py's module docstring for the underlying CLI facts (bool flags are
 presence-only, --regional is mandatory for a limited-area domain, etc).
 
-Requires DetectNodes/StitchNodes/GenerateConnectivityFile on PATH:
+Requires DetectNodes/StitchNodes on PATH:
     pixi run --manifest-path envs/wtune/pixi.toml python -m pytest -q tests/test_analysis_tc_track.py
 """
 import os
@@ -224,14 +224,14 @@ def test_compare_best_track_raises_on_empty_track():
 
 
 # --------------------------------------------------------------------------------------
-# non-separable (curvilinear) grid via GenerateConnectivityFile
+# non-separable (curvilinear) grid via write_grid_connectivity
 # --------------------------------------------------------------------------------------
 
 def _write_curvilinear_fields_nc(path, nt=1):
     """2-D, genuinely non-separable lat/lon (lat depends on i too, lon on j too),
     flattened onto `ncol` -- the layout analysis.diagnostics writes for a non-separable
-    grid. One Gaussian low, no track continuity needed; this only exercises the
-    GenerateConnectivityFile + --in_connect code path (see tc_track.py docstring).
+    grid. One Gaussian low inside a wind ring, no track continuity needed; this exercises
+    the write_grid_connectivity + --in_connect code path (see tc_track.py docstring).
     """
     ny, nx = 20, 24
     Y, X = np.meshgrid(np.linspace(20, 35, ny), np.linspace(-100, -80, nx), indexing="ij")
@@ -264,19 +264,25 @@ def _write_curvilinear_fields_nc(path, nt=1):
         windv[1] = wind2d.reshape(-1)         # the separable-grid moving-vortex test)
         ds.grid_type = "ncol"
         ds.map_proj_name = "Lambert conformal (synthetic curvilinear)"
-    return lat2d, lon2d, (cy, cx)
+        ds.ny, ds.nx = ny, nx
+    return lat2d, lon2d, (cy, cx), wind2d
 
 
 def test_nonseparable_grid_uses_connectivity_and_finds_the_low(tmp_path):
-    lat2d, lon2d, (cy, cx) = _write_curvilinear_fields_nc(tmp_path / "fields_curv.nc")
+    lat2d, lon2d, (cy, cx), wind2d = _write_curvilinear_fields_nc(tmp_path / "fields_curv.nc")
     tracks, provenance = tc_track.detect_and_stitch(
         tmp_path / "fields_curv.nc", str(tmp_path / "te_curv"),
         params=_params(mintime_hours=1.0, maxgap_hours=1.0))
     assert provenance["connectivity_cmd"] is not None
-    assert provenance["connectivity_cmd"][0].endswith("GenerateConnectivityFile")
+    assert provenance["connectivity_cmd"][0] == "write_grid_connectivity"
     assert provenance["grid_type"] == "ncol"
     assert len(tracks) >= 1
     pt = tracks[0][0]
     assert pt["lat"] == pytest.approx(lat2d[cy, cx], abs=1e-3)
     assert pt["lon"] == pytest.approx(lon2d[cy, cx], abs=1e-3)
     assert pt["pmin_hpa"] == pytest.approx(980.0, abs=0.5)
+    # vmax = max wspd10 within wind_radius_deg of the centre, not the calm centre cell
+    near = tc_track.great_circle_km(lat2d[cy, cx], lon2d[cy, cx], lat2d, lon2d) \
+        <= tc_track.TCTrackParams().wind_radius_deg * 111.2
+    assert pt["vmax_ms"] > wind2d[cy, cx] + 5.0
+    assert pt["vmax_ms"] == pytest.approx(wind2d[near].max(), rel=0.02)

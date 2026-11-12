@@ -421,7 +421,12 @@ def _file_entries(run_dir):
     """[(domain, file_name_time, path), ...] for every wrfout_dNN_TIME history file, segment
     order (segment_dirs) then file-name order -- the order "later wins" is decided in. A BP
     history directory appears as its cached netCDF copy (_bp_to_nc), or not at all when its
-    conversion failed."""
+    conversion failed. Truncated or unreadable files are left out (bad_history_files)."""
+    return _entries_and_bad(run_dir)[0]
+
+
+def _entries_and_bad(run_dir):
+    """(_file_entries list, {path: why} of the history files left out as unusable)."""
     raw = _raw_entries(run_dir)
     bps = [path for _d, _t, path, is_bp in raw if is_bp]
     mapped = _bp_to_nc(run_dir, bps)[0] if bps else {}
@@ -432,7 +437,45 @@ def _file_entries(run_dir):
             if path is None:
                 continue
         out.append((dom, t, path))
-    return out
+    bad = bad_history_files(out)
+    return [e for e in out if e[2] not in bad], bad
+
+
+TRUNCATED_FRACTION = 0.05   # a frame this much smaller than its domain's median was cut short
+SCREEN_MIN_MEDIAN = 1 << 20  # screen only domains of real-size frames (a wrfout is >= MBs)
+
+
+def bad_history_files(entries) -> dict:
+    """{path: why} for the history files of `entries` ([(domain, time, path), ...]) no diagnostic
+    can use: smaller than TRUNCATED_FRACTION of the domain's median file size (a write cut short,
+    e.g. by a full quota -- WRF still prints SUCCESS), or not readable netCDF with a Times
+    variable. One such file used to abort the whole recipe (wrf-python's Fortran stops the
+    process). Only domains whose median file is >= SCREEN_MIN_MEDIAN are screened, and nothing is
+    flagged as unreadable when netCDF4 itself is missing."""
+    sizes = {}
+    for _dom, _t, path in entries:
+        try:
+            sizes[path] = os.path.getsize(path)
+        except OSError:
+            sizes[path] = 0
+    median = {}
+    for dom in {e[0] for e in entries}:
+        s = sorted(sizes[p] for d, _t, p in entries if d == dom)
+        median[dom] = s[len(s) // 2]
+    try:
+        _netcdf4()
+        can_read = True
+    except ImportError:
+        can_read = False
+    bad = {}
+    for dom, _t, path in entries:
+        if median[dom] < SCREEN_MIN_MEDIAN:
+            continue
+        if sizes[path] < TRUNCATED_FRACTION * median[dom]:
+            bad[path] = "truncated: %d bytes, domain median %d" % (sizes[path], median[dom])
+        elif can_read and file_times(path) is None:
+            bad[path] = "not readable netCDF with a Times variable"
+    return bad
 
 
 def convert_frames(run_dir: str, bps) -> dict:
@@ -443,12 +486,14 @@ def convert_frames(run_dir: str, bps) -> dict:
 
 def prepare_history(run_dir: str) -> dict:
     """Converts (or validates the cache of) every BP history directory of run_dir up front.
-    Returns dict(n_bp, cache, failed=[(bp, error), ...]). Raises BPConversionError when BP
-    history needs converting and the converter is unavailable."""
+    Returns dict(n_bp, cache, failed=[(bp, error), ...], bad=[(path, why), ...] of history files
+    left out as truncated/unreadable). Raises BPConversionError when BP history needs
+    converting and the converter is unavailable."""
     bps = [path for _d, _t, path, is_bp in _raw_entries(run_dir) if is_bp]
     failed = convert_frames(run_dir, bps)
+    bad = _entries_and_bad(run_dir)[1]
     return dict(n_bp=len(bps), cache=os.path.join(nc_cache_root(run_dir), _run_id(run_dir)),
-                failed=sorted(failed.items()))
+                failed=sorted(failed.items()), bad=sorted(bad.items()))
 
 
 def file_index(run_dir: str) -> dict:

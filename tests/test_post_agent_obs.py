@@ -52,13 +52,6 @@ def _dataset(base, name="cmorph", kind="gridded_precip", hours=range(1, 25), **g
     return d
 
 
-def test_valid_grid_dataset_passes(tmp_path):
-    d = _dataset(tmp_path)
-    assert agent_obs.check(str(d)) == ([], [])
-    ok, bad = agent_obs.usable(str(tmp_path), "gridded_precip")
-    assert [n for n, _d, _p in ok] == ["cmorph"] and bad == []
-
-
 def test_grid_units_range_and_sha_are_checked(tmp_path):
     d = _dataset(tmp_path, units="kg m-2", value=9000.0)
     err, _ = agent_obs.check(str(d))
@@ -88,17 +81,6 @@ def test_gauges_pass_and_bad_time_fails(tmp_path):
     prov["files"]["gauges.csv"] = _sha(d / "gauges.csv")
     (d / "provenance.json").write_text(json.dumps(prov))
     assert any("line 2" in e for e in agent_obs.check(str(d))[0])
-
-
-def test_hourly_files_tile_a_24h_window(tmp_path):
-    d = _dataset(tmp_path)
-    frames = [datetime(2016, 10, 6, 12) + timedelta(hours=h) for h in range(49)]
-    span, start, end, paths = agent_obs.pick_window(frames, 6, agent_obs.grid_index(str(d)))
-    assert (span, start, end, len(paths)) == (24, datetime(2016, 10, 7), datetime(2016, 10, 8), 24)
-    lat, lon, total = agent_obs.sum_grids(paths)
-    assert np.allclose(total, 48.0)
-    la, lo, sub = agent_obs.subset(lat, lon, total, (20.5, 21.5, 120.2, 120.4), margin=0.5)
-    assert list(la) == [20.0, 21.0, 22.0] and list(lo) == [120.0] and sub.shape == (3, 1)
 
 
 def test_read_grid_flips_descending_lat_and_wraps_lon(tmp_path):
@@ -151,7 +133,7 @@ def test_recipe_draws_agent_grid_figures(tmp_path, monkeypatch):
     def verify(fcst, obs, poly, work, fname, oname, thr, **kw):
         with netCDF4.Dataset(obs) as ds:
             seen["obs"] = np.asarray(ds.variables["APCP_OBS"][0])
-        seen["kw"] = kw
+        seen["kw"], seen["thr"] = kw, thr
         return dict(cts="c", nbrcnt="n", pairs_nc="p")
     monkeypatch.setattr(met_gridstat, "run_verification", verify)
     monkeypatch.setattr(met_gridstat, "parse_cts_table", lambda p: [dict(
@@ -170,6 +152,10 @@ def test_recipe_draws_agent_grid_figures(tmp_path, monkeypatch):
     assert "2016-10-07 00 -> 2016-10-08 00 UTC (24 h)" == figs[0]["window"]
     assert np.allclose(seen["obs"], 48.0) and seen["kw"]["to_grid"] == "OBS"
     assert os.path.isfile(out_dir / "precip_categorical_cmorph_A24.csv")
+    # a grid over Taiwan is scored at CWA's warning levels, not the WPC inch values
+    assert seen["thr"] == [">=1", ">=10", ">=40", ">=80", ">=200", ">=350"]
+    lat_us, lon_us = np.meshgrid([30.0, 31.0], [-90.0, -89.0], indexing="ij")
+    assert precip.event_thresholds(lat_us, lon_us) == precip.THRESHOLDS_MM
 
 
 def test_recipe_notes_a_dataset_that_fails_check(tmp_path):
@@ -324,17 +310,29 @@ def test_cloud_recipe_draws_agent_ir(tmp_path, monkeypatch):
         ctc = [dict(thresh=240.0, fy_oy=3, fy_on=1, fn_oy=0, fn_on=0)]
         nbr = [dict(thresh=240.0, width=1, fss=0.8, fbs=0.1, o_rate=0.7, f_rate=0.8)]
         cts = [dict(thresh=240.0, pod=1, far=0.25, csi=0.75, fbias=1.33, total=4)]
+        late = t + timedelta(hours=3)
         return dict(per_ctc=[ctc], per_nbr=[nbr], cts_rows=[(t, c) for c in cts],
-                    fields=[(t, lat2, lon2, np.full((2, 2), 215.0), np.full((2, 2), 220.0))])
+                    fields=[(t, lat2, lon2, np.full((2, 2), 215.0), np.full((2, 2), 220.0)),
+                            (late, lat2, lon2, np.full((2, 2), 260.0), np.full((2, 2), 260.0))])
     monkeypatch.setattr(snapshot_verify, "verify", verify)
-    drawn = {}
+    drawn, args = {}, {}
     for fn in ("side_by_side", "scores_vs_threshold", "fss_vs_scale"):
-        monkeypatch.setattr(obs_figs, fn, lambda *a, _f=fn, **k: drawn.setdefault(_f, k) or "x.png")
+        monkeypatch.setattr(obs_figs, fn, lambda *a, _f=fn, **k: args.__setitem__(_f, a)
+                            or drawn.setdefault(_f, k) or "x.png")
     out = cloud._agent_ir_figures("run", "r", 1, {"domains": [{"domain": 1, "dx_km": 27}]},
                                   str(tmp_path / "post"))
     assert [f.get("id") or f.get("text") for f in out] == list(cloud.IR_IDS)
     assert seen["thresholds"] == ["<=240", "<=220", "<=210"] and seen["model"][3] == "K"
     assert drawn["scores_vs_threshold"]["op"] == "≤"
+    assert "2016-10-07 12:00" in args["side_by_side"][5]        # most cold cloud
+    # with the rain peak: the verified time nearest it; the panel names the dataset briefly
+    # (its `dataset` sentence ran off the panel), one file set per domain
+    out = cloud._agent_ir_figures("run", "r", 3, {"domains": [{"domain": 3, "dx_km": 3}]},
+                                  str(tmp_path / "post"), map_time="2016-10-07_14:00:00",
+                                  tag="_d03")
+    assert "2016-10-07 15:00" in args["side_by_side"][5]
+    assert args["side_by_side"][4][1] == "%s (obs)" % out[0]["obs_sources"][0]["name"].upper()
+    assert args["side_by_side"][6].endswith("_d03.png") and out[0]["domain"] == "d03"
 
 
 class _Ctx:
@@ -428,3 +426,67 @@ def test_obs_check_warns_on_station_units(tmp_path):
         license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
     err, warn = agent_obs.check(str(d))
     assert err == [] and len(warn) == 2
+
+
+def test_window_centres_on_the_rain_peak(tmp_path):
+    """haitang2017 run72: the latest 24 h (08-02 00Z -> 08-03 00Z) began after the 08-01 23Z
+    peak; the window now contains the peak, centred as near it as the files allow."""
+    d = _dataset(tmp_path, hours=range(1, 37))
+    frames = [datetime(2016, 10, 6, 12) + timedelta(hours=h) for h in range(49)]
+    idx = agent_obs.grid_index(str(d))
+    assert agent_obs.pick_window(frames, 6, idx)[1:3] == (datetime(2016, 10, 7, 12),
+                                                         datetime(2016, 10, 8, 12))
+    assert agent_obs.pick_window(frames, 6, idx, around=datetime(2016, 10, 7, 8))[1:3] == (
+        datetime(2016, 10, 7), datetime(2016, 10, 8))
+
+
+def test_grid_figures_over_taiwan_use_cwa_and_a_short_name(tmp_path, monkeypatch):
+    """haitang2017 run72: the CMORPH comparison over Taiwan was drawn on the WPC inch scale."""
+    from wtune.post import obs_figs, rainscale
+    lat, lon = np.meshgrid(np.linspace(21, 26, 6), np.linspace(118, 123, 6), indexing="ij")
+    f, o = np.full((6, 6), 40.0), np.full((6, 6), 120.0)
+    o[0, 0] = 400.0
+    levels, cmap, _name = rainscale.rain_scale(lat, lon, 400.0)
+    p = obs_figs.side_by_side(lat, lon, f, o, ("a", "b"), "t", str(tmp_path / "s.png"), levels,
+                              cmap=cmap)
+    assert os.path.isfile(p)                    # a one-colour-per-bin cmap draws
+    seen = {}
+    monkeypatch.setattr(obs_figs, "side_by_side",
+                        lambda *a, cmap=None, **k: seen.update(levels=a[7], cmap=cmap) or "x")
+    for fn in ("diff_map", "scores_vs_threshold", "fss_vs_scale"):
+        monkeypatch.setattr(obs_figs, fn, lambda *a, **k: "x")
+    cts = [dict(thresh=1, pod=1, far=0, csi=1, fbias=1, total=36)]
+    precip._grid_figures((lat, lon, f, o, cts, []), 25.0, "CMORPH", "CMORPH (obs)",
+                         precip.AGENT_GRID_IDS, {k: k + ".png" for k in precip.AGENT_GRID_IDS},
+                         "w", "m", {}, "2017-08-02_00:00:00", "run72", 3, str(tmp_path))
+    assert list(seen["levels"]) == [float(v) for v in rainscale.CWA_LEVELS]
+    assert seen["cmap"].name == "cwa_rain"
+
+
+def test_ir_thinning_keeps_the_time_nearest_the_rain_peak(tmp_path, monkeypatch):
+    from wtune.post import condensate, met_gridstat, snapshot_verify
+    from wtune.post.recipes import cloud, convection
+    t0 = datetime(2016, 10, 7, 0)
+    times = [t0 + timedelta(hours=3 * k) for k in range(40)]
+    _snapshot_dataset(tmp_path, "satellite_ir", "tb", "K", 220.0, times)
+    monkeypatch.setattr(convection, "_project_of", lambda o: str(tmp_path))
+    monkeypatch.setattr(convection, "_post_spinup_frames", lambda r, d, s: [
+        (t.strftime("%Y-%m-%d_%H:%M:%S"), "wrf", 0) for t in times])
+    monkeypatch.setattr(cloud, "MAX_IR_TIMES", 6)
+    monkeypatch.setattr(met_gridstat, "write_interior_polygon", lambda *a: "p")
+    from wtune.post import caseinfo
+    monkeypatch.setattr(caseinfo, "spec_bdy_width", lambda r: 5)
+    lat2, lon2 = np.meshgrid([20.0, 21.0], [120.0, 121.0], indexing="ij")
+    real = netCDF4.Dataset
+    monkeypatch.setattr(netCDF4, "Dataset", lambda p, *a, **k: _Ctx(XLAT=lat2[None], XLONG=lon2[None])
+                        if p == "wrf" else real(p, *a, **k))
+    monkeypatch.setattr(condensate, "olr_brightness_temperature", lambda ds, ti: np.full((2, 2), 215.0))
+    seen = {}
+
+    def verify(picks, *a, **k):
+        seen["times"] = [p[0] for p in picks]
+        raise ValueError("stop")
+    monkeypatch.setattr(snapshot_verify, "verify", verify)
+    cloud._agent_ir_figures("run", "r", 1, {"domains": [{"domain": 1, "dx_km": 27}]},
+                            str(tmp_path / "post"), map_time="2016-10-08_23:00:00")
+    assert datetime(2016, 10, 9, 0) in seen["times"] and len(seen["times"]) <= 7

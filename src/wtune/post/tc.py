@@ -32,6 +32,7 @@ import sys
 from datetime import datetime
 
 from wtune.post import atcf, extract, met_tc, tc_metrics as tm, tools
+from wtune.post import figdpi
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 KT_TO_MS = 0.514444
@@ -182,6 +183,31 @@ def parse_hurdat2_full(path, storm_id):
         raise TCError("HURDAT2: storm id %r not found in %s" % (storm_id, path))
     points.sort(key=lambda p: p["time"])
     return points
+
+
+def bdeck_points(path):
+    """parse_hurdat2_full's point list from an ATCF b-deck instead (one point per time: the
+    first BEST row of each time; wind radii and RMW are not carried over -> None). For storms
+    with a b-deck but no HURDAT2 record (every basin outside the Atlantic/E. Pacific, e.g.
+    Haitang WP122017 from JMA)."""
+    if not os.path.exists(path):
+        raise TCError("--bdeck file not found: %s" % path)
+    seen, points = set(), []
+    for r in atcf.parse_file(path):
+        if r["time"] in seen or r["lat"] is None or r["lon"] is None:
+            continue
+        seen.add(r["time"])
+        row = dict(time=r["time"], lat=r["lat"], lon=r["lon"],
+                   vmax_ms=None if r["vmax_kt"] is None else r["vmax_kt"] * KT_TO_MS,
+                   pmin_hpa=r["mslp_hpa"])
+        for name in ("r34", "r50", "r64"):
+            for qn in tm.QUADRANT_NAMES:
+                row["%s_%s_km" % (name, qn)] = None
+        row["rmw_km"] = None
+        points.append(row)
+    if not points:
+        raise TCError("--bdeck %s has no track points" % path)
+    return sorted(points, key=lambda p: p["time"])
 
 
 def parse_ebtrk_rmw(path, storm_id):
@@ -782,8 +808,13 @@ def run_tc_report(run_dirs, labels, hurdat2_path, storm_id, out_dir, ebtrk_path=
     os.makedirs(out_dir, exist_ok=True)
     storm_id = resolve_storm(hurdat2_path, storm_id)  # NAME[YEAR] -> ATCF id; ids unchanged
     basin, cy, year = storm_id_parts(storm_id)
-    hurdat2_points = parse_hurdat2_full(hurdat2_path, storm_id)
-    obs = build_obs(hurdat2_path, storm_id, ebtrk_path)
+    if hurdat2_path:
+        hurdat2_points = parse_hurdat2_full(hurdat2_path, storm_id)
+        obs = build_obs(hurdat2_path, storm_id, ebtrk_path)
+    else:                       # b-deck only (no HURDAT2 outside the Atlantic/E. Pacific)
+        hurdat2_points = bdeck_points(bdeck_path)
+        obs = dict(hurdat2=[dict(r, time=r["time"].strftime(WRF_TIME_FMT))
+                            for r in hurdat2_points], ebtrk_rmw=None, source="bdeck")
     with open(os.path.join(out_dir, "obs.json"), "w") as fh:
         json.dump(obs, fh, indent=2)
 
@@ -917,6 +948,19 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     lo, hi = (min(valid) - timedelta(hours=6), max(valid) + timedelta(hours=6)) if valid else (None, None)
     best = [(t, ll) for t, ll in points(bdeck) if lo is None or lo <= t <= hi] if bdeck else []
 
+    # one continuous longitude range: a track across 180E is drawn as one line, not across the map
+    all_lons = [ll[1] for _, ll in best] + [p[1][1] for pts in tracks.values() for p in pts]
+    c = 0.0
+    if all_lons:
+        from wtune.post.conventions import continuous_lons
+        cont = continuous_lons(all_lons)
+        c = float(cont.min() + cont.max()) / 2.0
+
+        def near_c(lon):
+            return (lon - c + 180.0) % 360.0 - 180.0 + c
+        best = [(t, (ll[0], near_c(ll[1]))) for t, ll in best]
+        tracks = {label: [(p[0], (p[1][0], near_c(p[1][1]))) + tuple(p[2:]) for p in pts]
+                  for label, pts in tracks.items()}
     plotting._set_cartopy_data_dir()
     try:
         import cartopy.crs as ccrs
@@ -924,8 +968,9 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     except ImportError:
         coast = False
     if coast:
+        from wtune.post.basemap import centred_plate_carree
         fig = plt.figure(figsize=(7, 6))
-        ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+        ax = fig.add_subplot(1, 1, 1, projection=centred_plate_carree(ccrs, c, c)[0])
         # coastline/lakes/borders/states come from the shared base map after the tracks set
         # the extent (below)
         from wtune.post.basemap import outer_gridlines
@@ -982,7 +1027,7 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, windo
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=figdpi.dpi())
     plt.close(fig)
     return path
 
@@ -1129,7 +1174,7 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
                  % (label, int(round(lead_h[k]))), fontsize=10)
     path = os.path.join(out_dir, "%s_rmw_radius_height.png" % label)
     fig.tight_layout()
-    fig.savefig(path, bbox_inches="tight")
+    fig.savefig(path, bbox_inches="tight", dpi=figdpi.dpi())
     plt.close(fig)
     return path
 
@@ -1204,7 +1249,7 @@ def _error_figures(out_dir, tcsts):
         ax.legend()
         path = os.path.join(out_dir, "tc_pairs_%s.png" % stem)
         fig.tight_layout()
-        fig.savefig(path)
+        fig.savefig(path, dpi=figdpi.dpi())
         plt.close(fig)
         figures.append(path)
     return figures

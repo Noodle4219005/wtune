@@ -63,18 +63,19 @@ def quota_free_gib(mmlsquota_text: str, filesystem: str = "home1") -> Optional[f
     None: no '<filesystem> USR <used_kb> <quota_kb> <limit_kb>' row, or quota 0 (not enforced
     at user level: wiki mmlsquota-u-says-no-limit-while-the-fileset-is-99-percent-full).
     """
-    pattern = re.compile(r"^\s*(\S+)\s+USR\s+(\d+)\s+(\d+)\s+(\d+)")
+    pattern = re.compile(r"^\s*(\S+)\s+USR\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(\d+))?")
     for line in mmlsquota_text.splitlines():
         m = pattern.match(line)
         if m is None:
             continue
-        fs, used_kb, quota_kb, _limit_kb = m.groups()
+        fs, used_kb, quota_kb, _limit_kb, in_doubt_kb = m.groups()
         if fs != filesystem:
             continue
         quota_kb = int(quota_kb)
         if quota_kb <= 0:
             return None
-        return (quota_kb - int(used_kb)) / (1024.0 * 1024.0)    # KB = 1024-byte GPFS blocks
+        used_kb = int(used_kb) + int(in_doubt_kb or 0)        # open 16 MiB-block files sit in in_doubt
+        return (quota_kb - used_kb) / (1024.0 * 1024.0)    # KB = 1024-byte GPFS blocks
     return None
 
 

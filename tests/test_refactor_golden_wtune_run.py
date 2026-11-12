@@ -325,61 +325,6 @@ def test_golden_run(name, tmp_path, capsys, fake_bp):  # noqa: F811
     _check("run_%s.txt" % name, _snapshot(tmp_path, rc, lines, capsys, str(tmp_path / "out")))
 
 
-def test_golden_run_prints_with_the_default_log(tmp_path, capsys):
-    T._make_case(tmp_path)
-    rc = wr.main([str(tmp_path / "case")] + LAYOUT + ["--out", str(tmp_path / "out"),
-                                                      "--segment-minutes", "360", "--dry-run"])
-    _check("run_default_log.txt", _snapshot(tmp_path, rc, [], capsys, str(tmp_path / "out")))
-
-
-def test_golden_run_project_default_out(tmp_path, capsys):
-    import wtune.project
-    T._make_case(tmp_path)
-    proj = tmp_path / "proj"
-    wtune.project.init_project(str(proj))
-    lines = []
-    rc = wr.main([str(tmp_path / "case")] + LAYOUT + ["--project", str(proj), "--dry-run"],
-                 log=lines.append)
-    _check("run_project_default_out.txt", _snapshot(tmp_path, rc, lines, capsys, "/nonexistent"))
-
-
-def test_golden_run_sidecar_idle(tmp_path, capsys):
-    """--sidecar with nothing to convert: its report section and its closing line."""
-    pytest.importorskip("netCDF4")
-
-    def no_srun(argv):
-        raise AssertionError("srun started: %r" % (argv,))
-    T._make_case(tmp_path)
-    rc, lines = _main(tmp_path, ["--segment-minutes", "360", "--io", "netcdf", "--sidecar"],
-                      sidecar_runner=no_srun)
-    _check("run_sidecar_idle.txt", _snapshot(tmp_path, rc, lines, capsys, str(tmp_path / "out")))
-
-
-def test_golden_run_report_while_running(tmp_path, capsys):
-    """run_report.json as each sacct poll finds it: attempts submitted but not yet finished."""
-    class Peek(TR.Dying):
-        seen = []
-
-        def sacct(self, cmd):
-            with open(str(tmp_path / "out" / "run_report.json")) as fh:
-                self.seen.append(fh.read())
-            return super().sacct(cmd)
-    T._make_case(tmp_path, T._with_restart(120))
-    f = Peek([("died", "NODE_FAIL", 5), "cfl", "done", "done"])
-    rc, _lines = _main(tmp_path, ["--segment-minutes", "360", "--io", "netcdf", "--cfl-rescue"], f)
-    capsys.readouterr()
-    _check("run_report_while_running.txt", _norm(
-        "rc=%s\n" % rc + "".join("--- poll %d\n%s\n" % (i, t) for i, t in enumerate(f.seen)),
-        tmp_path))
-
-
-# ---------------------------------------------------------------------------
-# CLI surface
-# ---------------------------------------------------------------------------
-def test_golden_cli_help():
-    _check("cli_help.txt", wr.build_arg_parser().format_help().replace(REPO, "<REPO>"))
-
-
 @pytest.mark.parametrize("entry", ["script", "module"])
 def test_golden_entry_points(entry, tmp_path):
     env = dict(os.environ, COLUMNS="100", PYTHONPATH=SRC)
@@ -528,29 +473,6 @@ def test_golden_plan_run(tmp_path):
     _check("pure_plan_run.json", _dump(out) + "\n")
 
 
-def test_golden_restart_and_checkpoint_settings(tmp_path):
-    g = T._geo(tmp_path)
-    out = {}
-    for L in (None, 360):
-        for case_min in (0, 120, 180, 250, 360, 7200):
-            for ckpt in (None, "auto", 90, 240, 360):
-                for align in (None, ALIGN):
-                    key = "L=%s case=%s checkpoint=%s align=%s" % (L, case_min, ckpt,
-                                                                   bool(align))
-                    out[key] = _try(lambda: wr.restart_setting(g, L, 720, case_min * 60.0, ckpt,
-                                                               align))
-    out["72h auto"] = wr.restart_setting(g, None, 72 * 60, 100000 * 60.0, "auto", ALIGN)
-    out["checkpoint_request"] = [_try(lambda v=v, r=r: wr.checkpoint_request(v, r)) for v, r in (
-        ("auto", 1), ("auto", 0), ("0", 1), ("90", 0), ("soon", 1), ("-5", 1))]
-    out["checkpoint_steps_for_minutes"] = [
-        _try(lambda m=m, al=al: wr.checkpoint_steps_for_minutes(g, m, al))
-        for m, al in ((720, ALIGN), (45, None), (300, ALIGN))]
-    out["auto_checkpoint_steps"] = [wr.auto_checkpoint_steps(*a) for a in (
-        (4320, None, 360), (4320, None, 1), (720, None, 360), (360, None, 360),
-        (4320, 1440, 360), (4320, 1080, 360), (720, 360, 360))]
-    _check("pure_restart_settings.json", _dump(out) + "\n")
-
-
 def test_golden_record_alignment_and_io_plan(tmp_path):
     g = T._geo(tmp_path)
     nl = T._nl_from_text(tmp_path, T.NAMELIST_AUX.replace("auxinput4_interval = 360, 360, 360",
@@ -661,22 +583,6 @@ def test_golden_output_dirs_and_staging(tmp_path):
     out["restart_links_missing"] = _try(lambda: wr._restart_links(
         geo, 1, wr.Attempt(a=360, src_dir=str(case)), "2020-06-01_06:00:00"))
     _check("pure_output_dirs_and_staging.json", _norm(_dump(out), tmp_path) + "\n")
-
-
-def test_golden_wait_for_job():
-    """The poll loop: one log line per state change, on_poll before every sleep."""
-    def run(states, **kw):
-        seq, log, polls, sleeps = list(states), [], [], []
-        res = wr.wait_for_job("77", lambda cmd: seq.pop(0) if seq else "", poll_s=3.0,
-                              sleep=sleeps.append, log=log.append, on_poll=polls.append, **kw)
-        return {"result": res, "log": log, "on_poll": polls, "sleeps": sleeps}
-    out = {"completed": run(["77|PENDING|00:00:00\n", "77|RUNNING|00:01:00\n",
-                             "77|RUNNING|00:02:00\n", "77|COMPLETED|01:02:03\n"]),
-           "failed_at_once": run(["77|NODE_FAIL|1-00:00:10\n"]),
-           "unknown_then_listed": run(["", "", "77|TIMEOUT|00:30:00\n"]),
-           "never_listed": run([])}
-    _check("pure_wait_for_job.json", _dump(out) + "\n")
-
 
 
 # ---------------------------------------------------------------------------

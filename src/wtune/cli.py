@@ -962,7 +962,8 @@ _FORWARDED_COMMANDS = (
      '(wtune/submit.py)', 'wtune/submit.py', 'wtune.submit'),
     ('doctor', 'doctor_args', 'check that this machine and project are ready (wtune/doctor.py)',
      'wtune/doctor.py', 'wtune.doctor'),
-    ('tune', 'tune_args', 'budgeted on-cluster tuner (scc): probe, screen, confirm, report',
+    ('tune', 'tune_args', 'budgeted on-cluster tuner (any site with a campaign/sites/<site>.sh): '
+     'probe, screen, confirm, report',
      'wtune/tune/', 'wtune.tune'),
     ('config', 'config_args', 'wtune tune search-space YAML config (wtune/config.py): init | show | validate',
      'wtune/config.py', 'wtune.config'),
@@ -973,7 +974,8 @@ _FORWARDED_COMMANDS = (
     ('calibrate', 'calibrate_args', 'machine calibration for a new cluster (wtune/calibrate.py plan | fit)',
      'wtune/calibrate.py', 'wtune.calibrate'),
     ('post', 'post_args', 'post-processing/analysis, advisory only (decision 0056; post/cli.py): '
-                          'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
+                          'inventory | extract | plot | sounding | tc | compare | preview | report | '
+                          'recipe | cf3d | vapor-bundle | custom | brief | stations | check | fetch',
      'post/cli.py', 'wtune.post.cli'),
     ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune/geog.py): '
                           'geog list | fetch | import-dem | verify | bounds | srtm-fetch; wps | real',
@@ -1003,6 +1005,8 @@ _FORWARDED_COMMANDS = (
      'wtune/calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
      'scenario/cli.py', 'wtune.scenario.cli'),
+    ('proxy', 'proxy_args', 'small-domain proxy: rank N-node layouts (px x py, omp, numtiles) by timing them '
+     'on one node (wtune/proxy.py): plan | submit | collect', 'wtune/proxy.py', 'wtune.proxy'),
 )
 _FORWARDED_DEST = {name: dest for name, dest, _help, _target, _module in _FORWARDED_COMMANDS}
 _FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FORWARDED_COMMANDS}

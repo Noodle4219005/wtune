@@ -89,7 +89,8 @@ COMPARISON = {
     "best_track": "MET tc_pairs (post tc)",
     "gridded_precip": "MET grid_stat (precip recipe)",
     "radar": "radar composite -> grid_stat (convection recipe)",
-    "stations": "MET point_stat (precip / terrain recipes)",
+    "stations": "MET point_stat (precip / terrain recipes); per-station series and "
+                "statistics: `wtune post stations`",
     "reanalysis": "MET grid_stat on z500 (synoptic recipe)",
     "soundings": "Skew-T overlay (pbl recipe)",
     "monthly_climate": "monthly box means, seasonal bias (climate recipe)",
@@ -99,7 +100,8 @@ COMPARISON = {
 }
 # kinds the recipes read from an agent's folder (post/agent_obs.py); other agent-fetched data
 # is kept with its provenance but no recipe reads it yet.
-AGENT_READERS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra")
+AGENT_READERS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra",
+                 "stations")
 AGENT_FORMAT_NOTE = ("write <project>/input/obs/<name>/ in format wtune-obs/1, then "
                      "`wtune event obs-check`")
 BDECK_NOTE = "write an ATCF b-deck and pass `wtune post recipe --bdeck FILE`"
@@ -364,6 +366,20 @@ def build_parser():
     s.add_argument("dirs", nargs="*", help="dataset folders (default: every wtune-obs/1 "
                                            "folder under --project's input/obs)")
     s.add_argument("--project", help="default: the current directory")
+    s = sub.add_parser("obs-convert", help="convert a provider's station file to a wtune-obs/1 "
+                                           "folder")
+    cs = s.add_subparsers(dest="convert_kind", required=True)
+    a = cs.add_parser("asos", help="Iowa Environmental Mesonet ASOS CSV -> kind stations "
+                                   "(degF -> degC, knot -> m/s)")
+    a.add_argument("csv")
+    a.add_argument("--out", required=True, help="dataset folder to write")
+    a.add_argument("--dataset", required=True)
+    a.add_argument("--provider", required=True)
+    a.add_argument("--url", required=True)
+    a.add_argument("--license", required=True)
+    a.add_argument("--citation", default="")
+    a.add_argument("--station", action="append", default=[], metavar="ID=LAT,LON,ELEV_M",
+                   help="position of a station the CSV has no lat/lon/elevation columns for")
     s = sub.add_parser("plan", help="observation plan for event.yaml")
     s.add_argument("yaml")
     s.add_argument("--run-dir")
@@ -402,6 +418,28 @@ def _obs_check(args):
     return 1 if bad else 0
 
 
+def _obs_convert(args):
+    from wtune.post import agent_obs
+    meta = {}
+    for item in args.station:
+        try:
+            sid, rest = item.split("=", 1)
+            lat, lon, elev = (float(v) for v in rest.split(","))
+        except ValueError:
+            print("error: --station expects ID=LAT,LON,ELEV_M, got %r" % item, file=sys.stderr)
+            return 1
+        meta[sid.strip()] = (lat, lon, elev)
+    prov = dict(dataset=args.dataset, provider=args.provider, url=args.url,
+                license=args.license, citation=args.citation)
+    try:
+        path, n = agent_obs.from_asos(args.csv, args.out, prov, meta)
+    except (OSError, ValueError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print("wrote %s (%d rows)" % (path, n))
+    return _obs_check(argparse.Namespace(dirs=[args.out], project=None))
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.event_command == "init":
@@ -424,6 +462,8 @@ def main(argv=None):
         return 0
     if args.event_command == "obs-check":
         return _obs_check(args)
+    if args.event_command == "obs-convert":
+        return _obs_convert(args)
     try:
         doc = load(args.yaml)
     except (OSError, yaml.YAMLError, EventError) as e:

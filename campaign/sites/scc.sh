@@ -27,7 +27,7 @@ HARDWARE_ID=${WTUNE_HARDWARE_ID:-scc-gh200}
 OMP_RUNTIME=nvhpc        # no KMP_BLOCKTIME: threads are pinned with OMP_PLACES/OMP_PROC_BIND
 # pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").
 export PATH=$HOME/.pixi/bin:$PATH
-PIXI_ENV=$HOME/wtune-envs/campaign
+PIXI_ENV=${WTUNE_PIXI_ENV:-$HOME/wtune-envs/campaign}
 # derived from CAMPAIGN (this checkout's campaign/ dir, exported by the sbatch script) so the
 # converter comes from the SAME tree as the script: $HOME/wtune has no src/wtune/tools at all, and the
 # tree wtune deploys to is $HOME/wtune-src. Equals the old value for CAMPAIGN=$HOME/wtune/campaign.

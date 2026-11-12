@@ -17,7 +17,8 @@ every run has (the "common" set is owned by another module) -- see post/met_poin
 Observations an agent fetched in WTune's standard format (post/agent_obs.py) are compared the
 same way: gridded precipitation with Grid-Stat on the dataset's own grid (precip_agent_*), rain
 gauges with ascii2nc + Point-Stat (precip_gauge_*). Only datasets that pass
-`wtune event obs-check` are used.
+`wtune event obs-check` are used. Over Taiwan the gridded scores use CWA's warning levels
+(rainscale.CWA_EVENT_MM: 1/10/40/80/200/350 mm) instead of the WPC thresholds.
 
 Every missing observation figure says whether the data does not exist for this run (coverage)
 or which fetch command to run.
@@ -34,6 +35,13 @@ from wtune.post.extract import list_frame_refs
 # WPC-style event thresholds in mm (0.01, 0.1, 0.25, 0.5, 1 in, then 50 mm; decision 0064)
 THRESHOLDS_MM = (0.254, 2.54, 6.35, 12.7, 25.4, 50)
 WIDTHS = (1, 3, 5, 9)
+
+
+def event_thresholds(lat, lon):
+    """Event thresholds (mm) for a model grid: rainscale.CWA_EVENT_MM over Taiwan, else the
+    WPC THRESHOLDS_MM (the same regional rule as the colour scale)."""
+    from wtune.post.rainscale import CWA_EVENT_MM, over_taiwan
+    return CWA_EVENT_MM if over_taiwan(lat, lon) else THRESHOLDS_MM
 STAGE4_CELL_KM = 4.763
 RADAR_RANGE_KM = 230
 
@@ -63,9 +71,11 @@ def stage4_index(project_dir):
     return out
 
 
-def pick_window(frame_times, spinup_hours, index):
+def pick_window(frame_times, spinup_hours, index, around=None):
     """(accum_h, valid time, path) of the longest Stage IV window inside the run after
-    spin-up (latest one among that length), else None. frame_times: sorted datetimes."""
+    spin-up: the latest one among that length, or with `around` (datetime, the rain peak) the
+    one centred nearest it among those containing it (agent_obs.pick_window's rule); else None.
+    frame_times: sorted datetimes."""
     if len(frame_times) < 2:
         return None
     have = set(frame_times)
@@ -75,7 +85,10 @@ def pick_window(frame_times, spinup_hours, index):
                        and t in have and t - timedelta(hours=accum) in have
                        and t - timedelta(hours=accum) >= t0)
         if cands:
-            return accum, cands[-1], index[(accum, cands[-1])]
+            half = timedelta(hours=accum) / 2
+            inside = [t for t in cands if around is not None and t - 2 * half < around <= t]
+            t = min(inside, key=lambda t: abs(t - half - around)) if inside else cands[-1]
+            return accum, t, index[(accum, t)]
     return None
 
 
@@ -132,7 +145,8 @@ def _write_csvs(out_dir, tag, cts, nbr, cell_km=STAGE4_CELL_KM):
     return p1, p2
 
 
-def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
+def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                    map_time=None):
     from wtune.post.recipe import missing
     from wtune.post import met_gridstat
     from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
@@ -142,7 +156,8 @@ def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, p
             for f in frames}
     ids = ("precip_obs_compare", "precip_diff", "precip_ets_fbias", "precip_fss")
     index = stage4_index(project_dir)
-    win = pick_window(times, spinup_hours, index)
+    win = pick_window(times, spinup_hours, index,
+                      around=datetime.strptime(map_time, WRF_TIME_FMT) if map_time else None)
     if win is None:
         bbox = None
         try:
@@ -218,10 +233,14 @@ def _grid_figures(scores, cell_km, obs_short, obs_panel, ids, files, win_txt, ma
     glat, glon, gf, go, cts, nbr = scores
     kw = dict(domain="d%02d" % domain, valid_time=stamp, extra=common)
     out = []
+    from wtune.post import rainscale
+    levels, cmap = obs_figs.PRECIP_LEVELS, None
+    if rainscale.over_taiwan(glat, glon):
+        levels, cmap, _name = rainscale.rain_scale(glat, glon, float(np.nanmax([gf, go])))
     p = obs_figs.side_by_side(
         glat, glon, gf, go, ("%s d%02d model" % (run_label, domain), obs_panel),
         "accumulated precipitation %s, matched points, %s" % (win_txt, mask_note),
-        os.path.join(out_dir, files["compare"]), obs_figs.PRECIP_LEVELS, cbar_label="mm")
+        os.path.join(out_dir, files["compare"]), levels, cmap=cmap, cbar_label="mm")
     out.append(fig(ids["compare"], p, run_label, **kw))
     dmax = float(np.nanpercentile(np.abs(gf - go), 98)) or 1.0
     p = obs_figs.diff_map(glat, glon, gf, go, "model - %s, %s, %s" % (obs_short, win_txt, mask_note),
@@ -250,9 +269,11 @@ AGENT_GRID_IDS = {"compare": "precip_agent_compare", "diff": "precip_agent_diff"
                   "scores": "precip_agent_scores", "fss": "precip_agent_fss"}
 
 
-def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
+def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                        map_time=None):
     """Grid-Stat against every gridded precipitation dataset an agent fetched
-    (post/agent_obs.py), the same way as Stage IV: the obs grid is the verification grid."""
+    (post/agent_obs.py), the same way as Stage IV: the obs grid is the verification grid; the
+    window around map_time (the rain peak) when given."""
     import numpy as np
     from wtune.post import agent_obs, met_gridstat
     from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
@@ -269,7 +290,9 @@ def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hour
             for f in frames}
     for name, ds_dir, prov in ok:
         label = prov.get("dataset") or name
-        win = agent_obs.pick_window(times, spinup_hours, agent_obs.grid_index(ds_dir))
+        win = agent_obs.pick_window(times, spinup_hours, agent_obs.grid_index(ds_dir),
+                                    around=datetime.strptime(map_time, WRF_TIME_FMT)
+                                    if map_time else None)
         if win is None:
             out += [missing(i, label, "its precip_*.nc files cover no 24/12/6/3/1 h window that "
                             "starts after the %g h spin-up on a model output time" % spinup_hours)
@@ -296,7 +319,7 @@ def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hour
                                                        os.path.join(work, "interior.poly"))
             res = met_gridstat.run_verification(
                 fcst_nc, obs_nc, poly, work, "APCP_MODEL", "APCP_OBS",
-                [">=%g" % t for t in THRESHOLDS_MM], widths=WIDTHS, to_grid="OBS",
+                [">=%g" % t for t in event_thresholds(lat, lon)], widths=WIDTHS, to_grid="OBS",
                 regrid_method="BUDGET", model="WRF", obtype=name.upper())
             cts = met_gridstat.parse_cts_table(res["cts"])
             nbr = met_gridstat.parse_nbrcnt_table(res["nbrcnt"])
@@ -312,7 +335,8 @@ def _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hour
         common = dict(obs_sources=[agent_obs.source_tag(name, prov)],
                       tool="MET grid_stat (model regridded to the %s grid, BUDGET)" % name,
                       window=win_txt, csv=[csv_cat, csv_fss], mask="model interior")
-        out += _grid_figures((glat, glon, gf, go, cts, nbr), cell_km, label, "%s (obs)" % label,
+        short = name.upper()                # prov["dataset"] is a sentence-long title
+        out += _grid_figures((glat, glon, gf, go, cts, nbr), cell_km, short, "%s (obs)" % short,
                              AGENT_GRID_IDS,
                              {k: "precip_%s_%s.png" % (name, k) for k in AGENT_GRID_IDS},
                              win_txt, "model interior", common, valid.strftime(WRF_TIME_FMT),
@@ -471,7 +495,8 @@ def _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, pr
     return out
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None):
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None, map_time=None,
+            focus_box=None, hovmoller_line=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -500,9 +525,14 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
         out.append(missing("precip_accum", "wrf-python", str(e)))
 
     project_dir = os.path.abspath(project_dir) if project_dir else _project_of(out_dir)
-    out += _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
-    out += _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
+    out += _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                           map_time=map_time)
+    out += _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir,
+                               map_time=map_time)
     out += _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
+    from wtune.post.recipes import hovmoller
+    out.append(hovmoller.figure(run_dir, run_label, domain, frames, out_dir, spinup_hours,
+                                project_dir, focus_box, map_time, line_override=hovmoller_line))
     return out

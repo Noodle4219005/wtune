@@ -3,6 +3,212 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.10.0 — 2026-11-11
+
+**`wtune tune` searches on one node first.** `wtune proxy plan|submit|collect` ranks the layouts
+of an N-node run by timing a small crop of the domain on single nodes; a nested case runs as a
+nested crop, or as a band that keeps every domain's full width. `wtune tune` uses it by default:
+`-O1` and `-O2` search the node count and the layout together with the proxy, and `-O2` picks
+both from the proxy scores with no real N-node probe. On f1 an ISC-size three-domain case was
+tuned in 11.9 min of running time and Big Chill in 12.8 min (queue time not counted).
+
+- The proxy runs in one node pool. `--minutes` ranks what finished, `--proxy-max-nodes` caps the
+  nodes of the proxy jobs, and `wtune stop` or `--max-queue-hours` keeps the timings that
+  finished.
+- Within a node count, the neighbours of the best layout run before the samples. The finalists
+  follow the objective, get a cores-per-node sweep, and are checked against node memory up front.
+- A score far below its one-node score is re-timed twice. A leader that cannot be banded is
+  re-timed on the whole domain for N = 4 and 5, and gives way from N = 6 on.
+- A proxy run that fails no longer aborts its job: it is re-run once, then once more at half the
+  tiles. A refused node pool is tried at half the nodes.
+- Rebuild points that finished are kept when the time budget cancels the rest, and that
+  cancellation is not reported as an infrastructure failure. Rebuild points drop their `grib/`
+  and `wps/` on every exit. A disk-guard abort stops the tune.
+- `wtune predict` prices a default radiation ratio per domain (RRTM/Dudhia has its own), and
+  does not price radiation again when every step calls it; a rebuilt window whose every step
+  calls radiation is scored. On f1-arm Sundowner (36 cores per node, shared nodes) the whole-run
+  prediction was 1:09:45 against a 67:21 run.
+- `wtune project set --exclusive off` lets jobs share a node.
+- `wtune predict` reads XLAT/XLONG as whole arrays, and `case_rebuild` interpolates pressure
+  levels over all columns at once.
+- The test suite dropped the cases whose branches other tests already run (3,379 to 1,735
+  cases; campaign tests 334 to 159).
+- The README has a structure map. The CLI reference lists `wtune proxy`, `event obs-check` and
+  `obs-convert`, and `post brief`, `stations` and `check`.
+
+**Retired.** The ML state correction of cold-start inputs (`--ml-model`): it was worse than no
+correction on all 18 held-out targets.
+
+**Deprecated.** These still work and are labelled DEPRECATED in `--help` or in the config
+template:
+
+- `wtune tune --pipeline full`: use `-O3`.
+- `wtune post fetch-era5`: use `wtune post fetch era5`.
+- `probe.rank_by` (only `t0` is accepted; `predicted` exits with an error), `probe.stage1` and
+  `probe.stage2_minutes` (read by nothing).
+- `coldstart` in `probe.sources`: use `rebuild`.
+- `post/paraview/render_cloud.py`: nothing calls it; the recipe renders the condensate volume.
+
+Reconciliation of the old open-defect list (2026-11-06).
+
+- `wtune predict` no longer stops on a dangling `wrfbdy_d01*.bp` symlink in the case folder, and sizes an ADIOS2 `.bp` directory by its contents.
+- `timeseries_pw` has a caption entry (a test now requires one for every time-series field).
+- `wtune doctor` warns when `WTUNE_CARTOPY_DATA` is a folder without a coastline shapefile.
+- Node preflight asks an idle node a second time before it counts a probe timeout against it.
+- When the WRF-Chem j-patch guard rejects every candidate, the layout with the widest j-patch is kept (with a warning) instead of an empty search.
+
+Fixes from validating SCC26 Sundowner Run 1 (three domains, Santa Barbara) with `wtune post`.
+
+- `post.times` now also picks the one-time maps (terrain, convection, cloud, synoptic, moisture, soundings): the first entry, snapped to the nearest frame. Without it, a rain peak under 0.1 mm/h counts as no rain and those maps use the last frame, with a note in the report. The convection maps previously looked for their own rain peak and ignored the recipe's map time.
+- `--post-times` accepts WRF and space spellings (`2022-04-05_06:00:00`, `2022-04-05 06:00`, `2022-04-05T06`). `project set` still rejects a bad flag atomically; the error now lists every bad flag with its value and example formats, and drawing flags are validated before `--register-case` writes anything.
+- `--post-overlay wind10` also draws 10 m barbs on the time-series `t2` and `wspd10` maps.
+- `wtune post recipe --out <relative path>`: `figures.json` paths are relative to the post directory (they were relative to the cwd, so `post check` could not find the figures).
+- Station comparison: gust statistics carry a sampling-bias note (ASOS reports gusts only when they occur): `note` column in `station_stats.csv`, a warning in the notes with n, "(gust reports only)" in the panel title, and the catalog caption.
+- Figures: T2 maps use a sequential scale unless the data crosses 0 degC (was a -24..+24 diverging scale for 0-25 degC data); sea is light blue on the domain maps; small domains get at least 3 labelled lat/lon ticks (°N/°W). The zoomed domain map drew the d01 extent (a duplicated block in `domain_map.draw` redrew the figure and dropped `zoom` and the nest terrain); fixed.
+- `post.stations` makes `wtune post recipe` run the station comparison (first usable `stations` dataset under `input/obs/`; a note when there is none). `wtune post stations --project P` reads `post.stations/station_vars/station_method/calm_kt` for flags not given.
+
+- `wtune post stations`: per-station model vs. observation series, bias/RMSE (circular wind direction, calm winds excluded) from a new `stations` obs kind; `wtune event obs-convert asos` turns an IEM ASOS CSV into one.
+
+Fixes from the 2026-10-26 mock competition on f1-arm (haitang2017, MeiYu-2020), and the agent
+half of `wtune post` (decision 0078).
+
+**Agent-set drawing choices.** `wtune project set --post-times/--post-map-domains/--post-figures-off/--post-figures-on/--post-overlay` (and the station keys `--post-stations/--post-station-vars/--post-station-method/--post-calm-kt`, stored only) pick the times, the nests with terrain and zoomed maps, and figure switches for `wtune post recipe`; `post check` accepts them in a `project_set` action. Domain labels now sit outside their boxes.
+
+**`wtune post` with an agent.** `wtune post brief POST_DIR` writes `brief.json` (case, runs,
+the observations that pass obs-check, drawn figures with the question each answers, missing
+ones with the reason, the rain core and peak hour, the lowest sea-level pressure). The agent
+(skill `wtune-post`) writes `review.json`, its own `analysis/*.py` figures, and
+`assessment.md`; `wtune post check POST_DIR` fails on a missing section, a paragraph that
+cites no existing figure or CSV, or a decimal beside a CSV link that the CSV does not hold.
+The preview goes through the same loop: `post/preview/figures.json`, `wtune post brief` and
+`wtune post check post/preview`, whose review also carries the figure plan for after the run.
+Every `fix` names how: `project_set` (new `wtune project set --post-focus` and
+`--cross-section`), an `analysis/*.py` script, or a `wtune_defect` report. `AGENT.md` is the
+agent's guide to all of it, including how to connect any agent or harness; projects get an
+`AGENTS.md` pointing to it (`wtune project set --agents-md` for older ones).
+Skill `wtune-operate` covers the rest for an agent: installing, the project, inputs (`prep`,
+`metdata`, `scenario`, `convert`), checks and advice (`check`, `predict`, `advise`, `calc`,
+`physics`, `compliance`), `tune`/`run`/`submit`/`watch`/`stop`, and the single `post` tools;
+`AGENT.md` and the project `AGENTS.md` point to it.
+The skills moved from `.claude/skills/` to `skills/` (`.claude/skills/` keeps links for
+Claude Code), and `AGENT.md` says how any harness, a plain chat model or a person loads them.
+`wtune doctor` checks every path a job uses (site file, partition, the env file and whether its
+`WRF_TREE` matches machine.yaml's `wrf_tree`, the libraries `wrf.exe` cannot load after sourcing
+it, WPS, geog, the site's adios2 python, Natural Earth), each with its fix; `--json` prints the
+checks for an agent and `--find` searches the disk for WRF trees, WPS, geog data and the missing
+libraries, so an agent can set the paths up itself (skill `wtune-operate`, "Paths"). `f1.sh`
+now takes `WTUNE_PIXI_ENV` like the other sites.
+Scripts get `ctx.kit`: CWA rain scale, contingency scores with fixed or percentile thresholds,
+box means, nearest points, Hovmöller, track error, observation/model panels. `wtune post
+recipe` now also writes `figures.json`.
+
+**Standard figures.**
+- The domain map is drawn in the model projection, one colour and a `dx`/size label per
+  domain, cropped to d01; a d01 across the date line no longer draws a ring round the globe.
+- Rain over Taiwan uses CWA's 16-level scale (the WPC one stops at 203.2 mm).
+- SLP charts: grey coastlines under the black isobars; no H/L within half a window of the
+  edge or 2 cells of terrain above 500 m.
+- Cross-section, time-height, skew-T and max-reflectivity map: at the heaviest post-spin-up
+  rain (30 km mean, off the boundary zone) and its peak hour, not the last frame's wettest
+  cell at F072. `post.focus: [lat_min, lat_max, lon_min, lon_max]` in project.yaml limits the
+  search to the study area.
+- Wind barbs: ~15 along the short side, the 700 hPa set between the 10 m one, none where the
+  level is underground.
+- Synoptic charts, PW, IVT, MCAPE/MCIN, the terrain wind map and cross-section, and the cloud
+  maps: at the same rain peak (finest domain), not at the last frame.
+- A d01 across 180E: filled maps no longer leave white wedges, and `post fetch --run-dir`
+  takes the larger side of the date line instead of lon -180..180 (stations were picked in
+  North Africa for haitang2017).
+- TC structure figures: at the last frame the track covers. Past its end they had centred on
+  the deepest low anywhere in the domain (haitang2017 F072: a low over Guangxi).
+- The valley time-height point and the cloud section's max-TWP column are taken inside
+  `post.focus` when one qualifies there (haitang2017 picked both in Fujian).
+- Gridded-rain comparisons with an agent dataset (CMORPH): the window is centred on the rain
+  peak instead of the run's last hours, Taiwan gets CWA's scale, and the figures name the
+  dataset briefly (its full title overlapped the panel titles). The 6-h rain change maps use
+  CWA's scale over Taiwan too.
+- `post fetch igra` takes the run's finest domain by default (the one the pbl figures use),
+  not d01; `post fetch stations` removes the files of stations a refetch no longer selects.
+- `ctx.find_run_track_csv` finds `tc/track_domains_<run_id>.csv`, the file post/tc.py writes.
+
+**TC tracking on a Lambert grid.** TempestExtremes' `GenerateConnectivityFile --in_data`
+writes every point with no neighbours, so DetectNodes took every cell as a local minimum (a
+d03 frame took 186 s) and the 2-degree maximum 10 m wind was the centre cell's own (haitang2017
+vmax 1-4 m/s; 21.8 m/s within 2 degrees). WTune now writes the connectivity of the WRF grid's
+edge neighbours itself.
+
+**Probe crashes on f1-arm.** 30 of 40 haitang2017 tune probes died on SIGSEGV about 5 s in, so
+the node sweep had no measurement and tune fell back to its uncalibrated proxy. The cause is
+WRF's Goddard 4-ice microphysics (`mp_physics = 7`): it writes `refl_10cm` over the whole tile,
+but that array is allocated only when `do_radar_ref = 1`, so with the default 0 it overruns the
+heap. WTune now sets `do_radar_ref = 1` whenever `mp_physics` has a 7 (tune probes, `wtune run`,
+`case_rebuild`); history gains `REFL_10CM` and `REFD_MAX`, the other fields are bit-identical.
+The crash was first blamed on Open MPI's shared-memory BTL, so the f1-arm site still runs with
+`btl=self,tcp` (~3 % more s/step on one node) until btl/sm is measured again; a probe that dies
+on signal 11 is run once more; `WTUNE_KEEP_ALL_RSL=1` keeps every rank's rsl files.
+
+**Tune measures one start point, then predicts with rebuilt points.** By default `wtune tune` no
+longer rebuilds prediction points before the layout search: phase 1 compares layouts on the t0
+window alone, the winner's time decides how many points the precision needs, and phase 2
+rebuilds only those points at the winner, `wtune predict-rebuild`'s way (the case's own forcing,
+60 min spin-up, 40 steps), in waves within `max_nodes`. `--physics-advice` keeps the earlier
+flow, whose shared spun-up restarts the physics candidates need.
+
+**Whole-run prediction for short runs.** `wtune tune --precision` defaults to +-10 % of the run
+(it was a fixed +-15 min, which on a 30 min run accepted any estimate: haitang2017 got no
+prediction point and ran 38 % over). The tc bands follow that run's own step times (t0 only
+30 %, base set 15 %), each rebuilt point measures 40 steps, and tune now sees a project's
+`storm.bdeck`, so a JMA-tracked typhoon is planned as tc. `wtune post fetch` finds the project it
+runs in.
+
+**Observations behind every claim (haitang2017 review).** The comparisons an assessment needs
+are WTune commands, not one-off scripts:
+- `wtune post fetch era5` fetches z500 and 850 hPa wind and specific humidity at the recipe's
+  rain peak and its last post-spin-up frame (`--times` adds more); it fetched one z500 time,
+  and after the one-time maps moved to the rain peak `syn_era5_diff` found no subset. New
+  `syn_era5_850_diff`: 850 hPa wind speed and humidity, model - ERA5, MET Grid-Stat RMSE and
+  bias (the low-level jet and its moisture).
+- `wtune post fetch gridsat`: NOAA GridSat-B1 IR brightness temperature (0.07 deg, 3-hourly,
+  70S-70N) written as an agent `satellite_ir` dataset, so `cloud_ir_compare/scores/fss` work
+  for any region without a conversion step.
+- `common_sounding_obs`: WRF against IGRA radiosondes for every case type with IGRA data (the
+  pbl set, LES-type runs only, was the only one), each station on the finest domain holding
+  it, the soundings nearest the rain peak. `fetch igra` takes the stations nearest
+  `post.focus` when the project has one.
+- `precip_hovmoller`: rain against distance and time across the band (default line through the
+  rain core across the 0-1.5 km wind; `--cross-section hovmoller=...`), each agent gridded
+  rain dataset beside the model over the same windows, plus the model's hourly rain.
+- The missing-radar message names NEXRAD/MRMS as US-only and points a domain elsewhere to an
+  agent `radar` dataset instead of `fetch nexrad`.
+
+**Figure fixes from the haitang2017 review.** tc_structure uses the strongest tracked frame past
+spin-up, not the last one; tc_radius_time_wind has a column only where a frame is (nearest
+within 10 min); the cloud_top_height title no longer cites lake-effect thresholds; maps
+(`save_map`, `plot_field`) follow the domain's aspect instead of a fixed 8x6.4; precip_stn_map
+panels follow the stations' box; the Stage IV window is centred on the rain peak; gridded rain
+scores over Taiwan use CWA's warning levels (1/10/40/80/200/350 mm). Across 180E: the d01 box,
+TC detection, the preview Stage IV mask, coastlines past 180, PlateCarree axes and the cdo
+regrid target. `doctor --find` lists only env files that set WRF_TREE; `post` help lists all
+its subcommands.
+
+**Other fixes.**
+- Maps keep to the grid's own box in the map projection (a Lambert d01 reaching 7 S drew to the
+  pole), have 2/5/10-degree gridlines, and draw no isobars over ground above 1500 m.
+- `wtune project set --bdeck FILE`: a storm outside HURDAT2 (e.g. a JMA track) is a project
+  setting the preview, recipe, tc and brief use; the preview offers Stage IV only for a grid
+  with cells over the contiguous US.
+- A truncated, unreadable or dangling-link history frame is left out and listed in the report
+  instead of stopping the whole recipe (a frame written past a full quota gave 0 figures).
+- `wtune post preview` works before `prep real`: domains from `geo_em` or `namelist.wps`.
+- `wtune post tc` and the recipe's tc set accept a b-deck without `--hurdat2`.
+- `wtune post fetch` without `--run-dir` uses the project's newest run.
+- `prep real` fits `plan.json`'s ranks to the machine's cores; the default layout is
+  near-square.
+- `wtune run` pre-creates only the ADIOS2 output directories WRF will write (an off-step
+  history time, e.g. d01 dt 270 s with hourly output, left empty on-hour directories behind),
+  and links an `--out` outside the project into `runs/` so `wtune stop` and `wtune post` find
+  it.
+
 ## 0.9.3 — 2026-10-26
 
 **`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or

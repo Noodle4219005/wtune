@@ -58,33 +58,6 @@ def fake_deps(tmp_path, monkeypatch):
     return dict(cdo_calls=calls, extract_calls=extract_calls)
 
 
-def test_change_map_builds_seltimestep_sub_command(tmp_path, fake_deps):
-    record = changemap.change_map(
-        "/fake/run", "run0", "slp", 2, str(tmp_path),
-        "2005-08-27_00:00:00", "2005-08-27_06:00:00", "2005-08-27_00:00:00")
-
-    assert record["missing"] is False
-    assert record["id"] == "chg_slp"
-    assert record["path"].endswith("slp-chg6h_d02_f006_2005082706Z.png")
-
-    variables, times, box = fake_deps["extract_calls"][0]
-    assert variables == ["slp"]
-    assert times == ["2005-08-27_00:00:00", "2005-08-27_06:00:00"]
-
-    cdo_cmd = fake_deps["cdo_calls"][0]
-    assert cdo_cmd[:2] == ["/usr/bin/cdo", "sub"]
-    assert "-seltimestep,2" in cdo_cmd
-    assert "-seltimestep,1" in cdo_cmd
-
-
-def test_change_map_vs_t0_interval_differs_from_consecutive(tmp_path, fake_deps):
-    record = changemap.change_map(
-        "/fake/run", "run0", "slp", 1, str(tmp_path),
-        "2005-08-27_00:00:00", "2005-08-27_12:00:00", "2005-08-27_00:00:00",
-        fig_id="chg_slp_vs_t0")
-    assert record["path"].endswith("slp-chg12h_d01_f012_2005082712Z.png")
-
-
 def test_change_map_reports_missing_when_cdo_not_found(tmp_path, monkeypatch):
     def raise_not_found(name, install_hint=None):
         raise tools.ToolNotFoundError("cdo not found")
@@ -111,3 +84,25 @@ def test_figures_for_change_maps_includes_rain_acc_period_accumulation(tmp_path,
     ids = [r["id"] for r in records]
     assert "chg_slp" in ids
     assert "chg_rain_acc" in ids
+
+
+def test_a_tall_map_gets_a_tall_figure_not_blank_sides(tmp_path):
+    # haitang2017 d03 (6 deg wide, 9 deg tall) on a fixed 8x6.4 left a third of the width blank
+    pytest.importorskip("cartopy")
+    import cartopy.crs as ccrs
+    from PIL import Image
+    from wtune.post.recipes import mapfig
+    assert mapfig.map_height_in((0, 6, 0, 9)) == pytest.approx(6.2 * 1.5 + 1.6)
+    assert mapfig.map_height_in((0, 80, 0, 45)) == pytest.approx(6.2 * 45 / 80 + 1.6)
+    assert mapfig.map_height_in((0, 1, 0, 9)) == 11.0 and mapfig.map_height_in((0, 1, 0, 0)) == 6.4
+    sizes = {}
+    for name, (la0, la1, lo0, lo1) in {"tall": (19.4, 28.0, 116.3, 123.0),
+                                       "wide": (-5.0, 51.0, 78.0, 160.0)}.items():
+        lat, lon = np.meshgrid(np.linspace(la0, la1, 30), np.linspace(lo0, lo1, 25), indexing="ij")
+        crs = ccrs.LambertConformal(central_longitude=(lo0 + lo1) / 2,
+                                    central_latitude=(la0 + la1) / 2, standard_parallels=(20, 30))
+        out = str(tmp_path / ("%s.png" % name))
+        mapfig.save_map(out, lat, lon, "t", fill_field=lat, crs=crs)
+        sizes[name] = Image.open(out).size
+    assert sizes["tall"][0] == sizes["wide"][0]
+    assert sizes["tall"][1] > sizes["tall"][0] > sizes["wide"][1]

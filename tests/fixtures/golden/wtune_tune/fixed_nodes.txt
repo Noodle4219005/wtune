@@ -1,5 +1,6 @@
 case=matthew nodes=1 (user-specified (cap=13)) budget=30.0 min max_nodes=13 out=<TMP>/out
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=13 configs_per_job=3 total=39 (ok)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
 round0 slot 0: submitted job 7001 (3 configs)
 round0 slot 1: submitted job 7002 (3 configs)
 round0 slot 2: submitted job 7003 (3 configs)

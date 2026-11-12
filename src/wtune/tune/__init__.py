@@ -85,7 +85,7 @@ from .physics_phase import (  # noqa: F401
     build_physics_window_namelists,
 )
 from .pipeline import (  # noqa: F401
-    PIPELINE_FRACS, PIPELINE_MAX_QUEUE_HOURS, PIPELINE_DEFAULT_MINUTES, PRECISION_DEFAULT_MIN,
+    PIPELINE_FRACS, PIPELINE_MAX_QUEUE_HOURS, PIPELINE_DEFAULT_MINUTES, PRECISION_DEFAULT,
     pipeline_layouts, phase2_plans, run_pipeline_full, run_level0,
 )
 from .cli import (  # noqa: F401

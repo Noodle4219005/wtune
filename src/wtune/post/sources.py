@@ -170,11 +170,13 @@ REGISTRY = {
 # `obs_sources` key themselves (they are not mine): id prefix -> registry names. Used only by
 # used_sources() as a fallback so the licence section still lists ERA5 / HURDAT2.
 _FIGURE_ID_SOURCES = (("syn_z500_diff", ("era5",)), ("syn_gridstat", ("era5",)),
+                      ("syn_era5", ("era5",)),
                       ("tc_track", ("hurdat2",)), ("tc_intensity", ("hurdat2",)),
                       ("climate_annual_cycle", ("era5_monthly", "gpcp_monthly")),
                       ("climate_bias_t2", ("era5_monthly",)),
                       ("climate_bias_precip", ("gpcp_monthly",)),
-                      ("pbl_skewt_obs", ("igra",)), ("pbl_height_compare", ("igra",)))
+                      ("pbl_skewt_obs", ("igra",)), ("pbl_height_compare", ("igra",)),
+                      ("common_sounding_obs", ("igra",)))
 
 
 class FetchIncomplete(RuntimeError):
@@ -397,9 +399,21 @@ def run_window(run_dir):
     if not frames:
         raise ValueError("no wrfout_d01_* frames in %s" % run_dir)
     import netCDF4
+    from wtune.post.conventions import continuous_lons
     with netCDF4.Dataset(frames[0][1]) as ds:
-        lat, lon = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
-        bbox = (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()))
+        lat, lon = ds.variables["XLAT"][0], continuous_lons(ds.variables["XLONG"][0])
+        lon0, lon1 = float(lon.min()), float(lon.max())
+    # the fetchers take lon0 <= lon1 within -180..180: a d01 across 180E keeps its larger side
+    # (haitang2017 d01 reaches 180.01E; min/max of XLONG gave -179.99..179.78, the whole globe)
+    wide = (lon0, lon1)
+    if lon1 > 180.0:
+        lon0, lon1 = (lon0, 180.0) if 180.0 - lon0 >= lon1 - 180.0 else (-180.0, lon1 - 360.0)
+    elif lon0 < -180.0:
+        lon0, lon1 = (-180.0, lon1) if lon1 + 180.0 >= -180.0 - lon0 else (lon0 + 360.0, 180.0)
+    if (lon0, lon1) != wide:
+        print("note: d01 spans lon %.2f..%.2f across 180E; fetching lon %.2f..%.2f "
+              "(--bbox overrides)" % (wide + (lon0, lon1)))
+    bbox = (float(lat.min()), float(lat.max()), lon0, lon1)
     return dict(start=datetime.strptime(frames[0][0], WRF_TIME_FMT),
                 end=datetime.strptime(frames[-1][0], WRF_TIME_FMT), bbox=bbox)
 

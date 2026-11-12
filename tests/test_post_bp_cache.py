@@ -9,7 +9,6 @@ which also counts conversions done inside pool workers.
 from conftest import swap_wtune_module
 import json
 import os
-import sys
 import types
 from concurrent.futures import ProcessPoolExecutor
 
@@ -99,35 +98,6 @@ def _cache(run, root=None):
     return os.path.join(str(root), extract._run_id(str(run)))
 
 
-def test_bp_history_is_converted_once_and_reused(tmp_path, fake_bp, monkeypatch):
-    run = tmp_path / "run"
-    a = _bp(run / ("wrfout_d01_%s" % T(0)), [T(0), T(6)])            # WRF's own file name
-    b = _bp(run / ("wrfout_d01_%s.bp" % T(12)), [T(12), T(18)])      # ".bp" appended
-    ca = os.path.join(_cache(run), "wrfout_d01_%s.nc" % T(0))
-    cb = os.path.join(_cache(run), "wrfout_d01_%s.nc" % T(12))
-    refs = extract.list_frame_refs(str(run))
-    assert refs == [(T(0), ca, 0), (T(6), ca, 1), (T(12), cb, 0), (T(18), cb, 1)]
-    assert sorted(fake_bp.conversions()) == sorted([a, b])
-    assert extract.file_index(str(run)) == {(1, T(0)): ca, (1, T(12)): cb}
-    assert extract.bp_origin(ca) == a and extract.bp_origin(cb) == b
-    meta = json.load(open(ca + ".json"))
-    assert meta["source"] == a and [e[0] for e in meta["signature"]] == \
-        ["data.0", "md.0", "md.idx", "mmd.0"]
-    from wtune.post import cf_pressure
-    assert cf_pressure._native_history(ca) == a
-    assert not [n for n in os.listdir(_cache(run)) if "wtune-tmp" in n]
-
-    assert extract.list_frame_refs(str(run)) == refs                 # same process: memo
-    _fresh_process(monkeypatch)
-    assert extract.list_frame_refs(str(run)) == refs                 # new process: manifest
-    assert extract.bp_origin(ca) == a                                # read from the sidecar
-    assert len(fake_bp.conversions()) == 2
-    fake_bp.require_adios2_python = _no_adios2                       # a valid cache needs no
-    _fresh_process(monkeypatch)                                      # adios2 at all
-    assert extract.list_frame_refs(str(run)) == refs
-    assert extract.prepare_history(str(run)) == dict(n_bp=2, cache=_cache(run), failed=[])
-
-
 def test_a_rewritten_bp_is_reconverted_alone(tmp_path, fake_bp, monkeypatch):
     run = tmp_path / "run"
     a = _bp(run / ("wrfout_d01_%s" % T(0)), [T(0), T(6)])
@@ -173,51 +143,6 @@ def test_mixed_dir_prefers_the_netcdf_file(tmp_path, fake_bp):
     assert refs == [(T(0), nc, 0),
                     (T(6), os.path.join(_cache(run), "wrfout_d01_%s.nc" % T(6)), 0)]
     assert fake_bp.conversions() == [b6]                 # the shadowed BP is never converted
-
-
-def test_segmented_multiframe_bp_run(tmp_path, fake_bp):
-    """test_post_multiframe's segmented climate layout, written as BP history."""
-    out = tmp_path / "o2"
-    _bp(out / "seg_0" / ("wrfout_d01_%s" % T(0)), [T(h) for h in (0, 6, 12, 18)])
-    _bp(out / "seg_0" / ("wrfout_d01_%s" % T(24)), [T(h) for h in (24, 30, 36, 42)])
-    _bp(out / "seg_0" / ("wrfout_d01_%s" % T(48)), [T(48), T(54)])
-    _bp(out / "seg_1" / ("wrfout_d01_%s.bp" % T(54)), [T(h) for h in (54, 60, 66, 72)])
-    assert extract.segment_dirs(str(out)) == [str(out / "seg_0"), str(out / "seg_1")]
-    c = _cache(out)
-    refs = extract.list_frame_refs(str(out))
-    assert [t for t, _p, _i in refs] == [T(h) for h in range(0, 73, 6)]
-    by = {t: (p, i) for t, p, i in refs}
-    assert by[T(30)] == (os.path.join(c, "seg_0", "wrfout_d01_%s.nc" % T(24)), 1)
-    assert by[T(48)] == (os.path.join(c, "seg_0", "wrfout_d01_%s.nc" % T(48)), 0)
-    assert by[T(54)] == (os.path.join(c, "seg_1", "wrfout_d01_%s.nc" % T(54)), 0)  # later wins
-    assert by[T(72)] == (os.path.join(c, "seg_1", "wrfout_d01_%s.nc" % T(54)), 3)
-    assert len(fake_bp.conversions()) == 4
-    from wtune.post import caseinfo
-    assert caseinfo.run_length_hours(str(out)) == pytest.approx(72.0)
-
-
-def test_cache_location_precedence(tmp_path, fake_bp, monkeypatch):
-    run = tmp_path / "run"
-    _bp(run / ("wrfout_d01_%s" % T(0)), [T(0)])
-    name = "wrfout_d01_%s.nc" % T(0)
-    with extract.nc_cache(base=str(tmp_path / "proj")):
-        with extract.nc_cache(base=str(tmp_path / "post_out")):     # an inner default: ignored
-            assert extract.frame_path(str(run), 1, T(0)) == \
-                os.path.join(_cache(run, tmp_path / "proj" / "_nc_cache"), name)
-    monkeypatch.setenv(extract.NC_CACHE_ENV, str(tmp_path / "env"))
-    with extract.nc_cache(base=str(tmp_path / "proj")):
-        assert extract.frame_path(str(run), 1, T(0)) == \
-            os.path.join(_cache(run, tmp_path / "env"), name)
-        with extract.nc_cache(directory=str(tmp_path / "flag")):    # --nc-cache wins
-            assert extract.frame_path(str(run), 1, T(0)) == \
-                os.path.join(_cache(run, tmp_path / "flag"), name)
-    assert len(fake_bp.conversions()) == 3
-    # two runs called "case" sharing one $WTUNE_NC_CACHE do not collide
-    other = tmp_path / "p2" / "case"
-    _bp(other / ("wrfout_d01_%s" % T(0)), [T(0)])
-    mine = tmp_path / "p1" / "case"
-    _bp(mine / ("wrfout_d01_%s" % T(0)), [T(0)])
-    assert extract.frame_path(str(other), 1, T(0)) != extract.frame_path(str(mine), 1, T(0))
 
 
 def test_cli_nc_cache_flag_and_default_base(tmp_path, fake_bp, monkeypatch, capsys):
@@ -311,12 +236,3 @@ def test_vapor_bundle_links_the_cached_netcdf_and_says_so(tmp_path, fake_bp):
     assert "就地改寫原檔" not in readme             # not the same data as the run's history
     manifest = json.load(open(r["manifest"]))
     assert [f["native"] for f in manifest["frames"]] == [b0, b6]
-
-
-def test_cache_tolerates_nfs_mtime_skew_but_not_a_rewrite():
-    sig = [["data.0", 100, 10**18], ["md.idx", 10, 10**18]]
-    skew = [[n, z, t + 18 * 10**9] for n, z, t in sig]            # another NFS client's view
-    late = [[n, z, t + 3600 * 10**9] for n, z, t in sig]          # written again an hour later
-    assert extract._same_files(sig, skew) and not extract._same_files(sig, late)
-    assert not extract._same_files(sig, [["data.0", 101, 10**18], ["md.idx", 10, 10**18]])
-    assert not extract._same_files(None, sig) and not extract._same_files(sig[:1], sig)

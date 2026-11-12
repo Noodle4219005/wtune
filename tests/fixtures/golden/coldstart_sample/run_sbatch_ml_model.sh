@@ -149,6 +149,7 @@ run_window() {
   ln -sf "$PLAN"/wps/met_em.d0*.*.nc .
   for f in met_em.d0*.*.nc; do [ "$f" = "${f//:/_}" ] || ln -sf "$f" "${f//:/_}"; done
   python3 "$TOOL" fix-real-namelist --plan "$PLAN" --win "$k" || return 1
+  [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ] || for ((r = 1; r < 72; r++)); do printf -v n '%04d' "$r"; ln -sf /dev/null "rsl.out.$n"; ln -sf /dev/null "rsl.error.$n"; done
   timeout 600 mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./real.exe
   rc=$?; pkill -u "$USER" -x real.exe 2>/dev/null
   real_path=decomp
@@ -186,6 +187,7 @@ run_window() {
   python3 "$TOOL" fix-wrf-namelist --plan "$PLAN" --win "$k" --nproc-x 9 --nproc-y 8 --numtiles 1 || return 1
   export OMP_NUM_THREADS=1
   unset OMP_PLACES OMP_PROC_BIND
+  [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ] || for ((r = 1; r < 72; r++)); do printf -v n '%04d' "$r"; ln -sf /dev/null "rsl.out.$n"; ln -sf /dev/null "rsl.error.$n"; done
   site_launch 72 72 1 block
   timeout 900 "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
   WRF_PID=$!

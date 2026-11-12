@@ -15,7 +15,7 @@ for c in "${cases[@]}"; do
   d="$out/$c"; mkdir -p "$d"; cp "$events/$c/event.txt" "$d/"; rm -f "$d/event.yaml"
   start=$(date +%s.%N)
   ( cd "$d" && timeout 600 pi -p --no-session --no-context-files --no-skills \
-      --skill "$repo/.claude/skills/wtune-event" --model "$model" --thinking "$thinking" \
+      --skill "$repo/skills/wtune-event" --model "$model" --thinking "$thinking" \
       --tools read,bash,edit,write --mode json "$prompt" > events.jsonl 2> stderr.txt )
   rc=$?
   usage=$(python3 "$here/usage.py" "$d/events.jsonl" "$d/reply.txt")

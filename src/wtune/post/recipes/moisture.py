@@ -13,7 +13,9 @@ import os
 
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs, list_frames
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 
 def _plt():
@@ -23,13 +25,13 @@ def _plt():
     return plt
 
 
-def _pw_figure(run_dir, run_label, domain, out_dir):
+def _pw_figure(run_dir, run_label, domain, out_dir, time_str=None):
     from wtune.post.plotting import plot_field
     frames = list_frames(run_dir, domain=domain)
     if not frames:
         return None
-    last_time = frames[-1][0]
-    written = plot_field(run_dir, "pw", out_dir, domain=domain, times=[last_time],
+    map_time = frame_at(frames, time_str)[0]
+    written = plot_field(run_dir, "pw", out_dir, domain=domain, times=[map_time],
                          basemap="cartopy")
     return written[0] if written else None
 
@@ -95,18 +97,18 @@ def _point_reason(tc_centre):
             else "max accumulated rain at last frame, interior cells only")
 
 
-def _ivt_figure(run_dir, run_label, domain, out_dir):
+def _ivt_figure(run_dir, run_label, domain, out_dir, time_str=None):
     import netCDF4
     import numpy as np
     import cartopy.crs as ccrs
     wrf_mod = __import__("wrf")
     from wtune.post.ivt import IVT_LEVELS_HPA, ivt_field
-    from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir)
+    from wtune.post.plotting import _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     with netCDF4.Dataset(path0) as ds:
         pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
         qvapor = wrf_mod.getvar(ds, "QVAPOR", timeidx=ti)
@@ -155,22 +157,22 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
                          transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, label="IVT (kg m$^{-1}$ s$^{-1}$)")
         _coastline(ax, ds, ccrs, natural_earth_ok)
-        # see post/recipes/terrain.py's _terrain_wind_map: a fine nest has far more grid
-        # points than WIND_SUBSAMPLE was tuned for, so scale the stride to this domain.
-        stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        # barbs only inside the plotted interior: finite IVT fill, spec_bdy_width edge cells out
-        from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
+        # barbs only inside the plotted interior (finite IVT fill, spec_bdy_width edge cells
+        # out) and where 850 hPa is above ground; stride from the domain's own size
+        from wtune.post.basemap import (above_ground, barb_stride, bdy_width_of, interior_mask,
+                                        masked_barbs)
         from wtune.post.conventions import KT_PER_MS, ds_time_label
         masked_barbs(ax, lons, lats, np.asarray(u850) * KT_PER_MS, np.asarray(v850) * KT_PER_MS,
-                     stride, mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag),
-                     length=5, transform=ccrs.PlateCarree())
+                     barb_stride(lons.shape),
+                     mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag)
+                     & above_ground(ds, 850.0, ti), length=5, transform=ccrs.PlateCarree())
         scale_note = ("AR scale, 250 = AR threshold" if ar_scale else
                       "max %.0f, below the AR scale (100+)" % ivt_max)
         ax.set_title("%s  d%02d  IVT (shaded; %s) + 850 hPa wind (kt)\n%s"
                      % (run_label, domain, scale_note, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "moisture_ivt_d%02d.png" % domain)
         fig.tight_layout()
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         plt.close(fig)
     return out_path
 
@@ -190,13 +192,14 @@ def grid_inside_predicate(xy_fn, ny, nx):
 
 
 def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None, top_km=None,
-                          halfwidth_km=None):
+                          halfwidth_km=None, time_str=None):
     """RH shading + theta_e isentrope lines, same presentation convention as
     post/recipes/terrain.py's cross-section (2026-09-29 second lead review, "apply 4-7
     consistently to moisture_crosssection too"): real-km distance axis centred on `point`
     (default: due east/west, +/-halfwidth_km), a 0..top_km height window (default 16 km, a
     TC's eyewall updraft is deep), a one-line title, and a locator inset. `line`: optional
-    (lat0,lon0,lat1,lon1) override from project.yaml's cross_sections.moisture."""
+    (lat0,lon0,lat1,lon1) override from project.yaml's cross_sections.moisture. time_str: the
+    valid time drawn (default the last frame)."""
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
@@ -208,7 +211,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = next((f for f in frames if f[0] == time_str), frames[-1])
     with netCDF4.Dataset(path0) as ds:
         ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         hgt = np.asarray(ter)
@@ -292,7 +295,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
                        point_ll=point_marker, cmap="terrain")
 
     out_path = os.path.join(out_dir, "moisture_crosssection_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -361,7 +364,7 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, 
                  % (run_label, domain, abs(lat), "N" if lat >= 0 else "S",
                     abs(lon), "E" if lon >= 0 else "W", reason or "user-given point"), fontsize=9, pad=8)
     out_path = os.path.join(out_dir, "moisture_timeheight_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -370,8 +373,21 @@ def _finest_domain(domains):
     return domains[-1]["domain"]
 
 
+def _focus_point(run_dir, domain, spinup_hours, tc_centre, focus_box):
+    """((lat, lon), reason, time or None): the TC centre unless project.yaml post.focus names an
+    area, else the heaviest post-spin-up rain at its peak (post/focus.py)."""
+    if tc_centre and not focus_box:
+        return tc_centre, _point_reason(tc_centre), None
+    from wtune.post.focus import rain_focus
+    f = rain_focus(run_dir, domain, spinup_hours, box=focus_box)
+    if f is None:
+        return _default_moisture_point(run_dir, domain), _point_reason(None), None
+    return (f["lat"], f["lon"]), "%s, peak %s" % (f["rule"], f["peak_time"]), f["peak_time"]
+
+
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None):
+           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, focus_box=None,
+           map_time=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -379,7 +395,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     out = []
 
     try:
-        path = _pw_figure(run_dir, run_label, domain, out_dir)
+        path = _pw_figure(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("moisture_pw", path, run_label, domain="d%02d" % domain))
         else:
@@ -400,7 +416,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("moisture_pw_chg6h", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        path = _ivt_figure(run_dir, run_label, domain, out_dir)
+        path = _ivt_figure(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("moisture_ivt", path, run_label, domain="d%02d" % domain))
         else:
@@ -411,10 +427,10 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("moisture_ivt", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
+        point, reason, peak = _focus_point(run_dir, domain, spinup_hours, tc_centre, focus_box)
         path = _cross_section_figure(run_dir, run_label, domain, out_dir, point,
                                      line=cross_section, top_km=xsec_top_km,
-                                     halfwidth_km=xsec_halfwidth_km)
+                                     halfwidth_km=xsec_halfwidth_km, time_str=peak)
         if path:
             out.append(fig("moisture_crosssection", path, run_label, domain="d%02d" % domain))
         else:
@@ -429,9 +445,9 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
 
     try:
         if point is None:
-            point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
-        path = _point_time_height(run_dir, run_label, domain, out_dir, point,
-                                  reason=_point_reason(tc_centre))
+            point, reason, _peak = _focus_point(run_dir, domain, spinup_hours, tc_centre,
+                                                focus_box)
+        path = _point_time_height(run_dir, run_label, domain, out_dir, point, reason=reason)
         if path:
             out.append(fig("moisture_timeheight", path, run_label, domain="d%02d" % domain))
         else:

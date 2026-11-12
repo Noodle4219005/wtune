@@ -52,6 +52,8 @@ DEFAULTS = {
         "sweep_budget_frac": None,
         "node_seeds": None,            # geometric | all
         "hotspot_fill": None,          # true | false
+        "proxy": None,                 # true | false (the one-node proxy: O1/O2 joint search)
+        "proxy_max_nodes": None,       # nodes the proxy jobs may hold at once (None: 4 x max_nodes)
     },
     "search": {
         "omp": None,                   # None = unrestricted (decomp_space's own omp_options)
@@ -68,8 +70,8 @@ DEFAULTS = {
     "probe": {"steps": "auto", "sweep_steps": [10, 40], "sweep_reps": 1, "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
               "sources": ["trajectory", "restart", "rebuild"],
-              # rank_by=predicted: rank by predicted whole-run time from shared spun-up ERA5
-              # points (decision 0055); restart_io_form is that restart's io_form (14 or 2).
+              # DEPRECATED keys: rank_by (only "t0"; "predicted" is rejected by wtune tune),
+              # stage1 and stage2_minutes (read by nothing). restart_io_form is still read.
               "rank_by": "t0", "restart_io_form": 14, "stage1": "t0",
               "stage2_minutes": None,
               # points_by cost-indicators: place points by a weather cost proxy (decision 0060);
@@ -84,7 +86,7 @@ TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physi
             "probe", "prediction", "exclude"}
 BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy", "node_objective",
                "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac",
-               "node_seeds", "hotspot_fill"}
+               "node_seeds", "hotspot_fill", "proxy", "proxy_max_nodes"}
 NODE_OBJECTIVE_CHOICES = ("time", "cost", "knee")
 NODE_SEEDS_CHOICES = ("geometric", "all")
 SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
@@ -323,6 +325,8 @@ _BUDGET_RULES = [
     ("node_finalists", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
     ("node_seeds", *_choice(NODE_SEEDS_CHOICES, optional=True)),
     ("hotspot_fill", _optional(lambda v: isinstance(v, bool)), _BOOL),
+    ("proxy", _optional(lambda v: isinstance(v, bool)), _BOOL),
+    ("proxy_max_nodes", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
 ]
 _SEARCH_RULES = [
     ("aspect_max", _optional(_positive_number), _POS_NUMBER),
@@ -829,13 +833,13 @@ probe:
                                    # {at: "+3h", reason: night, source: rebuild}]
   max_points: 5                   # cap on the number of prediction-layer probe points
   budget_pct: 10                  # cap the points' own measurement cost to this %% of the predicted run
-  sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
-                                             # legacy name for "rebuild")
-  rank_by: t0                     # t0 | predicted (decision 0055: rank by predicted whole-run time from
-                                   # ERA5-rebuilt, spun-up points; CLI --rank-by)
-  restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
-  stage1: t0                      # rank_by=predicted only: t0 (broad t0 search) | pstar (P* restart)
-  stage2_minutes: null            # stage1=t0 only: optional cap on stage 2 (else it always runs)
+  sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" is a
+                                             # DEPRECATED alias of "rebuild", still accepted)
+  rank_by: t0                     # DEPRECATED: only t0 is accepted; "predicted" was retired
+                                   # (archive/unused-2026-10) and wtune tune exits on it
+  restart_io_form: 14             # shared restart io_form, 14 (ADIOS2) or 2
+  stage1: t0                      # DEPRECATED: read by nothing since rank_by=predicted was retired
+  stage2_minutes: null            # DEPRECATED: read by nothing since rank_by=predicted was retired
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

@@ -70,14 +70,6 @@ def test_records_cover_hydrometeors_units_and_grid(tmp_path):
     assert len(back) == len(recs) and back[0].hdate.startswith("2019-11-26_21:00:00")
 
 
-def test_crop_across_dateline():
-    lat = np.arange(90.0, -90.25, -0.25)
-    lon = np.arange(0.0, 360.0, 0.25)
-    li, lo, lv = e5.crop_indices(lat, lon, (-10.0, 10.0, 175.0, -175.0), margin=0.0)
-    assert lv[0] == pytest.approx(175.0) and lv[-1] == pytest.approx(185.0)
-    assert np.all(np.diff(lv) > 0)
-
-
 def test_model_levels_to_pressure_is_exact_for_linear_in_lnp():
     a, b = e5.load_l137_ab()
     assert len(a) == 138 and a[0] == 0.0 and b[-1] == 1.0

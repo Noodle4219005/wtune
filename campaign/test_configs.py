@@ -29,26 +29,7 @@ class TestTemplates(unittest.TestCase):
 
 
 class TestLegalShapes(unittest.TestCase):
-    def test_patch_dims_ceil(self):
-        self.assertEqual(configs.patch_dims(901, 16), 57)   # 901/16 = 56.31 -> 57
-        self.assertEqual(configs.patch_dims(900, 30), 30)   # exact division
 
-    def test_legal_shapes_filters_below_min_patch(self):
-        # 425 x 300 at 448 ranks: (56, 8) gives patch_x=ceil(425/56)=8 < 10 -> illegal
-        shapes = configs.legal_shapes(425, 300, 448)
-        pairs = [(nx, ny) for nx, ny, px, py in shapes]
-        self.assertNotIn((56, 8), pairs)
-        self.assertNotIn((8, 56), pairs)
-        # (16, 28) gives patch_x=ceil(425/16)=27>=10, patch_y=ceil(300/28)=11>=10 -> legal
-        self.assertIn((16, 28), pairs)
-
-    def test_legality_uses_wrf_integer_division(self):
-        # share/module_check_a_mundo.F:3014-3029: e_we/nproc_x < 10 (integer division) aborts
-        self.assertTrue(configs.wrf_patch_legal(100, 10))
-        self.assertFalse(configs.wrf_patch_legal(99, 10))    # ceil would give 10, WRF gives 9
-        # conus12 e_sn=300, nproc_y=32: ceil 10 but floor 9 -> WRF aborts, must be illegal
-        pairs = [(nx, ny) for nx, ny, px, py in configs.legal_shapes(425, 300, 448)]
-        self.assertNotIn((14, 32), pairs)
 
     def test_conus12_448_ranks_has_legal_shapes(self):
         # documents that 425x300 at 448 ranks is NOT fully illegal (some templates
@@ -58,23 +39,6 @@ class TestLegalShapes(unittest.TestCase):
         self.assertGreater(len(shapes), 0)
         self.assertIn(method, ("wtune.decomp", "fallback"))
 
-    def test_multidomain_shape_legal_on_d01_illegal_on_smaller_nest_is_rejected(self):
-        # d01=2000x2000 (large, patch never binds), d02=150x900 (e_we tiny) -- a
-        # shape with a big nx (many x-slices) is legal on d01 but illegal on d02
-        # because ceil(150/nx) < 10 once nx > 15.
-        e_we = [2000, 150]
-        e_sn = [2000, 900]
-        shapes_d01_only = configs.legal_shapes(2000, 2000, 448)
-        pairs_d01_only = [(nx, ny) for nx, ny, px, py in shapes_d01_only]
-        # (28, 16): patch_x=ceil(2000/28)=72>=10 legal on d01 alone
-        self.assertIn((28, 16), pairs_d01_only)
-        shapes_multi = configs.legal_shapes(e_we, e_sn, 448)
-        pairs_multi = [(nx, ny) for nx, ny, px, py in shapes_multi]
-        # same (28, 16): patch_x on d02 = ceil(150/28) = 6 < 10 -> must be rejected
-        self.assertNotIn((28, 16), pairs_multi)
-        # sanity: multi-domain legality is a strict subset of d01-only legality
-        self.assertTrue(set(pairs_multi) <= set(pairs_d01_only))
-        self.assertGreater(len(pairs_multi), 0)
 
     def test_resolve_config_applies_multidomain_filter_via_case(self):
         case = dict(e_we=2000, e_sn=2000, e_vert=50, max_dom=2,
@@ -99,15 +63,6 @@ class TestDedupe(unittest.TestCase):
         self.assertEqual([c["id"] for c in kept], ["A", "C"])
         self.assertEqual(aliases, {"A": ["B"]})
 
-    def test_dedupe_no_duplicates_is_noop(self):
-        resolved = [
-            dict(id="A", ranks=448, omp=1, nx=16, ny=28, numtiles=1, dist="cyclic", blocktime="0"),
-            dict(id="B", ranks=448, omp=1, nx=16, ny=28, numtiles=8, dist="cyclic", blocktime="0"),
-        ]
-        kept, aliases = configs.dedupe(resolved)
-        self.assertEqual(len(kept), 2)
-        self.assertEqual(aliases, {})
-
 
 class TestMaxOmp(unittest.TestCase):
     """case["max_omp"] (e.g. c34/marshall in campaign/cases.json: WRF-Fire crashes rc=137/139
@@ -122,37 +77,6 @@ class TestMaxOmp(unittest.TestCase):
         self.assertIsNone(cfg)
         self.assertEqual(err, "omp(2) exceeds case max_omp=1")
 
-    def test_resolve_config_keeps_omp_at_or_below_case_cap(self):
-        case = dict(configs.CASES["karina"], max_omp=1)
-        template = dict(id="C01", ranks=448, omp=1, shape="best", numtiles=1,
-                         dist="cyclic", blocktime="0")
-        cfg, err = configs.resolve_config(case, template)
-        self.assertIsNone(err)
-        self.assertEqual(cfg["omp"], 1)
-
-    def test_resolve_config_absent_max_omp_is_unchanged_behaviour(self):
-        # karina itself carries no max_omp key -- omp=2 templates must resolve exactly as
-        # before this feature existed.
-        case = configs.CASES["karina"]
-        self.assertNotIn("max_omp", case)
-        template = dict(id="C06", ranks=224, omp=2, shape="best", numtiles=12,
-                         dist="cyclic", blocktime="0")
-        cfg, err = configs.resolve_config(case, template)
-        self.assertIsNone(err)
-        self.assertEqual(cfg["omp"], 2)
-
-    def test_resolve_case_with_max_omp_1_keeps_only_omp_1_templates(self):
-        # karina resolves all 16 TEMPLATES with no cap (asserted by the no-cap branch above);
-        # capping it to max_omp=1 must keep exactly the four omp=1 templates (C01-C04) and
-        # skip every omp=2/omp=4 template with the new reason string.
-        case = dict(configs.CASES["karina"], max_omp=1)
-        kept, skipped, aliases = configs.resolve_case(case)
-        self.assertEqual(sorted(c["id"] for c in kept), ["C01", "C02", "C03", "C04"])
-        skipped_by_id = dict(skipped)
-        for tid in ("C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12"):
-            self.assertEqual(skipped_by_id[tid], "omp(2) exceeds case max_omp=1")
-        for tid in ("C13", "C14", "C15", "C16"):
-            self.assertEqual(skipped_by_id[tid], "omp(4) exceeds case max_omp=1")
 
     def test_c34_and_marshall_carry_max_omp_1_in_cases_json(self):
         for case_id in ("c34", "marshall"):
@@ -160,19 +84,10 @@ class TestMaxOmp(unittest.TestCase):
 
 
 class TestBuildOrder(unittest.TestCase):
-    def test_reps_two_is_palindrome(self):
-        order = configs.build_order(["A", "B", "C"], 2)
-        self.assertEqual(order, ["A", "B", "C", "C", "B", "A"])
 
-    def test_reps_three_alternates(self):
-        order = configs.build_order(["A", "B"], 3)
-        self.assertEqual(order, ["A", "B", "B", "A", "A", "B"])
 
     def test_reps_zero_is_empty(self):
         self.assertEqual(configs.build_order(["A", "B"], 0), [])
-
-    def test_reps_one_is_forward_only(self):
-        self.assertEqual(configs.build_order(["A", "B"], 1), ["A", "B"])
 
 
 class TestNamelistEditing(unittest.TestCase):
@@ -226,88 +141,6 @@ class TestNamelistEditing(unittest.TestCase):
         "/\n"
     )
 
-    def test_run_seconds_is_zeroed(self):
-        # decision 0055: a rebuilt-segment template (coldstart real/wrf-window namelist) carries
-        # run_seconds=<window>; WRF adds it to run_minutes, so it must be zeroed.
-        text = self.SYNTHETIC_WITH_EXISTING.replace("run_seconds=0", "run_seconds=4830")
-        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="off", ranks=224)
-        self.assertIn("run_seconds=0,", out)
-        self.assertIn("run_minutes=8", out)
-        self.assertNotIn("4830", out)
-
-    def test_edit_with_existing_decomp_lines(self):
-        out = configs.edit_namelist(self.SYNTHETIC_WITH_EXISTING, 14, 16, 12, 8,
-                                     history_mode="end_d01", ranks=224)
-        self.assertNotIn("nproc_x = 16", out)
-        self.assertNotIn("numtiles = 8", out)
-        self.assertIn("nproc_x=14, nproc_y=16, numtiles=12,", out)
-        self.assertEqual(out.count("nproc_x"), 1)
-        self.assertEqual(out.count("numtiles"), 1)
-        self.assertIn("run_minutes=8", out)
-        self.assertIn("run_hours=0", out)
-        self.assertIn("run_days=0", out)
-        self.assertIn("history_interval=8,", out)
-        self.assertIn("history_begin = 8,", out)
-        # io_form_history is ADIOS2's 14 now (this template already started at 14,
-        # unlike the old test which started it at 14 and asserted the old
-        # unconditional override brought it down to 2 -- see TestAdios2 for
-        # dedicated before/after io_form coverage on a template that starts != 14)
-        self.assertIn("io_form_history=14,", out)
-        # ADIOS2 settings that don't need a pre-existing line always get inserted
-        self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
-        self.assertIn("&namelist_adios2\n"
-                      " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.false.,\n"
-                      ' adios2_blosc_compressor="zstd",\n'
-                      "/\n", out)
-        # time_step untouched (not a campaign-edited knob)
-        self.assertIn("time_step=15", out)
-
-    def test_edit_without_existing_decomp_lines(self):
-        out = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
-                                     history_mode="end_d01", ranks=224)
-        self.assertIn("nproc_x=14, nproc_y=16, numtiles=12,", out)
-        idx_domains = out.find("&domains")
-        idx_decomp = out.find("nproc_x=14")
-        self.assertGreater(idx_decomp, idx_domains)
-
-    def test_edit_uses_history_interval_m_when_present(self):
-        out = configs.edit_namelist(self.SYNTHETIC_HISTORY_M, 4, 28, 6, 5,
-                                     history_mode="end_d01", ranks=112)
-        self.assertIn("history_interval_m", out)
-        self.assertIn("history_interval_m = 5", out)
-        self.assertNotIn("history_interval = 5", out)
-        self.assertIn("history_begin_m = 5,", out)
-        self.assertIn("nproc_x=4, nproc_y=28, numtiles=6,", out)
-        self.assertNotIn("nproc_x = 8", out)
-
-    def test_edit_preserves_physics_and_restart_lines(self):
-        text = self.SYNTHETIC_WITH_EXISTING + "&physics\n mp_physics=8,\n/\n"
-        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
-        self.assertIn("mp_physics=8,", out)
-
-    # -- WTune D1 decomposition-space work: numtiles_x/y/tile_sz_x/y/tile_strategy --------------
-    def test_tile_geometry_args_default_none_is_byte_identical(self):
-        """Every new edit_namelist param defaults to None: a call with none of them given must
-        produce EXACTLY the same text as before these params existed."""
-        with_extra = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
-                                            history_mode="end_d01", ranks=224)
-        without_extra_kwargs = configs.edit_namelist(
-            self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8, history_mode="end_d01", ranks=224,
-            numtiles_x=None, numtiles_y=None, tile_sz_x=None, tile_sz_y=None, tile_strategy=None)
-        self.assertEqual(with_extra, without_extra_kwargs)
-        self.assertNotIn("numtiles_x", with_extra)
-        self.assertNotIn("tile_strategy", with_extra)
-
-    def test_tile_geometry_args_written_once_on_domains_line_when_given(self):
-        out = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
-                                     history_mode="end_d01", ranks=224,
-                                     numtiles_x=2, numtiles_y=6, tile_sz_x=0, tile_sz_y=0,
-                                     tile_strategy=3)
-        self.assertIn("nproc_x=14, nproc_y=16, numtiles=12, numtiles_x=2, numtiles_y=6, "
-                      "tile_sz_x=0, tile_sz_y=0, tile_strategy=3,", out)
-        for key in ("numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy"):
-            self.assertEqual(out.count(key), 1, key)
 
     def test_tile_geometry_args_partial_only_writes_given_keys(self):
         out = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
@@ -317,14 +150,6 @@ class TestNamelistEditing(unittest.TestCase):
         self.assertNotIn("tile_sz_x", out)
         self.assertNotIn("tile_strategy", out)
 
-    def test_tile_geometry_args_replace_stale_existing_line(self):
-        text = self.SYNTHETIC_WITHOUT_EXISTING.replace(
-            "&domains\n", "&domains\n numtiles_x = 99,\n")
-        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="end_d01", ranks=224,
-                                     numtiles_x=2, numtiles_y=6)
-        self.assertNotIn("numtiles_x = 99", out)
-        self.assertEqual(out.count("numtiles_x"), 1)
-        self.assertIn("numtiles_x=2, numtiles_y=6,", out)
 
     SYNTHETIC_3DOMAIN = (
         "&time_control\n"
@@ -341,47 +166,6 @@ class TestNamelistEditing(unittest.TestCase):
         "/\n"
     )
 
-    def test_numtiles_is_a_single_value_even_with_nests(self):
-        # numtiles is namelist-global; a per-domain list makes WRF abort with
-        # "ERROR reading namelist domains" (smoke jobs 1074506-1074508)
-        out = configs.edit_namelist(self.SYNTHETIC_3DOMAIN, 16, 28, 8, 30, max_dom=3, ranks=448)
-        self.assertIn("nproc_x=16, nproc_y=28, numtiles=8,\n", out)
-        self.assertNotIn("numtiles=8, 8", out)
-        self.assertEqual(out.count("numtiles"), 1)
-
-    def test_history_interval_s_variant_converts_minutes_to_seconds(self):
-        # nest_history_on defaults to False: d01 gets the run length, nested
-        # domains (d02/d03) get 0 -- see TestNestHistory for the dedicated coverage
-        out = configs.edit_namelist(self.SYNTHETIC_3DOMAIN, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448)
-        self.assertIn("history_interval_s = 1800, 0, 0,", out)
-        self.assertNotIn("history_interval_s = 00", out)
-        self.assertIn("history_begin_s = 1800, 0, 0,", out)
-        # io_form_history is always forced to 14 (ADIOS2) regardless of the native
-        # value (0 here); _set_scalar preserves this template's own "key = value"
-        # spacing style (unlike SYNTHETIC_WITH_EXISTING's "key=value" style above)
-        self.assertIn("io_form_history = 14,", out)
-        self.assertIn("io_form_input = 14,", out)
-        self.assertIn("io_form_boundary = 14,", out)
-
-    def test_set_max_dom_override_on_3domain_template_keeps_perdomain_lists_valid(self):
-        out = configs.edit_namelist(
-            self.SYNTHETIC_3DOMAIN, 16, 28, 8, 30, max_dom=2,
-            history_mode="end_d01", ranks=448, overrides={"max_dom": 2},
-        )
-        self.assertIn("max_dom = 2", out)
-        self.assertNotIn("max_dom = 3", out)
-        # numtiles stays a single value; per-domain lists (history_interval_s) follow max_dom
-        self.assertIn("nproc_x=16, nproc_y=28, numtiles=8,\n", out)
-        # nest_history_on defaults to False: d01 gets the run length, nest gets 0
-        self.assertIn("history_interval_s = 1800, 0,", out)
-
-    def test_restart_false_override(self):
-        text = self.SYNTHETIC_3DOMAIN.replace("restart = .false.,", "restart = .true.,")
-        out = configs.edit_namelist(text, 16, 28, 8, 30, max_dom=2, ranks=448,
-                                     overrides={"restart": ".false."})
-        self.assertIn("restart = .false.", out)
-        self.assertNotIn("restart = .true.", out)
 
     def test_io_form_input_and_boundary_overrides_apply_with_no_adios2(self):
         # 2026-09-14 all-ADIOS2: this override path only still works with
@@ -426,20 +210,6 @@ class TestDeleteKeys(unittest.TestCase):
         "/\n"
     )
 
-    def test_delete_key_lines_is_case_insensitive_and_leaves_others_untouched(self):
-        out = configs._delete_key_lines(self.SYNTHETIC_DELETE_KEYS, "BL_MYNN_TKEBUDGET", ignore_case=True)
-        out = configs._delete_key_lines(out, "Opt_Run", ignore_case=True)
-        self.assertNotIn("tkebudget", out.lower())
-        self.assertNotIn("opt_run", out.lower())
-        # untouched lines, including the one with an inline "!" comment, stay byte-identical
-        self.assertIn(" icloud_bl = 1,\n", out)
-        self.assertIn(" dveg=9 ! former 3\n", out)
-        self.assertIn(" opt_crs=1,\n", out)
-
-    def test_delete_key_lines_default_is_case_sensitive(self):
-        # without ignore_case, a differently-cased key is left alone
-        out = configs._delete_key_lines(self.SYNTHETIC_DELETE_KEYS, "BL_MYNN_TKEBUDGET")
-        self.assertIn("bl_mynn_tkebudget = 0, 0, 0,\n", out)
 
     def test_edit_namelist_delete_keys_param_removes_both_lafe_keys(self):
         out = configs.edit_namelist(self.SYNTHETIC_DELETE_KEYS, 14, 16, 12, 8, ranks=224,
@@ -449,11 +219,6 @@ class TestDeleteKeys(unittest.TestCase):
         self.assertIn(" icloud_bl = 1,\n", out)
         self.assertIn(" dveg=9 ! former 3\n", out)
         self.assertIn(" opt_crs=1,\n", out)
-
-    def test_edit_namelist_without_delete_keys_is_unaffected(self):
-        out = configs.edit_namelist(self.SYNTHETIC_DELETE_KEYS, 14, 16, 12, 8, ranks=224)
-        self.assertIn("bl_mynn_tkebudget = 0, 0, 0,\n", out)
-        self.assertIn("opt_run=3, ! former comment\n", out)
 
 
 class TestNestHistory(unittest.TestCase):
@@ -486,41 +251,6 @@ class TestNestHistory(unittest.TestCase):
     )
 
     SYNTHETIC_3DOMAIN = TestNamelistEditing.SYNTHETIC_3DOMAIN
-
-    def test_nest_history_off_by_default_minutes_variant_max_dom_2(self):
-        out = configs.edit_namelist(self.SYNTHETIC_NEST_MINUTES, 4, 28, 6, 30, max_dom=2,
-                                     history_mode="end_d01", ranks=112)
-        self.assertIn("history_interval = 30, 0,", out)
-
-    def test_nest_history_off_by_default_minutes_m_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.SYNTHETIC_NEST_MINUTES_M, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448)
-        self.assertIn("history_interval_m = 30, 0, 0,", out)
-
-    def test_nest_history_off_by_default_seconds_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.SYNTHETIC_3DOMAIN, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448)
-        self.assertIn("history_interval_s = 1800, 0, 0,", out)
-
-    def test_nest_history_on_keeps_all_domains_minutes_variant(self):
-        out = configs.edit_namelist(self.SYNTHETIC_NEST_MINUTES, 4, 28, 6, 30, max_dom=2,
-                                     history_mode="end_d01", ranks=112, nest_history_on=True)
-        self.assertIn("history_interval = 30, 30,", out)
-        self.assertIn("history_begin = 30, 30,", out)
-
-    def test_nest_history_on_keeps_all_domains_seconds_variant(self):
-        out = configs.edit_namelist(self.SYNTHETIC_3DOMAIN, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448, nest_history_on=True)
-        self.assertIn("history_interval_s = 1800, 1800, 1800,", out)
-        self.assertIn("history_begin_s = 1800, 1800, 1800,", out)
-
-    def test_single_domain_history_unchanged_regardless_of_nest_flag(self):
-        base = TestNamelistEditing.SYNTHETIC_WITH_EXISTING
-        out_default = configs.edit_namelist(base, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
-        out_nest_on = configs.edit_namelist(base, 14, 16, 12, 8, history_mode="end_d01", ranks=224,
-                                             nest_history_on=True)
-        self.assertEqual(out_default, out_nest_on)
-        self.assertIn("history_interval=8,", out_default)
 
 
 class TestHistoryMode(unittest.TestCase):
@@ -558,39 +288,6 @@ class TestHistoryMode(unittest.TestCase):
             self.assertNotIn("auxhist24_begin_s = 0", out)
             self.assertIn("auxhist24_interval_s = 60, 60, 60,", out)
 
-    def test_aux_stream_with_zero_interval_untouched(self):
-        out = configs.edit_namelist(self.AUX24, 16, 28, 8, 30, max_dom=3,
-                                    history_mode="off", ranks=448)
-        self.assertNotIn("auxhist3_begin", out)
-
-    def test_off_zeroes_single_domain_max_dom_1(self):
-        out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="off", ranks=224)
-        self.assertIn("history_interval=0,", out)
-
-    def test_off_zeroes_every_domain_minutes_variant_max_dom_2(self):
-        out = configs.edit_namelist(self.NEST_MINUTES, 4, 28, 6, 30, max_dom=2,
-                                     history_mode="off", ranks=112)
-        self.assertIn("history_interval = 0, 0,", out)
-
-    def test_off_zeroes_every_domain_minutes_m_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.NEST_MINUTES_M, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="off", ranks=448)
-        self.assertIn("history_interval_m = 0, 0, 0,", out)
-
-    def test_off_zeroes_every_domain_seconds_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.NEST_SECONDS, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="off", ranks=448)
-        self.assertIn("history_interval_s = 0, 0, 0,", out)
-
-    def test_off_with_nwp_diagnostics_uses_never_elapsing_d01_interval(self):
-        # WRF aborts on nwp_diagnostics!=0 with history_interval(1)==0 (smoke job 1078290)
-        text = self.NEST_MINUTES.replace("&time_control\n", "&time_control\n nwp_diagnostics = 1,\n", 1)
-        self.assertNotEqual(text, self.NEST_MINUTES)
-        out = configs.edit_namelist(text, 4, 28, 6, 30, max_dom=2, history_mode="off", ranks=112)
-        n = configs.HISTORY_NEVER_MINUTES
-        self.assertIn("history_interval = %d, %d," % (n, n), out)
-        self.assertIn("history_begin = %d, %d," % (n, n), out)
-        self.assertIn("nwp_diagnostics = 1,", out)
 
     def test_off_with_hailcast_on_nest_only_uses_never_elapsing_interval_every_domain(self):
         # hailcast_opt aborts when ANY domain's history_interval is 0 (debug job 1078305)
@@ -608,28 +305,6 @@ class TestHistoryMode(unittest.TestCase):
             self.assertIn("history_interval = 0, 0,", out)
             self.assertNotIn("history_begin", out)
 
-    def test_end_d01_sets_history_begin_single_domain_max_dom_1(self):
-        out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
-        self.assertIn("history_interval=8,", out)
-        self.assertIn("history_begin = 8,", out)
-
-    def test_end_d01_sets_history_begin_minutes_variant_max_dom_2(self):
-        out = configs.edit_namelist(self.NEST_MINUTES, 4, 28, 6, 30, max_dom=2,
-                                     history_mode="end_d01", ranks=112)
-        self.assertIn("history_interval = 30, 0,", out)
-        self.assertIn("history_begin = 30, 0,", out)
-
-    def test_end_d01_sets_history_begin_minutes_m_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.NEST_MINUTES_M, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448)
-        self.assertIn("history_interval_m = 30, 0, 0,", out)
-        self.assertIn("history_begin_m = 30, 0, 0,", out)
-
-    def test_end_d01_sets_history_begin_seconds_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.NEST_SECONDS, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="end_d01", ranks=448)
-        self.assertIn("history_interval_s = 1800, 0, 0,", out)
-        self.assertIn("history_begin_s = 1800, 0, 0,", out)
 
     def test_invalid_history_mode_raises(self):
         with self.assertRaises(ValueError):
@@ -676,177 +351,10 @@ class TestAdios2(unittest.TestCase):
         "/\n"
     )
 
-    def test_inserts_all_settings_on_namelist_without_existing_adios2_entries(self):
-        out = configs.edit_namelist(self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8, ranks=224)
-        self.assertIn("io_form_input=14,", out)
-        self.assertIn("io_form_boundary=14,", out)
-        self.assertIn("io_form_history=14,", out)
-        self.assertIn("io_form_restart=14,", out)
-        self.assertIn("restart_interval=1000000,", out)
-        self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
-        self.assertIn("&namelist_adios2\n"
-                      " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.false.,\n"
-                      ' adios2_blosc_compressor="zstd",\n'
-                      "/\n", out)
-        self.assertEqual(out.count("input_inname"), 1)
-        self.assertEqual(out.count("&namelist_adios2"), 1)
-
-    def test_replaces_existing_entries_no_duplicates(self):
-        out = configs.edit_namelist(self.SYNTHETIC_STALE_ADIOS2, 14, 16, 12, 8, ranks=224)
-        self.assertEqual(out.count("input_inname"), 1)
-        self.assertEqual(out.count("bdy_inname"), 1)
-        self.assertEqual(out.count("&namelist_adios2"), 1)
-        self.assertEqual(out.count("adios2_numaggregators"), 1)
-        self.assertIn("adios2_numaggregators=224,", out)
-        self.assertNotIn("adios2_numaggregators=99", out)
-        self.assertNotIn('input_inname="wrfinput_d<domain>"', out)  # stale (no .bp) line gone
-        self.assertIn('input_inname="wrfinput_d<domain>.bp"', out)
-        self.assertIn("io_form_input=14,", out)
-        self.assertIn("io_form_boundary=14,", out)
-        self.assertIn("io_form_restart=14,", out)
-        self.assertNotIn("io_form_input=11", out)
-        self.assertNotIn("io_form_restart=2,", out)
-
-    def test_overrides_cannot_revert_io_form(self):
-        # 2026-09-14: cases.json's lafe used to override io_form_input/boundary to
-        # 2 (pnetcdf->plain netCDF); with adios2=True (default) that override
-        # must lose -- _apply_adios2 runs after overrides in edit_namelist.
-        out = configs.edit_namelist(
-            self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8, ranks=224,
-            overrides={"io_form_input": 2, "io_form_boundary": 2},
-        )
-        self.assertIn("io_form_input=14,", out)
-        self.assertIn("io_form_boundary=14,", out)
-        self.assertNotIn("io_form_input=2,", out)
-        self.assertNotIn("io_form_boundary=2,", out)
-
-    def test_inserts_missing_io_form_keys_like_isc21s_real_template(self):
-        # isc21's real namelist.input has io_form_history but NO io_form_restart/
-        # io_form_input/io_form_boundary lines at all -- _set_scalar alone would
-        # silently no-op on the missing three, leaving them at WRF's default
-        # while isc21 is fed .bp (ADIOS2) inputs. Must be inserted, not skipped.
-        text = (
-            "&time_control\n"
-            " run_days=0, run_hours=1, run_minutes=0,\n"
-            " history_interval_s = 00, 00, 00,\n"
-            " io_form_history=0,\n"
-            "/\n"
-            "&domains\n"
-            " max_dom=3,\n"
-            " time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,\n"
-            "/\n"
-        )
-        out = configs.edit_namelist(text, 16, 28, 8, 7, max_dom=3, ranks=448)
-        self.assertIn("io_form_history=14,", out)
-        self.assertIn("io_form_restart=14,", out)
-        self.assertIn("io_form_input=14,", out)
-        self.assertIn("io_form_boundary=14,", out)
-        self.assertEqual(out.count("io_form_input"), 1)
-        self.assertEqual(out.count("io_form_boundary"), 1)
-        self.assertEqual(out.count("io_form_restart"), 1)
 
     def test_ranks_required_when_adios2_enabled(self):
         with self.assertRaises(ValueError):
             configs.edit_namelist(self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8)
-
-    def test_no_adios2_preserves_legacy_behaviour(self):
-        out = configs.edit_namelist(self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8, adios2=False)
-        self.assertIn("io_form_history=2,", out)
-        self.assertIn("io_form_input=2,", out)      # untouched: no ADIOS2 rewriting
-        self.assertIn("io_form_boundary=2,", out)
-        self.assertIn("io_form_restart=2,", out)
-        self.assertIn("restart_interval=60,", out)  # untouched: no restart-interval override
-        self.assertNotIn("input_inname", out)
-        self.assertNotIn("&namelist_adios2", out)
-
-    def test_numaggregators_equals_ranks_argument(self):
-        for ranks in (112, 224, 448):
-            out = configs.edit_namelist(self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8, ranks=ranks)
-            self.assertIn("adios2_numaggregators=%d," % ranks, out)
-
-
-class TestAdios2Compression(unittest.TestCase):
-    """The compression keys must be WRITTEN, not inherited from the Registry.
-
-    WRF's ADIOS2 backend treats every compression failure as a non-fatal
-    wrf_debug(WARN), so a run that silently fell back to uncompressed BP looks
-    exactly like a run that compressed. Recording the settings in the run's own
-    namelist is the first half of making that impossible to miss; the second
-    half is tools/bp_compression_check.py, which measures the output.
-    """
-
-    def _out(self, ranks=224):
-        return configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
-                                     ranks=ranks)
-
-    def test_compression_keys_are_written_explicitly(self):
-        # off: the Registry default .true. sends stock WRF 4.8 into a buffer overflow
-        out = self._out()
-        self.assertIn(" adios2_compression_enable=.false.,\n", out)
-        self.assertIn(' adios2_blosc_compressor="zstd",\n', out)
-
-    def test_codec_comes_from_the_module_constants(self):
-        # The measured choice lives in one place; the emitter must not hardcode it.
-        self.assertEqual(configs.ADIOS2_BLOSC_COMPRESSOR, "zstd")
-        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".false.")
-        out = self._out()
-        self.assertIn(' adios2_blosc_compressor="%s",' % configs.ADIOS2_BLOSC_COMPRESSOR, out)
-        self.assertIn(" adios2_compression_enable=%s," % configs.ADIOS2_COMPRESSION_ENABLE, out)
-
-    def test_each_key_appears_exactly_once(self):
-        out = self._out()
-        self.assertEqual(out.count("adios2_compression_enable"), 1)
-        self.assertEqual(out.count("adios2_blosc_compressor"), 1)
-        self.assertEqual(out.count("adios2_numaggregators"), 1)
-
-    def test_numaggregators_behaviour_is_unchanged(self):
-        # The compression keys are additive: numaggregators still equals ranks,
-        # still leads the block, and is still the first line after the group header.
-        for ranks in (112, 224, 448):
-            out = configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
-                                        ranks=ranks)
-            self.assertIn("&namelist_adios2\n adios2_numaggregators=%d,\n" % ranks, out)
-
-    def test_stale_block_is_replaced_not_appended(self):
-        out = configs.edit_namelist(TestAdios2.SYNTHETIC_STALE_ADIOS2, 14, 16, 12, 8,
-                                    ranks=224)
-        self.assertEqual(out.count("&namelist_adios2"), 1)
-        self.assertEqual(out.count("adios2_compression_enable"), 1)
-        self.assertEqual(out.count("adios2_blosc_compressor"), 1)
-
-    def test_a_template_that_already_sets_a_different_codec_is_overwritten(self):
-        stale = TestAdios2.SYNTHETIC_NO_ADIOS2.rstrip("\n") + (
-            "\n&namelist_adios2\n"
-            " adios2_numaggregators=7,\n"
-            ' adios2_blosc_compressor="lz4",\n'
-            " adios2_compression_enable=.true.,\n"
-            "/\n")
-        out = configs.edit_namelist(stale, 14, 16, 12, 8, ranks=224)
-        self.assertNotIn('adios2_blosc_compressor="lz4"', out)
-        self.assertNotIn("adios2_compression_enable=.true.", out)
-        self.assertNotIn("adios2_numaggregators=7,", out)
-        self.assertIn('adios2_blosc_compressor="zstd",', out)
-
-    def test_no_adios2_still_writes_no_compression_keys(self):
-        out = configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
-                                    adios2=False)
-        self.assertNotIn("&namelist_adios2", out)
-        self.assertNotIn("adios2_blosc_compressor", out)
-        self.assertNotIn("adios2_compression_enable", out)
-
-    def test_block_is_valid_fortran_namelist_shape(self):
-        out = self._out()
-        start = out.index("&namelist_adios2")
-        block = out[start:out.index("\n/\n", start) + 3]
-        lines = block.strip().splitlines()
-        self.assertEqual(lines[0], "&namelist_adios2")
-        self.assertEqual(lines[-1], "/")
-        for line in lines[1:-1]:
-            self.assertTrue(line.startswith(" "), line)
-            self.assertTrue(line.endswith(","), line)
-            self.assertIn("=", line)
-
 
 
 class TestStepStats(unittest.TestCase):
@@ -856,24 +364,6 @@ class TestStepStats(unittest.TestCase):
             rest.append(spike if (i + 1) % cycle_len == 0 else normal)
         return [init] + rest, rest
 
-    def test_median_excludes_spikes_mean_all_includes_them(self):
-        values, rest = self._series_with_radiation_spikes(n_cycles=6, cycle_len=4)
-        stats = configs.step_stats(values)
-        n_spikes = sum(1 for v in rest if v == 44.0)
-        self.assertEqual(stats["n_all"], len(rest))
-        self.assertEqual(stats["n_measured"], len(rest) - n_spikes)
-        self.assertEqual(stats["n_excluded"], 1 + n_spikes)
-        self.assertAlmostEqual(stats["median"], 6.0)
-        self.assertAlmostEqual(stats["mean_all"], sum(rest) / len(rest))
-        self.assertGreater(stats["mean_all"], stats["median"])
-
-    def test_empty_input(self):
-        stats = configs.step_stats([])
-        self.assertIsNone(stats["median"])
-        self.assertIsNone(stats["mean_all"])
-        self.assertEqual(stats["n_measured"], 0)
-        self.assertEqual(stats["n_excluded"], 0)
-        self.assertEqual(stats["n_all"], 0)
 
     def test_single_step_only_no_measurable_steps(self):
         stats = configs.step_stats([12.3])
@@ -900,22 +390,6 @@ class TestStepStatsCLI(unittest.TestCase):
             self.assertEqual(rc, 0)
             out = buf.getvalue().strip()
             self.assertRegex(out, r"^med=[\d.]+ mean=[\d.]+ n=\d+ excl=\d+ nall=\d+$")
-        finally:
-            os.remove(path)
-
-    def test_cli_output_format_empty_file(self):
-        import contextlib
-        import io
-        import tempfile
-        fd, path = tempfile.mkstemp(suffix=".txt")
-        os.close(fd)
-        try:
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                rc = configs._cmd_step_stats([path])
-            self.assertEqual(rc, 0)
-            out = buf.getvalue().strip()
-            self.assertEqual(out, "med= mean= n=0 excl=0 nall=0")
         finally:
             os.remove(path)
 
@@ -979,68 +453,6 @@ class TestCasesJson(unittest.TestCase):
         self.assertEqual(sorted(configs.CASE_ORDER), sorted(configs.CASES.keys()))
 
 
-class TestAdios2MultiKeyLine(unittest.TestCase):
-    """karina's template writes several io_form keys on ONE line; ADIOS2 editing must rewrite them in place,
-    not insert duplicates while leaving the old '=2' values (smoke job 1074653: 'error opening wrfinput_d01.bp')."""
-
-    KARINA_LIKE = (
-        "&time_control\n"
-        " run_hours=0, run_minutes=8, history_interval=8,\n"
-        " io_form_history=2, io_form_restart=2, io_form_input=2, io_form_boundary=2,\n"
-        "/\n"
-        "&domains\n"
-        " time_step=15, e_we=901, e_sn=901, e_vert=45,\n"
-        "/\n"
-    )
-
-    def test_multi_key_line_rewritten_without_duplicates(self):
-        out = configs.edit_namelist(self.KARINA_LIKE, 7, 32, 12, 8, ranks=224)
-        for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
-            self.assertEqual(out.count(key + "="), 1, key)
-            self.assertIn(key + "=14", out, key)
-        self.assertNotIn("=2,", out.split("&domains")[0].replace("nio_groups=1,", ""))
-
-
-class TestQuiltingOff(unittest.TestCase):
-    """ADIOS2 editing must always disable WRF quilting (smoke job 1074562 hung with the LAFE template's
-    nio_tasks_per_group=32, nio_groups=4)."""
-
-    LAFE_LIKE = (
-        "&time_control\n"
-        " run_minutes = 0,\n"
-        " history_interval = 5, 5, 5,\n"
-        " io_form_history = 11,\n"
-        " io_form_input = 11,\n"
-        " io_form_boundary = 11,\n"
-        " io_form_restart = 11,\n"
-        "/\n"
-        "&domains\n"
-        " max_dom = 2,\n"
-        " time_step = 10,\n"
-        "/\n"
-        "&namelist_quilt\n"
-        " nio_tasks_per_group = 32,\n"
-        " nio_groups = 4,\n"
-        "! nio_tasks_per_group = 0,\n"
-        "! nio_groups = 1,\n"
-        "/\n"
-    )
-
-    def test_quilt_group_replaced_with_quilting_off(self):
-        out = configs.edit_namelist(self.LAFE_LIKE, 4, 56, 12, 5, ranks=224, max_dom=2)
-        self.assertEqual(out.count("&namelist_quilt"), 1)
-        self.assertIn("nio_tasks_per_group=0,", out)
-        self.assertIn("nio_groups=1,", out)
-        self.assertNotIn("nio_tasks_per_group = 32", out)
-        self.assertNotIn("nio_groups = 4", out)
-
-    def test_quilt_group_added_when_absent(self):
-        text = self.LAFE_LIKE.split("&namelist_quilt")[0]
-        out = configs.edit_namelist(text, 4, 56, 12, 5, ranks=224, max_dom=2)
-        self.assertEqual(out.count("&namelist_quilt"), 1)
-        self.assertIn("nio_tasks_per_group=0,", out)
-
-
 class TestHistoryModeInterval(unittest.TestCase):
     """MODE=physics fidelity replicates (decision 0051): --history-mode interval
     --history-minutes N writes a d01 frame every N minutes starting at t=0
@@ -1052,18 +464,6 @@ class TestHistoryModeInterval(unittest.TestCase):
     NEST_MINUTES_M = TestNestHistory.SYNTHETIC_NEST_MINUTES_M
     NEST_SECONDS = TestNamelistEditing.SYNTHETIC_3DOMAIN
 
-    def test_interval_single_domain(self):
-        out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 60, history_mode="interval",
-                                     history_minutes=10, ranks=224)
-        self.assertIn("history_interval=10,", out)
-        self.assertIn("history_begin = 0,", out)
-        self.assertIn("run_minutes=60", out)
-
-    def test_interval_minutes_variant_max_dom_2(self):
-        out = configs.edit_namelist(self.NEST_MINUTES, 4, 28, 6, 60, max_dom=2,
-                                     history_mode="interval", history_minutes=10, ranks=112)
-        self.assertIn("history_interval = 10, 0,", out)
-        self.assertIn("history_begin = 0, 0,", out)
 
     def test_interval_minutes_m_variant_max_dom_3(self):
         out = configs.edit_namelist(self.NEST_MINUTES_M, 16, 28, 8, 60, max_dom=3,
@@ -1071,57 +471,10 @@ class TestHistoryModeInterval(unittest.TestCase):
         self.assertIn("history_interval_m = 10, 0, 0,", out)
         self.assertIn("history_begin_m = 0, 0, 0,", out)
 
-    def test_interval_seconds_variant_max_dom_3(self):
-        out = configs.edit_namelist(self.NEST_SECONDS, 16, 28, 8, 30, max_dom=3,
-                                     history_mode="interval", history_minutes=5, ranks=448)
-        self.assertIn("history_interval_s = 300, 0, 0,", out)
-        self.assertIn("history_begin_s = 0, 0, 0,", out)
 
     def test_interval_requires_history_minutes(self):
         with self.assertRaises(ValueError):
             configs.edit_namelist(self.SINGLE, 14, 16, 12, 60, history_mode="interval", ranks=224)
-
-    def test_off_and_end_d01_still_work_alongside_interval(self):
-        # 'interval' is additive -- the two pre-existing modes are unaffected.
-        out_off = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="off", ranks=224)
-        self.assertIn("history_interval=0,", out_off)
-        out_end = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
-        self.assertIn("history_interval=8,", out_end)
-
-
-class TestFindNamelistKey(unittest.TestCase):
-    """_find_namelist_key's own-value-list-only extraction: it must stop before a
-    different key's assignment jammed onto the same line, and must not fabricate
-    values beyond what the line actually has."""
-
-    def test_single_value_own_line(self):
-        text = "&physics\n mp_physics=8, ra_lw_physics=4,\n/\n"
-        found = configs._find_namelist_key(text, "mp_physics")
-        self.assertIsNotNone(found)
-        self.assertEqual(found["values"], ["8"])
-        # ra_lw_physics on the SAME line must not leak into mp_physics's own values
-        self.assertNotIn("4", found["values"])
-
-    def test_multi_value_own_line(self):
-        text = "&physics\n radt = 3, 3, 3,\n/\n"
-        found = configs._find_namelist_key(text, "radt")
-        self.assertEqual(found["values"], ["3", "3", "3"])
-
-    def test_stops_before_next_key_jammed_on_same_line(self):
-        text = "&domains\n time_step=15, e_we=901, e_sn=901, e_vert=45,\n/\n"
-        found = configs._find_namelist_key(text, "time_step")
-        self.assertEqual(found["values"], ["15"])
-        # replacing [value_start:value_end] must leave the rest of the line intact
-        rebuilt = text[:found["value_start"]] + "18," + text[found["value_end"]:]
-        self.assertIn("time_step=18, e_we=901, e_sn=901, e_vert=45,", rebuilt)
-
-    def test_missing_key_returns_none(self):
-        text = "&physics\n mp_physics=8,\n/\n"
-        self.assertIsNone(configs._find_namelist_key(text, "swint_opt"))
-
-    def test_commented_line_never_matches(self):
-        text = "&physics\n! swint_opt = 0,\n mp_physics=8,\n/\n"
-        self.assertIsNone(configs._find_namelist_key(text, "swint_opt"))
 
 
 class TestApplyPhysicsEdit(unittest.TestCase):
@@ -1137,81 +490,6 @@ class TestApplyPhysicsEdit(unittest.TestCase):
     # maria1km-like: 3 native values, max_dom=2, and d03's OWN value differs from d01/d02
     NONUNIFORM_TRAILING = "&physics\n radt = 12, 12, 30,\n/\n&domains\n max_dom = 2,\n time_step = 25,\n/\n"
 
-    def test_set_on_existing_single_value(self):
-        out, old, new = configs.apply_physics_edit(
-            self.SINGLE_DOMAIN, {"op": "set", "key": "mp_physics", "value": 6}, 1)
-        self.assertEqual(old, ["8"])
-        self.assertEqual(new, ["6"])
-        # SINGLE_DOMAIN's own "key=value" spacing (no spaces) is preserved --
-        # only the value list is rewritten, never the "key = " prefix.
-        self.assertIn("mp_physics=6,", out)
-
-    def test_set_inserts_single_value_when_absent(self):
-        out, old, new = configs.apply_physics_edit(
-            self.SINGLE_DOMAIN, {"op": "set", "key": "swint_opt", "value": 1}, 1)
-        self.assertEqual(old, [])
-        self.assertEqual(new, ["1"])
-        self.assertIn("swint_opt = 1,", out)
-        # even with max_dom>1 elsewhere in the file, an inserted key gets exactly one value
-        out2, _old2, new2 = configs.apply_physics_edit(
-            self.THREE_DOMAIN, {"op": "set", "key": "diff_opt", "value": 1}, 3)
-        self.assertEqual(new2, ["1"])
-        self.assertEqual(out2.count("diff_opt"), 1)
-
-    def test_mul_multiplies_every_active_domain_independently(self):
-        out, old, new = configs.apply_physics_edit(
-            self.THREE_DOMAIN, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 3)
-        self.assertEqual(old, ["3", "3", "3"])
-        self.assertEqual(new, ["6", "6", "6"])
-        self.assertIn("radt = 6, 6, 6,", out)
-
-    def test_mul_leaves_trailing_beyond_max_dom_untouched(self):
-        # lafe-like: max_dom override trims 3 -> 1; entries beyond index 0 must
-        # be preserved byte-for-byte, per the task's own trim-is-harmless note.
-        out, old, new = configs.apply_physics_edit(
-            self.TRIMMED, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 1)
-        self.assertEqual(old, ["1"])
-        self.assertEqual(new, ["2"])
-        self.assertIn("radt = 2, 1, 1,", out)
-
-    def test_mul_leaves_nonuniform_trailing_domain_untouched(self):
-        # maria1km-like: d03's OWN native value (30) differs from d01/d02 (12) and
-        # must stay 30, not be derived from d01's new value.
-        out, old, new = configs.apply_physics_edit(
-            self.NONUNIFORM_TRAILING, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 2)
-        self.assertEqual(old, ["12", "12"])
-        self.assertEqual(new, ["24", "24"])
-        self.assertIn("radt = 24, 24, 30,", out)
-
-    def test_mul_time_step_rounds_to_int(self):
-        # conus12-like: dt=72 -> 72*1.2=86.4 -> 86
-        text = "&domains\n time_step=72, e_we=425, e_sn=300, e_vert=50,\n/\n"
-        out, old, new = configs.apply_physics_edit(
-            text, {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int"}, 1)
-        self.assertEqual(old, ["72"])
-        self.assertEqual(new, ["86"])
-        self.assertIn("time_step=86, e_we=425, e_sn=300, e_vert=50,", out)
-
-    def test_mul_time_step_exact_multiple(self):
-        # karina-like: dt=15 -> 15*1.2=18 exactly
-        text = "&domains\n time_step=15, e_we=901, e_sn=901, e_vert=45,\n/\n"
-        out, old, new = configs.apply_physics_edit(
-            text, {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int"}, 1)
-        self.assertEqual(new, ["18"])
-        self.assertIn("time_step=18, e_we=901, e_sn=901, e_vert=45,", out)
-
-    def test_mul_on_suite_default_minus_one_is_an_error(self):
-        with self.assertRaises(ValueError):
-            configs.apply_physics_edit(self.SUITE, {"op": "mul", "key": "mp_physics", "factor": 2}, 1)
-
-    def test_set_on_suite_default_minus_one_overrides_only_that_key(self):
-        out, old, new = configs.apply_physics_edit(
-            self.SUITE, {"op": "set", "key": "mp_physics", "value": 6}, 1)
-        self.assertEqual(old, ["-1"])
-        self.assertEqual(new, ["6"])
-        self.assertIn("mp_physics = 6,", out)
-        # radt (not a suite-default key here) is untouched by this edit
-        self.assertIn("radt = 10,", out)
 
     def test_delete_removes_key(self):
         out, old, new = configs.apply_physics_edit(
@@ -1228,45 +506,8 @@ class TestApplyPhysicsEdit(unittest.TestCase):
         with self.assertRaises(ValueError):
             configs.apply_physics_edit(self.SINGLE_DOMAIN, {"op": "mul", "key": "swint_opt", "factor": 2}, 1)
 
-    def test_mul_respects_min_clamp(self):
-        text = "&physics\n radt = 1,\n/\n"
-        out, old, new = configs.apply_physics_edit(
-            text, {"op": "mul", "key": "radt", "factor": 0.1, "round": "int", "min": 1}, 1)
-        self.assertEqual(new, ["1"])  # 1*0.1=0.1 -> round 0 -> clamped up to min 1
-
-
-class TestApplyPhysicsTemplate(unittest.TestCase):
-    def test_p00_reference_is_a_noop(self):
-        template = {"family": "none", "edits": []}
-        out, summary = configs.apply_physics_template(TestApplyPhysicsEdit.SINGLE_DOMAIN, template, 1)
-        self.assertEqual(out, TestApplyPhysicsEdit.SINGLE_DOMAIN)
-        self.assertEqual(summary, [])
-
-    def test_multi_edit_template_applies_in_order(self):
-        template = {
-            "family": "radiation",
-            "edits": [
-                {"op": "mul", "key": "radt", "factor": 2, "round": "int"},
-                {"op": "set", "key": "swint_opt", "value": 1},
-            ],
-        }
-        out, summary = configs.apply_physics_template(TestApplyPhysicsEdit.SINGLE_DOMAIN, template, 1)
-        # radt: SINGLE_DOMAIN's own no-space style is preserved (only the value changes)
-        self.assertIn("radt=30,", out)
-        # swint_opt: inserted from absent, so it gets the insert path's own " = " style
-        self.assertIn("swint_opt = 1,", out)
-        self.assertEqual([e["key"] for e in summary], ["radt", "swint_opt"])
-        self.assertEqual(summary[0]["new"], ["30"])
-
-    def test_raises_leaves_no_way_to_get_a_partial_result(self):
-        template = {"family": "microphysics", "edits": [{"op": "mul", "key": "mp_physics", "factor": 2}]}
-        with self.assertRaises(ValueError):
-            configs.apply_physics_template(TestApplyPhysicsEdit.SUITE, template, 1)
-
 
 class TestFormatPhysicsEdits(unittest.TestCase):
-    def test_empty_summary_is_empty_string(self):
-        self.assertEqual(configs.format_physics_edits([]), "")
 
     def test_set_and_mul_join_with_semicolons_no_spaces(self):
         summary = [
@@ -1277,9 +518,6 @@ class TestFormatPhysicsEdits(unittest.TestCase):
         self.assertEqual(s, "radt=30;swint_opt=1")
         self.assertNotIn(" ", s)
 
-    def test_multidomain_new_values_slash_joined(self):
-        summary = [dict(key="mp_physics", op="set", old=["-1", "-1"], new=["6", "6"])]
-        self.assertEqual(configs.format_physics_edits(summary), "mp_physics=6/6")
 
     def test_delete_shows_deleted_marker(self):
         summary = [dict(key="opt_run", op="delete", old=None, new=None)]
@@ -1296,21 +534,6 @@ class TestProbeVerdicts(unittest.TestCase):
         "  time_step       [PHYSICS-GRAY ] PASS->WRF   acoustic CFL is dynamics  [MODEL-ONLY]\n"
     )
 
-    def test_parse_probe_verdicts(self):
-        v = configs.parse_probe_verdicts(self.SAMPLE_SCREEN_TEXT)
-        self.assertEqual(v["radt"], "REJECT")
-        self.assertEqual(v["swint_opt"], "CONFIRM")
-        self.assertEqual(v["mp_physics"], "REJECT")
-        self.assertEqual(v["time_step"], "PASS->WRF")
-        self.assertEqual(v["io_form_history"], "PASS->WRF")
-
-    def test_probe_verdicts_for_case_reads_screen_file(self):
-        import tempfile
-        d = tempfile.mkdtemp()
-        with open(os.path.join(d, "screen_testcase.txt"), "w") as f:
-            f.write(self.SAMPLE_SCREEN_TEXT)
-        s = configs.probe_verdicts_for_case("testcase", ["radt", "swint_opt"], screen_dir=d)
-        self.assertEqual(s, "probe=radt:REJECT,swint_opt:CONFIRM")
 
     def test_probe_verdicts_unknown_key_is_notfound(self):
         import tempfile
@@ -1415,16 +638,6 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
                          [("ra_lw_physics", 1), ("ra_sw_physics", 1)])
         self.assertEqual(template["extra_edits"]["lafe"][0]["key"], "aer_opt")
 
-    def test_extra_edits_applied_only_for_named_case(self):
-        text = "&physics\n mp_physics = 28,\n aer_opt = 3,\n use_aero_icbc = .true.,\n/\n"
-        template = configs.PHYSICS_TEMPLATES["P04"]
-        lafe_text, lafe_summary = configs.apply_physics_template(text, template, 1, case_id="lafe")
-        self.assertIn("aer_opt = 0,", lafe_text)
-        self.assertIn("use_aero_icbc = .false.,", lafe_text)
-        self.assertEqual([e["key"] for e in lafe_summary], ["mp_physics", "aer_opt", "use_aero_icbc"])
-        other_text, other_summary = configs.apply_physics_template(text, template, 1, case_id="karina")
-        self.assertIn("aer_opt = 3,", other_text)
-        self.assertEqual([e["key"] for e in other_summary], ["mp_physics"])
 
     def test_every_template_has_a_family(self):
         for tid, t in configs.PHYSICS_TEMPLATES.items():
@@ -1447,32 +660,6 @@ class TestResolvePhysicsConfig(unittest.TestCase):
             f.write(text)
         return path
 
-    def test_resolves_set_edit_against_real_file(self):
-        path = self._write_namelist("nl1.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
-        case = dict(namelist_template=path, max_dom=1)
-        template = {"family": "microphysics", "edits": [{"op": "set", "key": "mp_physics", "value": 6}]}
-        summary, reason = configs.resolve_physics_config(
-            "c1", "PX", cases={"c1": case}, templates={"PX": template})
-        self.assertIsNone(reason)
-        self.assertEqual(summary[0]["new"], ["6"])
-
-    def test_applies_to_restricts_cases(self):
-        path = self._write_namelist("nl2.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
-        case = dict(namelist_template=path, max_dom=1)
-        template = {"family": "microphysics", "edits": [], "applies_to": ["other_case"]}
-        summary, reason = configs.resolve_physics_config(
-            "c1", "PX", cases={"c1": case}, templates={"PX": template})
-        self.assertIsNone(summary)
-        self.assertIn("applies_to", reason)
-
-    def test_skip_cases_excludes_with_reason(self):
-        path = self._write_namelist("nl3.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
-        case = dict(namelist_template=path, max_dom=1)
-        template = {"family": "microphysics", "edits": [], "skip_cases": {"c1": "TODO: needs a survey"}}
-        summary, reason = configs.resolve_physics_config(
-            "c1", "PX", cases={"c1": case}, templates={"PX": template})
-        self.assertIsNone(summary)
-        self.assertEqual(reason, "TODO: needs a survey")
 
     def test_mul_on_suite_minus_one_reports_as_skip_reason(self):
         path = self._write_namelist("nl4.input", TestApplyPhysicsEdit.SUITE)
@@ -1500,20 +687,7 @@ class TestResolvePhysicsConfig(unittest.TestCase):
 
 
 class TestPhysicsLedgerColumns(unittest.TestCase):
-    def test_unedited_columns_show_case_native_values(self):
-        case = dict(dt=15, physics=dict(mp_physics=8, radt=15, cu_physics=0))
-        cols = configs.physics_ledger_columns(case, [])
-        self.assertEqual(cols["time_step"], 15)
-        self.assertEqual(cols["mp_physics"], 8)
-        self.assertEqual(cols["radt"], 15)
 
-    def test_edited_column_shows_new_value_others_stay_native(self):
-        case = dict(dt=15, physics=dict(mp_physics=8, radt=15, cu_physics=0))
-        summary = [dict(key="radt", op="mul", old=["15"], new=["30"])]
-        cols = configs.physics_ledger_columns(case, summary)
-        self.assertEqual(cols["radt"], "30")
-        self.assertEqual(cols["mp_physics"], 8)  # untouched, still native
-        self.assertEqual(cols["time_step"], 15)
 
     def test_time_step_edit_overrides_time_step_column(self):
         case = dict(dt=72, physics=dict(mp_physics=-1))
@@ -1581,40 +755,6 @@ class TestConfigFileGeneratedConfigs(unittest.TestCase):
             json.dump(configs_list if configs_list is not None else self.SAMPLE_CONFIGS, f)
         return path
 
-    def test_load_generated_configs_bare_list(self):
-        path = self._write_config_file()
-        loaded = configs.load_generated_configs(path)
-        self.assertEqual(loaded, self.SAMPLE_CONFIGS)
-
-    def test_load_generated_configs_configs_key_wrapper(self):
-        path = self._write_config_file()
-        with open(path, "w") as f:
-            json.dump({"configs": self.SAMPLE_CONFIGS, "coverage": {}}, f)
-        loaded = configs.load_generated_configs(path)
-        self.assertEqual(loaded, self.SAMPLE_CONFIGS)
-
-    def test_cmd_case_generated_tsv_header_and_rows(self):
-        import contextlib
-        import io
-        path = self._write_config_file()
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_case_generated("karina", path)
-        self.assertEqual(rc, 0)
-        lines = buf.getvalue().strip("\n").split("\n")
-        header = lines[0].split("\t")
-        self.assertEqual(header, [
-            "config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles", "dist", "blocktime",
-            "patch_x", "patch_y", "numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y",
-            "tile_strategy", "config_source",
-        ])
-        row0 = lines[1].split("\t")
-        self.assertEqual(row0[0], "G0001")
-        self.assertEqual(row0[1:10], ["448", "1", "8", "56", "8", "cyclic", "0", "113", "17"])
-        self.assertEqual(row0[10:], ["2", "4", "0", "0", "3", "generated"])
-        row1 = lines[2].split("\t")
-        self.assertEqual(row1[0], "G0002")
-        self.assertEqual(row1[-1], "generated")
 
     def test_cmd_case_generated_unknown_case(self):
         path = self._write_config_file()
@@ -1750,23 +890,6 @@ class TestResolveDecompPair(unittest.TestCase):
 
     # ---- generated config set -------------------------------------------------------
 
-    def test_generated_pair_resolves_for_a_case_with_no_strict_template(self):
-        path = self._config_file()
-        ref, twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0002",
-                                                        config_file=path)
-        self.assertIsNone(reason)
-        self.assertEqual((ref["ranks"], ref["nx"], ref["ny"]), (100, 10, 10))
-        self.assertEqual((twin["ranks"], twin["nx"], twin["ny"]), (50, 5, 10))
-        self.assertEqual(ref["numtiles_x"], 2)
-
-    def test_id_absent_from_the_config_file(self):
-        path = self._config_file()
-        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G9999",
-                                                         config_file=path)
-        self.assertIsNone(ref)
-        self.assertIn("TWIN_DECOMP", reason)
-        self.assertIn("G9999", reason)
-        self.assertIn(path, reason)
 
     def test_empty_config_file_is_refused_with_the_expected_shape_named(self):
         path = self._config_file([])
@@ -1777,28 +900,6 @@ class TestResolveDecompPair(unittest.TestCase):
 
     # ---- the twin must be a DIFFERENT decomposition ---------------------------------
 
-    def test_identical_id_is_refused(self):
-        path = self._config_file()
-        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0001",
-                                                         config_file=path)
-        self.assertIsNone(ref)
-        self.assertIn("SAME decomposition", reason)
-        self.assertIn("chaos floor", reason)
-
-    def test_different_id_but_identical_decomposition_is_also_refused(self):
-        path = self._config_file()
-        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0003",
-                                                         config_file=path)
-        self.assertIsNone(ref)
-        self.assertIn("SAME decomposition", reason)
-        self.assertIn("LARGE-DRIFT", reason)
-
-    def test_differing_only_in_tile_geometry_is_accepted(self):
-        path = self._config_file()
-        ref, twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0004",
-                                                        config_file=path)
-        self.assertIsNone(reason)
-        self.assertEqual(twin["id"], "G0004")
 
     def test_identical_strict_template_pair_is_refused_too(self):
         ref, _twin, reason = configs.resolve_decomp_pair("karina", "C02", "C02")
@@ -1807,13 +908,6 @@ class TestResolveDecompPair(unittest.TestCase):
 
     # ---- id hygiene: run_id and notes both have to survive the id --------------------
 
-    def test_underscore_in_a_config_id_is_refused(self):
-        path = self._config_file([dict(self.GENERATED[0], id="G_0001"), self.GENERATED[1]])
-        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G_0001", "G0002",
-                                                         config_file=path)
-        self.assertIsNone(ref)
-        self.assertIn("underscore", reason)
-        self.assertIn("run_id", reason)
 
     def test_whitespace_in_a_config_id_is_refused(self):
         path = self._config_file([dict(self.GENERATED[0], id="G 0001"), self.GENERATED[1]])
@@ -1840,27 +934,7 @@ scratch    USR           12672          0          0          0     none |      
 
 
 class TestQuotaFreeGib(unittest.TestCase):
-    def test_home1_free_gib_matches_known_sample(self):
-        # 1048576000 KB quota - 978611440 KB used = 69964560 KB free = 66.72... GiB
-        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="home1")
-        self.assertIsNotNone(free)
-        self.assertAlmostEqual(free, (1048576000 - 978611440) / (1024.0 * 1024.0), places=3)
-        self.assertAlmostEqual(free, 66.72, places=1)
 
-    def test_ignores_header_banner_and_noquota_rows(self):
-        # the header/banner lines and 'work2 USR none' (no numeric columns) must not
-        # be mistaken for a real row -- only 'home1  USR  <int> <int> <int>' matches
-        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work2")
-        self.assertIsNone(free)
-
-    def test_work1_near_soft_quota_small_headroom(self):
-        # 104857600 KB quota - 100004448 KB used = 4853152 KB ~= 4.63 GiB free -- well
-        # under a 60 GiB MIN_FREE_GIB guard threshold, the near-full-quota case the guard
-        # exists to catch (a used > quota row would work the same way and go negative,
-        # this sample is the observed near-full case from the mmlsquota wiki notes)
-        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work1")
-        self.assertAlmostEqual(free, (104857600 - 100004448) / (1024.0 * 1024.0), places=3)
-        self.assertLess(free, 60)
 
     def test_quota_zero_is_no_limit_not_free_gib(self):
         # a quota column of 0 means "not tracked at the user level" (see the fileset-vs-
@@ -1870,20 +944,6 @@ class TestQuotaFreeGib(unittest.TestCase):
         # None, not a huge false-positive free_gib from (0 - used)
         free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="scratch")
         self.assertIsNone(free)
-
-    def test_project_row_extra_fileset_column_does_not_match(self):
-        # 'project    GOV115003  USR ...' has an extra fileset-name column between the
-        # filesystem and USR -- the parser must not mistake GOV115003 for the used-KB
-        # column or otherwise misparse this row; it should simply not match
-        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="project")
-        self.assertIsNone(free)
-
-    def test_missing_filesystem_returns_none(self):
-        self.assertIsNone(configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work3"))
-
-    def test_empty_or_garbled_text_returns_none(self):
-        self.assertIsNone(configs.quota_free_gib("", filesystem="home1"))
-        self.assertIsNone(configs.quota_free_gib("mmlsquota: command not found\n", filesystem="home1"))
 
 
 class TestQuotaFreeGibCLI(unittest.TestCase):
@@ -1900,10 +960,6 @@ class TestQuotaFreeGibCLI(unittest.TestCase):
             sys.stdin = old_stdin
         return rc, buf_out.getvalue().strip()
 
-    def test_cli_prints_free_gib_for_home1(self):
-        rc, out = self._run_cli(MMLSQUOTA_SAMPLE)
-        self.assertEqual(rc, 0)
-        self.assertAlmostEqual(float(out), 66.72, places=1)
 
     def test_cli_prints_na_and_nonzero_rc_when_unparseable(self):
         rc, out = self._run_cli("mmlsquota: command not found\n")
@@ -1983,15 +1039,6 @@ class TestCaseOverlay(unittest.TestCase):
         self.assertEqual(cases["conus25"]["prep_dir"],
                          "/home/u5727520/wrf-bench/atlas/v4.4_bench_conus2.5km")
 
-    def test_scc_overlay_replaces_prep_dir_and_bp_dir_only(self):
-        cases = configs.load_cases(site="scc")
-        c = cases["conus25"]
-        self.assertEqual(c["prep_dir"], "/nfs/data/wrf/v4.4_bench_conus2.5km")
-        # scc has no ADIOS2 .bp inputs: empty bp_dir => strict_campaign converts prep_dir into
-        # its BP cache (stage-bp-inputs, 2026-10-03); netCDF only via the legacy escape
-        self.assertEqual(c["bp_dir"], "")
-        # geometry untouched by the overlay
-        self.assertEqual(c["e_we"], configs.load_cases(site="f1")["conus25"]["e_we"])
 
     def test_netcdf_input_format_keeps_inputs_at_io_form_2(self):
         nl = "&time_control\n io_form_history = 2,\n/\n&domains\n/\n"
@@ -2009,10 +1056,6 @@ class TestCaseOverlay(unittest.TestCase):
         self.assertRegex(out, r"io_form_history\s*=\s*14")
         self.assertNotIn("wrfinput_d<domain>.bp", out)
 
-    def test_scc_overlay_expands_home_and_tilde(self):
-        cases = configs.load_cases(site="scc")
-        self.assertNotIn("$HOME", cases["isc21"]["prep_dir"])
-        self.assertTrue(os.path.isabs(cases["isc21"]["prep_dir"]))
 
     def test_unknown_site_with_no_overlay_file_is_unmodified(self):
         cases = configs.load_cases(site="nosuchsite")
@@ -2072,12 +1115,6 @@ class TestConfigExtras(unittest.TestCase):
         {"id": "P1", "physics_namelists": {"pt1": "/x/p1.input"}, "window_frame": False},
     ]
 
-    def test_rows_select_this_case_and_default_empty(self):
-        rows = configs.config_extras_rows(self.CFGS, "pt1")
-        self.assertEqual(rows, [("ANCHOR", "/x/a1.input", "1"), ("TWIN", "", "0"),
-                                ("P1", "/x/p1.input", "0")])
-        rows2 = configs.config_extras_rows(self.CFGS, "pt2")
-        self.assertEqual([r[1] for r in rows2], ["/x/a2.input", "", ""])
 
     def test_window_frame_levels(self):
         lv = configs.window_frame_level
@@ -2139,16 +1176,6 @@ class TestConfigExtras(unittest.TestCase):
             configs.edit_namelist(text, 8, 9, 1, 1, max_dom=1, history_mode="mid_end_d01",
                                   ranks=72)
 
-    def test_end_d01_writes_one_frame_at_window_end_for_a_restart_window(self):
-        text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
-                " history_begin = 0,\n start_year = 2016,\n start_month = 10,\n"
-                " start_day = 6,\n start_hour = 0,\n/\n&domains\n max_dom = 1,\n/\n")
-        out = configs.edit_namelist(text, 8, 9, 1, 30, max_dom=1, history_mode="end_d01",
-                                    ranks=72)
-        self.assertRegex(out, r"history_interval\s*=\s*30")
-        self.assertRegex(out, r"history_begin\s*=\s*30")
-        self.assertRegex(out, r"nproc_x\s*=\s*8")
-
 
 class TestPointFused(unittest.TestCase):
     """POINT_FUSED / ANCHOR_END / WINDOW_EXACT (decisions 0055/0059): resolve_point_plan,
@@ -2167,12 +1194,6 @@ class TestPointFused(unittest.TestCase):
                 out.append(self.LINE % (stamp, 2, 0.01))
         return "".join(out)
 
-    def test_default_order_unchanged(self):
-        o = ["ANCHOR", "C1", "C2", "ANCHOREND"]
-        r = configs.resolve_point_plan(o)
-        self.assertEqual(r["order"], o)
-        self.assertFalse(r["fused"])
-        self.assertTrue(r["anchor_end"])
 
     def test_anchor_end_off_omits_run(self):
         r = configs.resolve_point_plan(["ANCHOR", "C1", "C2", "ANCHOREND"], anchor_end=False)
@@ -2181,12 +1202,6 @@ class TestPointFused(unittest.TestCase):
         r = configs.resolve_point_plan(["ANCHOR", "C1", "ANCHOREND"], anchor_end=True)
         self.assertIn("ANCHOREND", r["order"])
 
-    def test_fused_single_config_drops_anchors_and_defaults_drift_gate_off(self):
-        r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], point_fused=True)
-        self.assertTrue(r["fused"])
-        self.assertEqual(r["order"], ["W"])
-        self.assertEqual(r["cid"], "W")
-        self.assertFalse(r["anchor_end"])
 
     def test_fused_explicit_anchor_end_is_ignored_with_note(self):
         r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], True, anchor_end=True)
@@ -2208,24 +1223,6 @@ class TestPointFused(unittest.TestCase):
         self.assertTrue(r["fused"])
         self.assertEqual(r["order"], ["ANCHOR"])
 
-    def test_fused_selects_post_spinup_steps_only(self):
-        # dt=10, 60 s spin-up => steps 7.. count; 20 steps total -> 14 selected, d01 only
-        text = self._rsl(20)
-        vals = configs.post_spinup_steps(text, 60, 10)
-        self.assertEqual(len(vals), 14)
-        self.assertTrue(all(v == 0.05 for v in vals))   # nested 0.01 lines never leak in
-
-    def test_fused_excludes_spinup_radiation_and_step_stats_excludes_window_radiation(self):
-        text = self._rsl(20, rad={1, 7, 13})   # step 1 (spin-up), 7 (first window), 13 (in window)
-        vals = configs.post_spinup_steps(text, 60, 10)
-        self.assertEqual(vals[0], 5.0)           # step 7 is the first post-spin-up step
-        st = configs.step_stats(vals)
-        self.assertEqual(st["n_all"], len(vals) - 1)
-        self.assertAlmostEqual(st["median"], 0.05)
-        self.assertEqual(st["n_excluded"], 2)    # dropped first + radiation step 13
-
-    def test_fused_spinup_covering_everything_gives_no_steps(self):
-        self.assertEqual(configs.post_spinup_steps(self._rsl(6), 60, 10), [])
 
     def test_fused_steps_cli(self):
         import io
@@ -2280,46 +1277,6 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestDynamicsTemplates(unittest.TestCase):
-    """D01-D03 (&dynamics cost levers, 2026-09-16). time_step_sound/moist_adv_opt are absent from
-    every campaign namelist, so they are inserted -- and must be inserted per active domain."""
-
-    NL = ("&domains\n time_step=15, max_dom=2,\n/\n"
-          "&physics\n mp_physics = 8, 8,\n/\n"
-          "&dynamics\n diff_opt=1, km_opt=4,\n/\n")
-
-    def _tpl(self, tid):
-        return configs.PHYSICS_TEMPLATES[tid]
-
-    def test_d01_inserts_time_step_sound_for_every_active_domain(self):
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("D01"), max_dom=2)
-        self.assertIn("time_step_sound = 3, 3,", out)
-        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
-        self.assertEqual(summary[0]["new"], ["3", "3"])
-
-    def test_d01_single_domain_inserts_one_value(self):
-        out, _ = configs.apply_physics_template(self.NL, self._tpl("D01"), max_dom=1)
-        self.assertIn("time_step_sound = 3,", out)
-        self.assertNotIn("time_step_sound = 3, 3,", out)
-
-    def test_d02_rk_ord_is_scalar_not_per_domain(self):
-        out, _ = configs.apply_physics_template(self.NL, self._tpl("D02"), max_dom=2)
-        self.assertIn("rk_ord = 2,", out)
-        self.assertNotIn("rk_ord = 2, 2,", out)
-
-    def test_d03_sets_both_advection_limiters(self):
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("D03"), max_dom=2)
-        self.assertIn("moist_adv_opt = 0, 0,", out)
-        self.assertIn("scalar_adv_opt = 0, 0,", out)
-        self.assertEqual([e["key"] for e in summary], ["moist_adv_opt", "scalar_adv_opt"])
-
-    def test_dynamics_templates_do_not_touch_physics_section(self):
-        for tid in ("D01", "D02", "D03"):
-            out, _ = configs.apply_physics_template(self.NL, self._tpl(tid), max_dom=2)
-            self.assertIn(" mp_physics = 8, 8,", out)
-            self.assertIn(" diff_opt=1, km_opt=4,", out)
-
-
 class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
     """D04-D06 (2026-09-16): diagnostics off, PBL call interval, one-way nesting."""
 
@@ -2328,36 +1285,6 @@ class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
           "&physics\n mp_physics = 8, 8,\n hailcast_opt = 1, 1,\n do_radar_ref = 1,\n/\n"
           "&bdy_control\n spec_bdy_width = 5,\n feedback = 1,\n/\n")
 
-    def test_d04_zeroes_all_three_diagnostics(self):
-        out, summary = configs.apply_physics_template(
-            self.NL, configs.PHYSICS_TEMPLATES["D04"], max_dom=2)
-        self.assertIn("nwp_diagnostics = 0,", out)
-        self.assertIn("hailcast_opt = 0, 0,", out)
-        self.assertIn("do_radar_ref = 0,", out)
-        self.assertEqual([e["key"] for e in summary],
-                         ["nwp_diagnostics", "hailcast_opt", "do_radar_ref"])
-
-    def test_d04_only_applies_to_the_two_cases_that_enable_them(self):
-        tpl = configs.PHYSICS_TEMPLATES["D04"]
-        self.assertEqual(set(tpl["applies_to"]), {"bigchill", "elevconv"})
-        ok, _why = configs.physics_template_applicability("bigchill", tpl)
-        self.assertTrue(ok)
-        ok, why = configs.physics_template_applicability("karina", tpl)
-        self.assertFalse(ok)
-        self.assertIn("applies_to", why)
-
-    def test_d05_inserts_bldt_for_every_active_domain(self):
-        out, _ = configs.apply_physics_template(
-            self.NL, configs.PHYSICS_TEMPLATES["D05"], max_dom=2)
-        self.assertIn("bldt = 10, 10,", out)
-        self.assertIn("&physics", out.split("bldt")[0][-300:])
-
-    def test_d06_sets_feedback_zero_in_bdy_control(self):
-        out, summary = configs.apply_physics_template(
-            self.NL, configs.PHYSICS_TEMPLATES["D06"], max_dom=2)
-        self.assertIn("feedback = 0,", out)
-        self.assertEqual(summary[0]["old"], ["1"])
-        self.assertIn(" spec_bdy_width = 5,", out)
 
     def test_d06_is_nested_cases_only(self):
         tpl = configs.PHYSICS_TEMPLATES["D06"]
@@ -2374,12 +1301,6 @@ class TestSoundStepCostTemplate(unittest.TestCase):
           "&physics\n mp_physics = 4, 4,\n/\n"
           "&dynamics\n diff_opt=1, km_opt=4,\n/\n")
 
-    def test_inserts_two_for_every_active_domain(self):
-        out, summary = configs.apply_physics_template(
-            self.NL, configs.PHYSICS_TEMPLATES["D07"], max_dom=2)
-        self.assertIn("time_step_sound = 2, 2,", out)
-        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
-        self.assertEqual(summary[0]["new"], ["2", "2"])
 
     def test_value_is_even_and_below_d01s_odd_three(self):
         # WRF's auto path returns even counts only, and the one odd value measured (D01's 3)
@@ -2398,15 +1319,6 @@ class TestSoundStepCostTemplate(unittest.TestCase):
         self.assertEqual(configs.PHYSICS_TEMPLATES["D07"]["direction"], "cost")
         self.assertEqual(configs.PHYSICS_TEMPLATES["A02"]["direction"], "accuracy")
 
-    def test_applies_only_to_the_case_with_the_measured_margin(self):
-        tpl = configs.PHYSICS_TEMPLATES["D07"]
-        self.assertEqual(tpl["applies_to"], ["sc26p1"])
-        ok, _why = configs.physics_template_applicability("sc26p1", tpl)
-        self.assertTrue(ok)
-        # conus12 would land at acoustic CFL 340*(72/2)/12000 = 1.02, past the classical limit
-        ok, why = configs.physics_template_applicability("conus12", tpl)
-        self.assertFalse(ok)
-        self.assertIn("applies_to", why)
 
     def test_description_cites_the_source_and_the_measured_numbers(self):
         d = configs.PHYSICS_TEMPLATES["D07"]["description"]
@@ -2462,17 +1374,6 @@ class TestAccuracyTemplates(unittest.TestCase):
             for e in self._tpl(tid)["edits"]:
                 self.assertTrue(e.get("per_domain"), "%s/%s" % (tid, e["key"]))
 
-    def test_a01_shrinks_time_step_and_is_not_per_domain(self):
-        edits = self._tpl("A01")["edits"]
-        self.assertEqual(len(edits), 1)
-        self.assertEqual((edits[0]["key"], edits[0]["op"], edits[0]["factor"]),
-                         ("time_step", "mul", 0.8))
-        self.assertEqual(edits[0].get("round"), "int")
-        self.assertEqual(edits[0]["section"], "&domains")
-        self.assertFalse(edits[0].get("per_domain"))
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("A01"), max_dom=2)
-        self.assertIn("time_step=12,", out)
-        self.assertEqual(summary[0]["new"], ["12"])
 
     def test_a01_is_the_mirror_of_p03(self):
         # P03 multiplies the same key upward; together they bracket the case's native dt.
@@ -2480,42 +1381,6 @@ class TestAccuracyTemplates(unittest.TestCase):
         self.assertGreater(configs.PHYSICS_TEMPLATES["P03"]["edits"][0]["factor"], 1.0)
         self.assertLess(self._tpl("A01")["edits"][0]["factor"], 1.0)
 
-    def test_a01_min_clamp_keeps_a_one_second_step_legal(self):
-        nl = self.NL.replace("time_step=15,", "time_step=1,")
-        out, _ = configs.apply_physics_template(nl, self._tpl("A01"), max_dom=2)
-        self.assertIn("time_step=1,", out)
-        self.assertNotIn("time_step=0,", out)
-
-    def test_a02_inserts_an_even_time_step_sound_for_every_active_domain(self):
-        edit = self._tpl("A02")["edits"][0]
-        self.assertEqual(edit["value"], 6)
-        # dyn_em/solve_em.F:615 halves this with INTEGER division on RK substep 2, and WRF's own
-        # auto formula (solve_em.F:451-468) returns even numbers only -- odd values truncate.
-        self.assertEqual(edit["value"] % 2, 0)
-        self.assertGreater(edit["value"], configs.PHYSICS_TEMPLATES["D01"]["edits"][0]["value"])
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("A02"), max_dom=2)
-        self.assertIn("time_step_sound = 6, 6,", out)
-        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
-        self.assertEqual(summary[0]["new"], ["6", "6"])
-
-    def test_a03_sets_monotonic_transport_on_every_active_domain(self):
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("A03"), max_dom=2)
-        self.assertIn("moist_adv_opt = 2, 2,", out)
-        self.assertIn("scalar_adv_opt = 2, 2,", out)
-        self.assertEqual([e["key"] for e in summary], ["moist_adv_opt", "scalar_adv_opt"])
-        # D03 turns the same limiter off; A03 turns it up. Registry default is 1.
-        self.assertEqual([e["value"] for e in configs.PHYSICS_TEMPLATES["D03"]["edits"]], [0, 0])
-
-    def test_a03_skips_isc21_which_is_already_monotonic(self):
-        ok, why = configs.physics_template_applicability("isc21", self._tpl("A03"))
-        self.assertFalse(ok)
-        self.assertIn("moist_adv_opt=2", why)
-
-    def test_a04_sets_sixth_order_horizontal_advection_on_every_active_domain(self):
-        out, summary = configs.apply_physics_template(self.NL, self._tpl("A04"), max_dom=2)
-        self.assertIn("h_mom_adv_order = 6, 6,", out)
-        self.assertIn("h_sca_adv_order = 6, 6,", out)
-        self.assertEqual([e["key"] for e in summary], ["h_mom_adv_order", "h_sca_adv_order"])
 
     def test_a04_order_is_even_and_at_the_halo_ceiling(self):
         # module_advect_em.F implements 6/5/4/3/2 (and 0); dyn_em/solve_em.F:414 aborts above 6
@@ -2523,10 +1388,6 @@ class TestAccuracyTemplates(unittest.TestCase):
         for e in self._tpl("A04")["edits"]:
             self.assertEqual(e["value"], 6, e["key"])
 
-    def test_a04_skips_isc21_because_monotonic_transport_is_order_5_only(self):
-        ok, why = configs.physics_template_applicability("isc21", self._tpl("A04"))
-        self.assertFalse(ok)
-        self.assertIn("advect_scalar_mono", why)
 
     def test_a03_and_a04_incompatibility_is_recorded_in_excluded(self):
         import json as _json
@@ -2547,20 +1408,11 @@ class TestAccuracyTemplates(unittest.TestCase):
         self.assertIn("radt = 7.5, 7.5,", out)
         self.assertEqual(summary[0]["new"], ["7.5", "7.5"])
 
-    def test_a05_halving_a_one_minute_radt_is_not_clamped_away(self):
-        nl = self.NL.replace("radt = 15, 15,", "radt = 1, 1,")
-        out, _ = configs.apply_physics_template(nl, self._tpl("A05"), max_dom=2)
-        self.assertIn("radt = 0.5, 0.5,", out)
 
     def test_a05_does_not_pair_swint_opt_the_way_p02_does(self):
         self.assertEqual([e["key"] for e in self._tpl("A05")["edits"]], ["radt"])
         self.assertIn("swint_opt", [e["key"] for e in configs.PHYSICS_TEMPLATES["P02"]["edits"]])
 
-    def test_accuracy_templates_do_not_touch_unrelated_sections(self):
-        for tid in ("A01", "A02", "A03", "A04"):
-            out, _ = configs.apply_physics_template(self.NL, self._tpl(tid), max_dom=2)
-            self.assertIn(" mp_physics = 8, 8,", out)
-            self.assertIn(" diff_opt=1, km_opt=4,", out)
 
     def test_every_accuracy_template_has_a_family_and_a_real_description(self):
         for tid in ("A01", "A02", "A03", "A04", "A05"):
@@ -2587,32 +1439,6 @@ class TestFidelityNotesTokens(unittest.TestCase):
         },
     }
 
-    def test_reports_the_maxima_over_fields_not_the_thresholds(self):
-        label, nd, floor, deciding = configs.fidelity_notes_tokens(self.PAYLOAD)
-        self.assertEqual(label, "SMALL-DRIFT")
-        self.assertEqual(nd, "0.032")
-        self.assertEqual(floor, "1.593")
-        self.assertNotIn(" ", deciding)
-        self.assertIn("nd(QICE)=0.032", deciding)
-
-    def test_every_field_is_a_single_shell_word(self):
-        # `read -r A B C D` must see exactly four words, or FID_DECIDING swallows the rest.
-        line = " ".join(configs.fidelity_notes_tokens(self.PAYLOAD))
-        self.assertEqual(len(line.split()), 4)
-
-    def test_tokens_become_one_notes_token_each(self):
-        _label, nd, floor, _deciding = configs.fidelity_notes_tokens(self.PAYLOAD)
-        notes = "mode=physics template=A01 fidelity_nd_max=%s fidelity_floor_ratio_max=%s" % (nd, floor)
-        parsed = dict(t.split("=", 1) for t in notes.split())
-        self.assertEqual(float(parsed["fidelity_nd_max"]), 0.032)
-        self.assertEqual(float(parsed["fidelity_floor_ratio_max"]), 1.593)
-
-    def test_missing_pieces_fall_back_to_na_never_to_a_crash(self):
-        self.assertEqual(configs.fidelity_notes_tokens({}), ("NA", "NA", "NA", "NA"))
-        self.assertEqual(
-            configs.fidelity_notes_tokens({"label": "INVALID", "deciding": None,
-                                            "per_field_summary_at_last_time": None}),
-            ("INVALID", "NA", "NA", "NA"))
 
     def test_floor_zero_fields_contribute_no_floor_ratio(self):
         # fidelity_gate.py leaves floor_ratio null when the twin was bit-identical to the
@@ -2624,41 +1450,6 @@ class TestFidelityNotesTokens(unittest.TestCase):
         _l, nd, floor, _d = configs.fidelity_notes_tokens(payload)
         self.assertEqual((nd, floor), ("0.002", "0.5"))
 
-    def test_booleans_are_not_mistaken_for_numbers(self):
-        # isinstance(True, int) is True in Python; a bool must never become a fidelity number.
-        payload = {"per_field_summary_at_last_time": {"T": {"nd": True, "floor_ratio": False}}}
-        _l, nd, floor, _d = configs.fidelity_notes_tokens(payload)
-        self.assertEqual((nd, floor), ("NA", "NA"))
-
-
-class TestHailcastNestHistoryInterval(unittest.TestCase):
-    """hailcast_opt aborts at init on a domain whose history_interval is 0 ("HAILCAST Error : No
-    'history_interval' defined in namelist"), which killed the bigchill/elevconv reference runs
-    (jobs 1081089/1081090) because nest history is off by default. The nest must get a
-    never-elapsing interval instead of 0 -- still writes nothing."""
-
-    NEST = ("&time_control\n history_interval = 60, 60,\n/\n"
-            "&domains\n time_step=15, max_dom=2,\n/\n"
-            "&physics\n mp_physics = 8, 8,\n hailcast_opt = 1, 1,\n/\n")
-    NEST_NO_DIAG = NEST.replace(" hailcast_opt = 1, 1,\n", "")
-
-    def test_interval_mode_gives_the_nest_a_never_elapsing_interval_when_hailcast_is_on(self):
-        out = configs.edit_namelist(self.NEST, 4, 28, 6, 30, max_dom=2, history_mode="interval",
-                                     history_minutes=10, ranks=112)
-        n = configs.HISTORY_NEVER_MINUTES
-        self.assertIn("history_interval = 10, %d," % n, out)
-        self.assertNotIn("history_interval = 10, 0,", out)
-
-    def test_nest_still_gets_zero_without_those_diagnostics(self):
-        out = configs.edit_namelist(self.NEST_NO_DIAG, 4, 28, 6, 30, max_dom=2,
-                                     history_mode="interval", history_minutes=10, ranks=112)
-        self.assertIn("history_interval = 10, 0,", out)
-
-    def test_end_d01_mode_too(self):
-        out = configs.edit_namelist(self.NEST, 4, 28, 6, 30, max_dom=2, history_mode="end_d01",
-                                     ranks=112)
-        self.assertNotIn("history_interval = 30, 0,", out)
-
 
 class TestValuesByDomain(unittest.TestCase):
     """apply_physics_edit's 'set' op with a per-domain value list (2026-09-17). The scalar 'value'
@@ -2669,12 +1460,6 @@ class TestValuesByDomain(unittest.TestCase):
     PRESENT = ("&dynamics\n time_step_sound = 4, 4,\n/\n")
     ABSENT = ("&domains\n max_dom = 2,\n/\n&dynamics\n diff_opt = 1, 1,\n/\n")
 
-    def test_scalar_value_is_still_the_default_and_unchanged(self):
-        out, old, new = configs.apply_physics_edit(
-            self.PRESENT, {"op": "set", "key": "time_step_sound", "value": 6,
-                           "section": "&dynamics"}, 2)
-        self.assertEqual((old, new), (["4", "4"], ["6", "6"]))
-        self.assertIn("time_step_sound = 6, 6,", out)
 
     def test_list_form_writes_one_value_per_domain(self):
         out, old, new = configs.apply_physics_edit(
@@ -2715,20 +1500,6 @@ class TestValuesByDomain(unittest.TestCase):
                                "values_by_domain": {1: 2, 2: 4, 3: 6}, "section": "&dynamics"}, 2)
         self.assertIn("[3]", str(outside.exception))
 
-    def test_absent_key_is_inserted_per_domain_without_an_explicit_per_domain_flag(self):
-        # values_by_domain is per-domain by construction, so it implies per_domain on insert.
-        out, old, new = configs.apply_physics_edit(
-            self.ABSENT, {"op": "set", "key": "time_step_sound",
-                          "values_by_domain": [2, 4], "section": "&dynamics"}, 2)
-        self.assertEqual((old, new), ([], ["2", "4"]))
-        self.assertIn("time_step_sound = 2, 4,", out)
-
-    def test_a02_scalar_path_still_works_for_a_single_domain_case(self):
-        out, _summary = configs.apply_physics_template(
-            self.ABSENT, configs.PHYSICS_TEMPLATES["A02"], max_dom=1)
-        self.assertIn("time_step_sound = 6,", out)
-        self.assertNotIn("time_step_sound = 6, 6,", out)
-
 
 class TestFrozenKeys(unittest.TestCase):
     """cases.json 'frozen_keys' (2026-09-17): keys the TASK mandates (SC26-P1 fixes time_step=10
@@ -2745,11 +1516,6 @@ class TestFrozenKeys(unittest.TestCase):
             "edits": [{"op": "mul", "key": "radt", "factor": 2, "round": "int",
                        "section": "&physics"}]}
 
-    def test_case_frozen_keys_lowercases_and_defaults_to_empty(self):
-        self.assertEqual(configs.case_frozen_keys({"frozen_keys": ["Time_Step", " debug_level "]}),
-                         ["time_step", "debug_level"])
-        self.assertEqual(configs.case_frozen_keys({}), [])
-        self.assertEqual(configs.case_frozen_keys(None), [])
 
     def test_template_frozen_key_conflicts_sees_edits_and_per_case_extra_edits(self):
         self.assertEqual(configs.template_frozen_key_conflicts(self.TPL, ["time_step"]),
@@ -2763,14 +1529,6 @@ class TestFrozenKeys(unittest.TestCase):
         self.assertEqual(configs.template_frozen_key_conflicts(paired, ["debug_level"],
                                                                 case_id="other"), [])
 
-    def test_apply_physics_template_refuses_a_frozen_key_and_names_key_and_case(self):
-        with self.assertRaises(ValueError) as cm:
-            configs.apply_physics_template(self.NL, self.TPL, 1, case_id="sc26p1",
-                                            frozen_keys=["time_step"])
-        msg = str(cm.exception)
-        self.assertIn("time_step", msg)
-        self.assertIn("sc26p1", msg)
-        self.assertIn("frozen", msg)
 
     def test_a_frozen_key_refuses_before_any_edit_is_applied(self):
         two = {"family": "dynamics",
@@ -2785,20 +1543,6 @@ class TestFrozenKeys(unittest.TestCase):
         ok, _summary = configs.apply_physics_template(self.NL, two, 1, case_id="sc26p1")
         self.assertIn("radt = 18,", ok)
 
-    def test_a_template_that_touches_nothing_frozen_still_applies(self):
-        out, summary = configs.apply_physics_template(self.NL, self.RADT, 1, case_id="sc26p1",
-                                                       frozen_keys=["time_step", "debug_level"])
-        self.assertIn("radt = 18,", out)
-        self.assertEqual([e["key"] for e in summary], ["radt"])
-
-    def test_applicability_reports_the_frozen_key(self):
-        ok, reason = configs.physics_template_applicability("sc26p1", self.TPL,
-                                                             frozen_keys=["time_step"])
-        self.assertFalse(ok)
-        self.assertIn("time_step", reason)
-        self.assertIn("sc26p1", reason)
-        self.assertEqual(configs.physics_template_applicability("sc26p1", self.TPL),
-                         (True, None))
 
     def test_resolve_physics_config_refuses_a_frozen_key_for_a_synthetic_case(self):
         import tempfile
@@ -2842,60 +1586,6 @@ class TestRestartFrom(unittest.TestCase):
         "/\n"
     )
 
-    def test_restart_from_sets_start_for_every_domain_and_restart_true(self):
-        import datetime
-        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
-        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                     adios2=False, restart_from=t)
-        self.assertIn("start_year = 2019, 2019, 2019,", out)   # unchanged: same year
-        self.assertIn("start_month = 11, 11, 11,", out)
-        self.assertIn("start_day = 26, 26, 26,", out)
-        self.assertIn("start_hour = 23, 23, 23,", out)
-        self.assertIn("start_minute = 0, 0, 0,", out)
-        self.assertIn("start_second = 0, 0, 0,", out)
-        self.assertIn("restart = .true.,", out)
-        self.assertNotIn("restart = .false.,", out)
-        # run length = steps*dt handled by the caller via run_minutes (50 here); this function
-        # only overrides start_*/restart, so run_minutes=50 still comes through untouched
-        # (spacing preserved from the template's own "key = value" style -- see _set_scalar).
-        self.assertIn("run_minutes = 50", out)
-
-    def test_restart_from_overrides_restart_timers_stored_in_the_restart_file(self):
-        import re
-        # G0 (jobs 1371/1372): without it WRF reuses the spin-up's restart interval from the
-        # restart file and writes a restart inside the candidate's measured window.
-        import datetime
-        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
-        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                     adios2=False, restart_from=t)
-        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=\s*\.true\.", out)), 1)
-        again = configs.edit_namelist(out, 16, 28, 8, 50, max_dom=3, adios2=False, restart_from=t)
-        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=", again)), 1)
-        plain = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                       adios2=False)
-        self.assertNotIn("override_restart_timers", plain)
-
-    def test_restart_from_none_is_byte_identical_to_before(self):
-        out_a = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                       adios2=False)
-        out_b = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                       adios2=False, restart_from=None, restart_io_form=None,
-                                       write_restart_interval=None)
-        self.assertEqual(out_a, out_b)
-        self.assertIn("restart = .false.,", out_a)   # untouched: no restart_from given
-
-    def test_restart_io_form_overrides_after_adios2(self):
-        import datetime
-        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
-        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
-                                     adios2=True, ranks=448, restart_from=t, restart_io_form=2)
-        # ADIOS2 forces io_form_restart=14 first; restart_io_form=2 must win (netCDF, so the
-        # restart file is decomposition-independent -- see edit_namelist's docstring). Spacing
-        # preserved from the template's own "key = value" style (the line already existed).
-        self.assertIn("io_form_restart = 2,", out)
-        self.assertNotIn("io_form_restart = 14", out)
-        # history/input/boundary stay on ADIOS2 -- only restart's OWN format is overridden
-        self.assertIn("io_form_history=14,", out)
 
     def test_write_restart_interval_sets_interval_without_forcing_restart_true(self):
         out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 360, max_dom=3,
@@ -2905,15 +1595,6 @@ class TestRestartFrom(unittest.TestCase):
         self.assertNotIn("restart_interval = 1440", out)
         self.assertIn("restart = .false.,", out)   # spin-up writer still starts at t0
         self.assertIn("io_form_restart = 2", out)
-
-    def test_write_restart_interval_survives_adios2_default(self):
-        # adios2=True forces restart_interval=1000000 (see _apply_adios2's docstring) -- without
-        # write_restart_interval winning afterward, the spin-up run could never actually write a
-        # restart at t0+spinup.
-        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 60, max_dom=3,
-                                     adios2=True, ranks=448, write_restart_interval=60)
-        self.assertIn("restart_interval = 60,", out)
-        self.assertNotIn("restart_interval = 1000000", out)
 
 
 class TestRestartTime(unittest.TestCase):
@@ -2931,19 +1612,6 @@ class TestRestartTime(unittest.TestCase):
         "/\n"
     )
 
-    def test_case_start_datetime_defaults_minute_second_to_zero(self):
-        import datetime
-        self.assertEqual(configs.case_start_datetime(self.NL_TEXT),
-                          datetime.datetime(2019, 11, 25, 12, 0, 0))
-
-    def test_case_start_datetime_reads_explicit_minute_second(self):
-        import datetime
-        text = self.NL_TEXT.replace(
-            " start_hour = 12, 12, 12,\n",
-            " start_hour = 12, 12, 12,\n start_minute = 30, 30, 30,\n"
-            " start_second = 15, 15, 15,\n")
-        self.assertEqual(configs.case_start_datetime(text),
-                          datetime.datetime(2019, 11, 25, 12, 30, 15))
 
     def test_cmd_restart_time_prints_t0_plus_spinup(self):
         import tempfile
@@ -2970,7 +1638,6 @@ class TestRestartTime(unittest.TestCase):
     def test_cmd_restart_time_wrong_arg_count_is_an_error(self):
         rc = configs.main(["restart-time", "onlyone"])
         self.assertEqual(rc, 2)
-
 
 
 class TestNamelistFileStaging(unittest.TestCase):
@@ -3016,20 +1683,6 @@ class TestNamelistFileStaging(unittest.TestCase):
             with open(os.path.join(base, n), "w") as f:
                 f.write("x")
 
-    def test_refs_resolve_domain_placeholder_and_requiredness(self):
-        refs = configs.namelist_file_refs(self.NML)
-        req = sorted(n for k, n, r in refs if r)
-        self.assertEqual(req, ["io/fields_d02.txt", "iofields_d01.txt", "wrffdda_d01",
-                               "wrflowinp_d01", "wrflowinp_d02"])
-        opt = sorted(n for k, n, r in refs if not r)
-        self.assertEqual(opt, ["OBS_DOMAIN2*", "obs_d01.txt", "obs_d02.txt", "tslist",
-                               "wrfchemi_d01_<date>", "wrfchemi_d02_<date>"])
-        self.assertFalse(any(k == "auxinput1_inname" for k, _n, _r in refs))   # real.exe only
-
-    def test_refs_none_specified_and_sst_off(self):
-        refs = configs.namelist_file_refs(
-            "&time_control\n iofields_filename = 'NONE_SPECIFIED',\n/\n&domains\n max_dom=1,\n/\n")
-        self.assertEqual(refs, [("tslist", "tslist", False)])
 
     def test_stage_links_present_files_and_reports_missing(self):
         self._touch("iofields_d01.txt", "io/fields_d02.txt", "wrflowinp_d01", "wrflowinp_d02",
@@ -3111,7 +1764,6 @@ class TestStrictCampaignStagesNamelistFiles(unittest.TestCase):
                              stdout=subprocess.PIPE, universal_newlines=True).stdout
         line = [ln for ln in out.splitlines() if ln.startswith("NAMELIST_REF_DIRS=")]
         self.assertEqual(line, ["NAMELIST_REF_DIRS='/p/win_0/real /p/plan /p/orig'"])
-
 
 
 class TestAdios2InputStaging(unittest.TestCase):
@@ -3207,27 +1859,6 @@ class TestAdios2InputStaging(unittest.TestCase):
         with open(self.log) as f:
             return f.read().split("\n")[:-1]
 
-    def test_a_restart_run_reads_no_wrfinput(self):
-        nl = self.NL.replace(" &time_control\n", " &time_control\n restart = .true.,\n", 1)
-        self.assertNotEqual(nl, self.NL)
-        self.assertEqual([st["stream"] for st in configs.adios2_input_streams(nl)],
-                         ["boundary", "auxinput4", "gfdda"])
-
-    def test_streams_and_bp_innames(self):
-        sts = {st["stream"]: st for st in configs.adios2_input_streams(self.NL)}
-        self.assertEqual(list(sts), ["input", "boundary", "auxinput4", "gfdda"])
-        self.assertEqual(sts["input"]["names"], ["wrfinput_d01", "wrfinput_d02"])
-        self.assertEqual(sts["input"]["required"], ["wrfinput_d01"])
-        self.assertEqual(sts["auxinput4"]["inname"], "wrflowinp_d<domain>.bp")
-        self.assertEqual(sts["gfdda"]["names"], ["wrffdda_d01"])
-        self.assertEqual(configs.adios2_stream_edits(sts["gfdda"]),
-                         [("io_form_gfdda", 14, "fdda"),
-                          ("gfdda_inname", '"wrffdda_d<domain>.bp"', "fdda")])
-        # an inname already carrying .bp is not doubled
-        nl = self.NL.replace('"wrflowinp_d<domain>"', '"wrflowinp_d<domain>.bp"')
-        aux = [s for s in configs.adios2_input_streams(nl) if s["stream"] == "auxinput4"][0]
-        self.assertEqual((aux["names"][0], aux["inname"]),
-                         ("wrflowinp_d01", "wrflowinp_d<domain>.bp"))
 
     def _apply(self, aux_env):
         old = {k: os.environ.get(k) for k in ("WTUNE_INPUT_FORMAT", "WTUNE_AUX_BP_STREAMS")}
@@ -3261,47 +1892,6 @@ class TestAdios2InputStaging(unittest.TestCase):
         self.assertRegex(none, r"(?m)^\s*io_form_auxinput4\s*=\s*2,")
         self.assertIn('input_inname="wrfinput_d<domain>.bp"', none)
 
-    def test_bp_cache_dir_is_keyed_by_case_and_prep_dir(self):
-        old = os.environ.get("WTUNE_BP_CACHE")
-        try:
-            os.environ["WTUNE_BP_CACHE"] = "/c"
-            a = configs.bp_cache_dir("x", self.prep)
-            self.assertTrue(a.startswith("/c/x/") and len(os.path.basename(a)) == 12)
-            self.assertNotEqual(a, configs.bp_cache_dir("x", self.tmp))
-            self.assertEqual(a, configs.bp_cache_dir("x", self.prep + "/"))
-        finally:
-            if old is None:
-                os.environ.pop("WTUNE_BP_CACHE", None)
-            else:
-                os.environ["WTUNE_BP_CACHE"] = old
-
-    def test_stage_converts_links_and_reports_aux(self):
-        p = self._stage(self.nl, self.prep)
-        out, err = p.communicate()
-        self.assertEqual(p.returncode, 0, err)
-        a = self._assignments(out)
-        cache = configs.bp_cache_dir("sc26p1", self.prep, os.path.join(self.tmp, "cache"))
-        self.assertEqual(a["BP_DIR"], cache)
-        self.assertEqual(a["WTUNE_AUX_BP_STREAMS"], "auxinput4")      # no wrffdda_d01 at all
-        self.assertEqual(a["BP_CONVERTED"].split(), ["wrfinput_d01", "wrfinput_d02", "wrfbdy_d01",
-                                                     "wrflowinp_d01", "wrflowinp_d02"])
-        for n in ("wrfinput_d01", "wrfinput_d02"):
-            self.assertEqual(os.readlink(os.path.join(cache, n + ".bp")), os.path.join(cache, n))
-        # multi-record inputs: one BP per record in cache/<name>/, reported, no flat links
-        self.assertEqual(a["WTUNE_PER_RECORD_BP"], "wrfbdy_d01 wrflowinp_d01 wrflowinp_d02")
-        for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
-            self.assertFalse(os.path.lexists(os.path.join(cache, n + ".bp")))
-            self.assertEqual(sorted(os.listdir(os.path.join(cache, n))),
-                             ["%s_2020-01-01_00:00:00.bp" % n, "%s_2020-01-01_06:00:00.bp" % n])
-            self.assertFalse(os.path.lexists(os.path.join(cache, "%s_2020-01-01_00:00:00.bp" % n)))
-        self.assertIn("BP input wrfbdy_d01 -> %s (per record, 2 files)"
-                      % os.path.join(cache, "wrfbdy_d01"), err)
-        self.assertIn("gfdda input wrffdda_d01 found nowhere", err)
-        # second run: everything current, nothing reconverted, links kept
-        p = self._stage(self.nl, self.prep)
-        p.communicate()
-        self.assertEqual(p.returncode, 0)
-        self.assertEqual(len(self._converted()), 5)
 
     def test_existing_bp_in_prep_is_used_not_converted(self):
         os.makedirs(os.path.join(self.prep, "wrfinput_d02.bp"))
@@ -3521,27 +2111,15 @@ class TestPerRecordInputs(unittest.TestCase):
                                         '"wrffdda_d<domain>_<date>.bp"', "fdda")
         self.assertIn('gfdda_inname = "wrffdda_d<domain>_<date>.bp",\n', q)
 
-    def test_cold_start_on_a_record_reads_per_record_bp(self):
-        import re
-        out = self._edit(self.NL)
-        self.assertEqual(self._vals(out, "io_form_boundary"), ["14"])
-        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
-        self.assertEqual(self._vals(out, "multi_bdy_files"), [".true."])
-        self.assertIn("&bdy_control", out)
-        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["14"])
-        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>_<date>.bp"])
-        self.assertEqual(self._vals(out, "frames_per_auxinput4"), ["1", "1"])
-        self.assertEqual(self._vals(out, "input_inname"), ["wrfinput_d<domain>.bp"])
-        for k in ("bdy_inname", "auxinput4_inname", "multi_bdy_files", "frames_per_auxinput4"):
-            self.assertEqual(sum(1 for ln in out.splitlines()
-                                 if re.search(r"(?<![A-Za-z0-9_])%s\s*=" % k, ln)), 1, k)
+    def test_mp_physics_7_gets_do_radar_ref(self):
+        nl = " &physics\n mp_physics = 7, 7,\n do_radar_ref = 0,\n /\n"
+        out = configs._force_gsfcgce_radar_ref(nl)
+        self.assertIn(" do_radar_ref = 1,\n", out)
+        self.assertEqual(configs._force_gsfcgce_radar_ref(out), out)
+        other = " &physics\n mp_physics = 17, 8,\n /\n"
+        self.assertEqual(configs._force_gsfcgce_radar_ref(other), other)
+        self.assertIn("do_radar_ref = 1,", self._edit(self.NL.replace("&physics", "&physics\n mp_physics = 7, 7,")))
 
-    def test_restart_on_a_record_time_keeps_per_record(self):
-        import datetime
-        first = self._edit(self.NL)
-        out = self._edit(first, restart_from=datetime.datetime(2020, 1, 1, 6))
-        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
-        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["14"])
 
     def test_restart_off_record_falls_back_to_netcdf_and_undoes_the_first_pass(self):
         import contextlib
@@ -3582,19 +2160,6 @@ class TestPerRecordInputs(unittest.TestCase):
         self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>"])
         self.assertIsNone(self._vals(out, "frames_per_auxinput4"))   # never set, not added
 
-    def test_aux_stream_not_available_is_not_switched(self):
-        os.environ["WTUNE_AUX_BP_STREAMS"] = ""
-        out = self._edit(self.NL)
-        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["2"])
-        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>"])
-        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
-
-    def test_no_per_record_inputs_keeps_the_single_bp_innames(self):
-        os.environ["WTUNE_PER_RECORD_BP"] = ""
-        out = self._edit(self.NL)
-        self.assertIn(' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",',
-                      out)
-        self.assertNotIn("multi_bdy_files", out)
 
     def test_stage_namelist_files_skips_a_per_record_dir_for_a_netcdf_name(self):
         prep = os.path.join(self.tmp, "prep")

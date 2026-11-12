@@ -22,7 +22,8 @@ from .estimates import DEFAULT_LEVEL, LEVELS
 from .jobs import _final_cancel_safety_net
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, NODES_POLICIES, choose_nodes
 from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
-from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
+from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT
+from .prediction import PRECISION_FLOOR_MIN
 from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
 from .context import STOP, StopRequested
@@ -68,6 +69,20 @@ class _NodeChoice:
     total_steps: int | None
     nodes: int
     nodes_note: str
+    proxy: bool = False
+    proxy_max_nodes: int = 0
+
+
+def _precision_arg(text: str) -> str:
+    """--precision: "N%" (of the run's wall time) or minutes; argparse rejects anything else."""
+    t = text.strip()
+    try:
+        value = float(t[:-1] if t.endswith("%") else t)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected N%% or minutes, got %r" % text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be > 0, got %r" % text)
+    return t
 
 
 def _cfg_key_explicit(config_path: str | None, section: str, key: str) -> bool:
@@ -92,6 +107,10 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     a fixed node count -- then print the report and write <out>/tune_report.json. Returns the
     report; SystemExit for invalid options. The runners and clock default to the real ones."""
     STOP["reason"] = None
+    # every probe job inherits it (sbatch --export=ALL): a rank that aborts ends the srun step
+    # instead of leaving the others in MPI until the job's time limit (Big Chill N=5: 7x40 omp2
+    # nt12 hung 25 min in round0)
+    os.environ.setdefault("SLURM_KILL_BAD_EXIT", "1")
     o = _resolve_run_options(args)
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
@@ -181,6 +200,11 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
     extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
+    tree = _probe_tree(args)
+    build_omp_cap = wtune.extensions.omp_cap_for_build(tree)
+    if build_omp_cap:
+        print("wtune tune: %s/main/wrf.exe has no OpenMP (dmpar build): omp capped at 1" % tree)
+    case_caps = [c for c in (extension_omp_cap, build_omp_cap) if c]
     return Ctx(case=o.case, case_json=case_json, namelist_path=namelist_path, nodes=ns.nodes,
                cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
                seed=args.seed, kappa=args.kappa,
@@ -191,16 +215,17 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
-               build_id=_build_id(args),
+               build_id=_build_id(tree),
                history_dirs=sweep.history_ledger_dirs(ledger_dir),
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
-               omp_cap=wtune.machine.omp_cap(extension_omp_cap),
+               omp_cap=wtune.machine.omp_cap(min(case_caps) if case_caps else None),
                extension_omp_cap=extension_omp_cap,
                chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
                restart_io_form=int(o.restart_io_form), node_seeds=ns.node_seeds,
-               hotspot_fill=ns.hotspot_fill)
+               hotspot_fill=ns.hotspot_fill, proxy=bool(getattr(ns, "proxy", False)),
+               proxy_max_nodes=int(getattr(ns, "proxy_max_nodes", 0) or 0), wrf_tree=tree or "")
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -378,7 +403,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     if pipeline == "full":
         if args.nodes not in (None, "search"):
             raise SystemExit("-O/--pipeline runs its own node search: do not combine it with "
-                             "--nodes N/auto or --rank-by predicted")
+                             "--nodes N/auto")
         nodes_raw = "search"
     node_search = (nodes_raw == "search")
 
@@ -395,6 +420,9 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     node_seeds = _nopt("node_seeds", "geometric")
     hotspot_fill = _nopt("hotspot_fill", True)
     hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
+    proxy = _nopt("proxy", True)
+    proxy = proxy if isinstance(proxy, bool) else proxy == "on"
+    proxy_max_nodes = int(_nopt("proxy_max_nodes", 0) or 0)
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
     adaptive = _context.adaptive_steps_warning(namelist_path)
@@ -417,7 +445,8 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
                        deadline_minutes=deadline_minutes, min_efficiency=min_efficiency,
                        node_finalists=node_finalists, sweep_budget_frac=sweep_budget_frac,
                        node_seeds=node_seeds, hotspot_fill=hotspot_fill, core_options=core_options,
-                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note)
+                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note, proxy=proxy,
+                       proxy_max_nodes=proxy_max_nodes)
 
 
 def _run_out_dir(args: argparse.Namespace, case: str) -> str:
@@ -445,11 +474,15 @@ def _ledger_dir(args: argparse.Namespace) -> str:
     return sweep._expand(ledger_dir)
 
 
-def _build_id(args: argparse.Namespace) -> str:
-    """The WRF build the probe jobs will run (sweep.wrf_build_id of the tree they resolve); ''
-    when there is no wrf.exe there, and the ledger estimates then use every build's rows."""
-    tree = (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
+def _probe_tree(args: argparse.Namespace) -> str:
+    """The WRF tree the probe jobs will run: the site file's $W, else machine.wrf_tree()."""
+    return (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
             or wtune.machine.wrf_tree())
+
+
+def _build_id(tree: str) -> str:
+    """The WRF build the probe jobs will run (sweep.wrf_build_id of `tree`); '' when there is no
+    wrf.exe there, and the ledger estimates then use every build's rows."""
     build_id = sweep.wrf_build_id(tree)
     print("build %s (%s/main/wrf.exe)" % (build_id, tree) if build_id else
           "wtune tune: no wrf.exe under %s -- the ledger estimates use every build's rows" % tree)
@@ -496,8 +529,8 @@ def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _Ru
         physics_max_candidates=int(getattr(args, "physics_max_candidates", None)
                                    or PIPELINE_PHYSICS_MAX_CANDIDATES),
         recheck=preflight, stop_if_short=bool(getattr(args, "stop_if_short", False)),
-        precision_min=float(args.precision if getattr(args, "precision", None) is not None
-                            else PRECISION_DEFAULT_MIN),
+        precision_min=(args.precision if getattr(args, "precision", None) is not None
+                       else PRECISION_DEFAULT),
         max_queue_hours=(getattr(args, "max_queue_hours", None)
                          if getattr(args, "max_queue_hours", None) is not None
                          else PIPELINE_MAX_QUEUE_HOURS),
@@ -538,6 +571,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--proxy", default=None, choices=("on", "off"), dest="proxy",
+                    help="small-domain proxy (`wtune proxy`; a nested case per domain). -O1/-O2: "
+                         "the joint (N, layout) search times every legal N's layouts on one node "
+                         "each, re-times the leaders as 3-node bands (N > 3) or the whole domain "
+                         "(N <= 3) and picks (N, layout) from those scores with no real N-node "
+                         "probe, every run placed in one node pool (one job of --proxy-max-nodes "
+                         "nodes); at --minutes what was timed is ranked. --nodes N: "
+                         "round0 sends only the proxy's picks to real probes. Needs netCDF "
+                         "wrfinput/wrfbdy, else the real search runs (default on, or --config's "
+                         "budget.proxy)")
+    p.add_argument("--proxy-max-nodes", type=int, default=None, dest="proxy_max_nodes",
+                    help="nodes of the proxy's node pool, the nodes its runs hold at once "
+                         "(default 4 x --max-nodes, no more than the one-node runs, or --config's "
+                         "budget.proxy_max_nodes); the tune takes longer when lower")
     p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
                     help="--nodes search: measure untried N near the best one in the nodes a "
                          "sweep wave leaves idle, when no longer than the wave (default on, or "
@@ -553,7 +600,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "(72 -> 72,70,64,48,36); layouts that are not legal are skipped. "
                          "'--cores-per-node-options 72' disables the dimension")
     p.add_argument("--pipeline", choices=("full",), default=None,
-                    help="full = -O3 (kept for compatibility): one pass -- layout search (node, "
+                    help="DEPRECATED alias of -O3: one pass -- layout search (node, "
                          "cores/node, ranks, threads, decomposition, tiles), whole-run "
                          "prediction from rebuilt points, physics advice (decision 0059)")
     p.add_argument("--max-queue-hours", type=float, default=None, dest="max_queue_hours",
@@ -573,10 +620,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="effort level %d: %s (layout search effort + physics advice; the "
                              "prediction points come from the case type)" % (lv,
                                                                             LEVELS[lv]["method"]))
-    p.add_argument("--precision", type=float, default=None, dest="precision",
-                    help="whole-run wall time needed to +-MIN minutes (default %g): the case type "
-                         "decides how many prediction points that takes "
-                         "(wtune.cost_drivers.plan_points_for_case)" % PRECISION_DEFAULT_MIN)
+    p.add_argument("--precision", type=_precision_arg, default=None, dest="precision",
+                    help="whole-run wall time needed to +-N%%%% of the run (e.g. 10%%%%) or +-MIN "
+                         "minutes (e.g. 15); default %s, at least %g min: the case type decides "
+                         "how many prediction points that takes "
+                         "(wtune.cost_drivers.plan_points_for_case)"
+                         % (PRECISION_DEFAULT.replace("%", "%%"), PRECISION_FLOOR_MIN))
     p.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=None, dest="level",
                     help="same as -O<level>; selects the one-pass pipeline (default level when "
                          "only --pipeline full is given: 3). The estimated tuning time of every "
@@ -644,9 +693,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`wtune tune` / `python3 src/wtune/tune/`: 2 for a site other than scc, 1 for an invalid
-    option (message on stderr), else 0. With no level, pipeline or --nodes the run is the default
-    -O2 layout search."""
+    """`wtune tune` / `python3 src/wtune/tune/`: 2 for a site without campaign/sites/<site>.sh,
+    1 for an invalid option (message on stderr), else 0. With no level, pipeline or --nodes the
+    run is the default -O2 layout search."""
     # line-buffered: under nohup stdout is a block-buffered file and the progress log stayed empty
     try:
         sys.stdout.reconfigure(line_buffering=True)

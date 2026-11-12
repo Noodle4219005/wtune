@@ -104,6 +104,11 @@ IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against
 _JOBID_RE = re.compile(r"Submitted batch job (\d+)")
 _SBATCH_RE = re.compile(r"(?<![\w./-])sbatch(?: -p \S+)?(?=\s)")    # the command, not *.sbatch
 _SUBMIT_LIMIT_RE = re.compile(r"MaxSubmitJob")    # per-user count of queued jobs, not this job
+# a partition that takes a job too big for its QOS without refusing it: the job pends with one of
+# these for ever (f1-arm arm144, --exclusive 2 x 72 tasks = 288 CPUs over its 144)
+_SIZE_LIMIT_RE = re.compile(r"QOS(Max|Min)\w*PerJob\w*|PartitionNodeLimit|PartitionConfig")
+PENDING_REASON_POLLS = 3
+PENDING_REASON_WAIT_S = 2
 SUBMIT_LIMIT_WAIT_S = 60
 SUBMIT_LIMIT_MAX_WAIT_S = 6 * 3600
 
@@ -423,21 +428,46 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
                              % (key, value))
         export += ",%s=%s" % (key, value)
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
-    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d --exclusive %s "
+    cpt = wtune.machine.cpus_per_task_arg(cores_per_node)
+    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d %s%s %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
-              % (wtune.machine.partition(), nodes, cores_per_node, scheduler_args(), time_limit,
+              % (wtune.machine.partition(), nodes, cores_per_node, cpt + " " if cpt else "",
+                 wtune.machine.node_share_arg(cores_per_node), scheduler_args(), time_limit,
                  case, nodes, out_dir, export, _expand(sbatch_script)))
     return "source %s; %s" % (_expand(env_source or wtune.machine.env_source()), sbatch)
 
 
-def submit_job(cmd_str, sbatch_runner=default_sbatch_runner, sleep=time.sleep):
+def default_pending_reason(job_id, sleep=time.sleep):
+    """squeue's reason for a just-submitted job, polled a few seconds while Slurm has not set one
+    yet; '' when the job is gone or squeue fails."""
+    reason = ""
+    for i in range(PENDING_REASON_POLLS):
+        out = subprocess.run(["squeue", "-h", "-j", str(job_id), "-o", "%T %r"],
+                             capture_output=True, text=True, check=False)
+        state, _, reason = out.stdout.strip().partition(" ")
+        if out.returncode or state != "PENDING" or reason not in ("", "None"):
+            return reason
+        if i + 1 < PENDING_REASON_POLLS:
+            sleep(PENDING_REASON_WAIT_S)
+    return reason
+
+
+def default_cancel(job_id):
+    subprocess.run(["scancel", str(job_id)], capture_output=True, check=False)
+
+
+def submit_job(cmd_str, sbatch_runner=default_sbatch_runner, sleep=time.sleep,
+               pending_reason=None, cancel=default_cancel):
     """`_submit_once`, retried every minute (up to 6 h) while a refusal is the per-user limit on
     queued jobs (QOSMaxSubmitJobPerUserLimit): that limit is about the user's other jobs, e.g. a
-    second tune sharing the QOS, so the job fits once one of them ends."""
+    second tune sharing the QOS, so the job fits once one of them ends. With the real sbatch the
+    pending reason of an accepted job is checked too (pending_reason defaults to squeue then)."""
+    if pending_reason is None and sbatch_runner is default_sbatch_runner:
+        pending_reason = default_pending_reason
     waited = 0
     while True:
         try:
-            return _submit_once(cmd_str, sbatch_runner)
+            return _submit_once(cmd_str, sbatch_runner, pending_reason, cancel)
         except RuntimeError as e:
             if not _SUBMIT_LIMIT_RE.search(str(e)) or waited >= SUBMIT_LIMIT_MAX_WAIT_S:
                 raise
@@ -448,7 +478,7 @@ def submit_job(cmd_str, sbatch_runner=default_sbatch_runner, sleep=time.sleep):
         waited += SUBMIT_LIMIT_WAIT_S
 
 
-def _submit_once(cmd_str, sbatch_runner):
+def _submit_once(cmd_str, sbatch_runner, pending_reason=None, cancel=default_cancel):
     """Runs `cmd_str` (already includes the `source env.sh;` prefix) and parses the job id out
     of sbatch's "Submitted batch job N" stdout line. --force re-running an in-flight job's
     (case,N) slot is the one accepted imprecision in the --max-nodes-in-flight budget: the OLD
@@ -456,23 +486,37 @@ def _submit_once(cmd_str, sbatch_runner):
     manifest, before the submit loop starts) even after the manifest row is overwritten --
     conservative (under-states available budget) rather than over-subscribing the cluster.
     With several partitions each is tried in order (`-p` on the command line beats the
-    script's own); RuntimeError naming every refusal when none takes the job."""
+    script's own); a partition that takes the job but leaves it pending on a per-job size limit
+    (`pending_reason`) counts as a refusal: the job is cancelled and the next one tried.
+    RuntimeError naming every refusal when none takes the job."""
     parts = wtune.machine.partitions()
     if len(parts) == 1:
-        out = sbatch_runner(cmd_str)
-    else:
-        refused = []
-        for p in parts:
-            cmd, n = _SBATCH_RE.subn("sbatch -p " + p, cmd_str, count=1)
-            if not n:
-                raise ValueError("no sbatch in %r" % (cmd_str,))
-            try:
-                out = sbatch_runner(cmd)
-                break
-            except RuntimeError as e:
-                refused.append("%s: %s" % (p, e))
-        else:
-            raise RuntimeError("no partition took the job -- " + "; ".join(refused))
+        return _job_id(sbatch_runner(cmd_str))
+    refused = []
+    for p in parts:
+        cmd, n = _SBATCH_RE.subn("sbatch -p " + p, cmd_str, count=1)
+        if not n:
+            raise ValueError("no sbatch in %r" % (cmd_str,))
+        try:
+            out = sbatch_runner(cmd)
+        except RuntimeError as e:
+            refused.append("%s: %s" % (p, e))
+            continue
+        job_id = _job_id(out)
+        reason = pending_reason(job_id) if pending_reason else ""
+        if not _SIZE_LIMIT_RE.search(reason or ""):
+            return job_id
+        cancel(job_id)
+        refused.append("%s: job %s pending on %s (cancelled)" % (p, job_id, reason))
+    raise NoPartitionError("no partition took the job -- " + "; ".join(refused))
+
+
+class NoPartitionError(RuntimeError):
+    """Every partition refused the job (or left it pending on a size limit): its shape cannot
+    run on this machine, e.g. f1-arm 2 nodes x 72 tasks --exclusive."""
+
+
+def _job_id(out):
     m = _JOBID_RE.search(out)
     if not m:
         raise RuntimeError("could not parse job id from sbatch output: %r" % (out,))

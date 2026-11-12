@@ -8,7 +8,9 @@ frame's time; otherwise the minimum of SLP smoothed over 3x3 grid cells (scipy u
 inside the domain interior (spec_bdy_width edge cells excluded); the Hovmoller, given a track,
 leaves a frame the track does not cover blank instead. The centre is a grid cell
 (+- dx/2). Domain: the track's domain at the last frame, else the finest domain whose smoothed-
-SLP minimum lies at least 3 cells inside its interior, else d01.
+SLP minimum lies at least 3 cells inside its interior, else d01. Single-time figures use the
+frame of the lowest track pmin inside that domain past spin-up (the strongest), else the latest
+frame the track covers there, else the last frame.
 
 Storm-relative wind: radial/tangential components come from wrf-python ua/va rotated about the
 centre IN THE NATIVE PROJECTED GRID (vt is then made cyclonic-positive by the sign of the centre
@@ -40,6 +42,7 @@ from datetime import datetime
 from wtune.post import tools
 from wtune.post.extract import list_frame_refs, list_frames
 from wtune.post.recipes import cloud as cl
+from wtune.post import figdpi
 
 BOX_HALF_KM = 300.0                 # A1: 600 km x 600 km
 R_MAX_KM = 300.0                    # A3 radius window
@@ -186,7 +189,8 @@ def centre_from_slp(slp, bdy_width=0, size=SLP_SMOOTH_CELLS):
 
 
 def read_track_csv(path):
-    """{time_str: (lat, lon, domain)} from post/tc.py's track_domains_<label>.csv."""
+    """{time_str: (lat, lon, domain, pmin_hpa or None)} from post/tc.py's
+    track_domains_<label>.csv."""
     out = {}
     if not path or not os.path.exists(path):
         return out
@@ -194,7 +198,9 @@ def read_track_csv(path):
         for row in csv.DictReader(fh):
             try:
                 dom = int(str(row.get("domain", "d01")).lstrip("d") or 1)
-                out[row["time"]] = (float(row["lat"]), float(row["lon"]), dom)
+                pmin = row.get("pmin_hpa")
+                out[row["time"]] = (float(row["lat"]), float(row["lon"]), dom,
+                                    float(pmin) if pmin not in (None, "") else None)
             except (KeyError, ValueError):
                 continue
     return out
@@ -259,6 +265,38 @@ def frame_centre(ds, time_str, track, bdy_width, timeidx=0, slp_fallback=True):
     slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=timeidx, meta=False), "f8")
     j, i = centre_from_slp(slp, bdy_width)
     return j, i, "minimum SLP (smoothed)"
+
+
+def _inside(ref, track, bdy_width):
+    import netCDF4
+    with netCDF4.Dataset(ref[1]) as ds:
+        return frame_centre(ds, ref[0], track, bdy_width, ref[2], slp_fallback=False) is not None
+
+
+def strongest_frame(frames, track, bdy_width, spinup_hours=0):
+    """The frame whose track point inside this domain has the lowest pmin, past spin-up when
+    any is; None when the track has no pmin there. A decaying storm's last frame is its weakest
+    (haitang2017 F067: no 34 kt wind, RMW at the analysis radius)."""
+    t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT) if frames else None
+    tracked = [ref for ref in frames if ref[0] in track and len(track[ref[0]]) > 3
+               and track[ref[0]][3] is not None]
+    late = [ref for ref in tracked if spinup_hours and
+            (datetime.strptime(ref[0], WRF_TIME_FMT) - t0).total_seconds() >= spinup_hours * 3600]
+    early = [ref for ref in tracked if ref not in late]
+    key = lambda r: (track[r[0]][3], r[0])
+    for ref in sorted(late, key=key) + sorted(early, key=key):
+        if _inside(ref, track, bdy_width):
+            return ref
+    return None
+
+
+def latest_tracked_frame(frames, track, bdy_width):
+    """The latest frame with a track point inside this domain: past the track's end the SLP
+    fallback takes the deepest low anywhere (haitang2017 F072: a Guangxi low, not the storm)."""
+    for ref in reversed(frames):
+        if ref[0] in track and _inside(ref, track, bdy_width):
+            return ref
+    return None
 
 
 def structure_domain(run_dir, case_info, track, bdy_width):
@@ -363,7 +401,7 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain,
             "domain) + 10 m wind 34/50/64 kt + RMW; centre: %s%s%s\n%s"
             % (run_label, domain, 2 * BOX_HALF_KM, 2 * BOX_HALF_KM, source, no_kt,
                ("\n" + note) if note else "", ds_time_label(ds, time_str))), fontsize=9)
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         cl._plt().close(fig)
     return out_path, rmw
 
@@ -430,7 +468,7 @@ def _rz_finish(fig, ax, rz, title, out_path, handles=()):
     cl.figure_legend(fig, handles, loc="outside lower center", ncol=max(min(len(handles), 4), 1),
                      fontsize=7, frameon=False)
     ax.set_title(cl.wrap_title(title), fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     cl._plt().close(fig)
     return out_path
 
@@ -573,7 +611,7 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain, timeidx=0):
         "reflectivity + w + 0/-20 °C, terrain grey; lines follow the model grid axes%s\n%s"
         % (run_label, domain, source, BOX_HALF_KM, ("\n" + note) if note else "", tlabel), 120),
         fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -641,7 +679,7 @@ def hovmoller_figure(run_dir, domain, frame_times, track, bdy_width, out_path, r
            "; %d without a track centre left blank" % n_blank if track and n_blank else "",
            path_time_label(frame_path(run_dir, domain, frame_times[-1]), frame_times[-1]))),
         fontsize=9)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -657,7 +695,7 @@ def _reason(e):
 
 
 def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, times=None,
-            paraview=True):
+            paraview=True, spinup_hours=0):
     """TC structure figure records (post.recipe fig()/missing()) for one run."""
     import netCDF4
     from wtune.post.conventions import path_time_label
@@ -676,7 +714,9 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
     if not frames:
         return [missing("tc_struct_reflectivity_2km", "wrfout_%s_*" % dom, "no frames found",
                         run=run_label)]
-    last_time, last_path, last_ti = frames[-1]
+    last = (strongest_frame(frames, track, bdy_width, spinup_hours)
+            or latest_tracked_frame(frames, track, bdy_width) or frames[-1])
+    last_time, last_path, last_ti = last
     try:
         with netCDF4.Dataset(last_path) as ds:
             centre = frame_centre(ds, last_time, track, bdy_width, last_ti)

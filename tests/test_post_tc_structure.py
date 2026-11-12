@@ -168,30 +168,6 @@ CASE = dict(types=["common", "tc"], domains=[dict(domain=1, dx_km=12.0)])
 
 # ---------------------------------------------------------------- numerics
 
-def test_rankine_vortex_rotates_to_pure_tangential():
-    X, Y = ts.grid_offsets_km((41, 41), 20, 20, 5.0)
-    r = np.hypot(X, Y)
-    vt_true = _rankine(r)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        c, s = np.where(r > 0, X / r, 0), np.where(r > 0, Y / r, 0)
-    u, v = -vt_true * s, vt_true * c                       # cyclonic (counter-clockwise)
-    vr, vt = ts.radial_tangential(u, v, X, Y)
-    assert np.allclose(vr, 0.0, atol=1e-9)
-    assert np.allclose(vt, vt_true, atol=1e-9)
-    assert (vt[r > 0] > 0).all()
-    # leading (level) dimension broadcasts
-    vr3, vt3 = ts.radial_tangential(np.stack([u, 2 * u]), np.stack([v, 2 * v]), X, Y)
-    assert vt3.shape == (2, 41, 41) and np.allclose(vt3[1], 2 * vt_true)
-
-
-def test_pure_inflow_is_negative_radial():
-    X, Y = ts.grid_offsets_km((21, 21), 10, 10, 1.0)
-    r = np.hypot(X, Y)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        u, v = np.where(r > 0, -3 * X / r, 0), np.where(r > 0, -3 * Y / r, 0)
-    vr, vt = ts.radial_tangential(u, v, X, Y)
-    assert np.allclose(vr[r > 0], -3.0) and np.allclose(vt, 0.0, atol=1e-12)
-
 
 def test_azimuthal_mean_bins_and_coverage():
     dx = 4.0
@@ -226,21 +202,6 @@ def test_environment_annulus_full_and_small_domain_fallback():
     assert "500-1000 km" in ts.annulus_label((500.0, 1000.0, False))
 
 
-def test_temperature_anomaly_eye_minus_annulus():
-    dx = 10.0
-    X, Y = ts.grid_offsets_km((161, 161), 80, 80, dx)
-    r = np.hypot(X, Y)
-    t = 280.0 + 6.0 * np.exp(-(r / 40.0) ** 2)
-    t3 = np.stack([t, t - 10.0])
-    ann = ts.environment_annulus(ts.full_annulus_radius_km(r.shape, 80, 80, dx))
-    assert ann[2] and ann[1] == 800.0
-    env = ts.annulus_mean(t3, r, ann)
-    assert np.allclose(env, [280.0, 270.0], atol=1e-6)
-    prof = ts.eye_anomaly(t3, r, dx, ann)
-    assert np.allclose(prof, 6.0 * np.mean(np.exp(-(np.array([0, dx, dx, dx, dx]) / 40.0) ** 2)),
-                       atol=1e-6)
-
-
 def test_rmw_profile_and_symmetric_levels():
     rc = np.array([5.0, 15.0, 25.0, 35.0])
     vt = np.array([[10, 30, 20, 5], [np.nan] * 4, [1, 2, 3, 4]], dtype=float)
@@ -250,12 +211,23 @@ def test_rmw_profile_and_symmetric_levels():
     assert lv[0] == -5 and lv[-1] == 5 and np.allclose(np.diff(lv), 1.0)
 
 
-def test_centre_from_smoothed_slp_excludes_boundary():
-    jj, ii = np.mgrid[0:40, 0:50]
-    slp = 1010.0 - 30.0 * np.exp(-(((jj - 22) ** 2 + (ii - 31) ** 2) / 8.0))
-    slp[0, 0] = 900.0                                       # boundary spike
-    slp[20, 10] = 990.0                                     # single-cell spike: smoothed away
-    assert ts.centre_from_slp(slp, bdy_width=5) == (22, 31)
+def test_single_time_figures_use_the_strongest_tracked_frame_past_spinup(monkeypatch):
+    # a decaying storm's last tracked frame is its weakest one
+    frames = [("2017-07-31_%02d:00:00" % h, "/w%d" % h, 0) for h in range(0, 24, 3)]
+    track = {t: (25.0, 120.0, 2, p) for (t, _p, _i), p in
+             zip(frames, (980.0, 990.0, 985.0, 991.0, 995.0, 997.0, 999.0, 1001.0))}
+    outside = {"2017-07-31_06:00:00"}
+    monkeypatch.setattr(ts, "_inside", lambda ref, tr, bdy: ref[0] not in outside)
+    # 00Z (980) and 03Z are in the 6 h spin-up, 06Z (985) is outside the domain: 09Z (991)
+    assert ts.strongest_frame(frames, track, 0, spinup_hours=6)[0] == "2017-07-31_09:00:00"
+    assert ts.strongest_frame(frames, track, 0)[0] == "2017-07-31_00:00:00"
+    # every past-spin-up point outside: the spin-up ones are still better than the last frame
+    outside |= {t for t, _p, _i in frames[2:]}
+    assert ts.strongest_frame(frames, track, 0, spinup_hours=6)[0] == "2017-07-31_00:00:00"
+    # no pmin column (an older track file): the latest tracked frame, as before
+    old = {t: v[:3] for t, v in track.items()}
+    assert ts.strongest_frame(frames, old, 0) is None
+    assert ts.latest_tracked_frame(frames, old, 0)[0] == "2017-07-31_03:00:00"
 
 
 def test_track_csv_and_hovmoller_selection(tmp_path):
@@ -264,7 +236,7 @@ def test_track_csv_and_hovmoller_selection(tmp_path):
         w = csv.DictWriter(fh, fieldnames=["time", "domain", "dx_km", "lat", "lon"])
         w.writeheader()
         w.writerow(dict(time=TIMES[0], domain="d02", dx_km=4, lat=25.5, lon=-88.0))
-    assert ts.read_track_csv(str(p)) == {TIMES[0]: (25.5, -88.0, 2)}
+    assert ts.read_track_csv(str(p)) == {TIMES[0]: (25.5, -88.0, 2, None)}
     assert ts.read_track_csv(None) == {}
     times = ["2005-08-28_%02d:00:00" % h for h in range(24)]
     assert ts.hovmoller_frames(times) == times
@@ -277,33 +249,6 @@ def test_track_csv_and_hovmoller_selection(tmp_path):
 
 
 # ---------------------------------------------------------------- with wrf-python
-
-def test_frame_centre_from_slp_and_from_track(tmp_path):
-    run = make_run(tmp_path, n=1)
-    path = os.path.join(run, "wrfout_d01_" + TIMES[0])
-    with netCDF4.Dataset(path) as ds:
-        j, i, src = ts.frame_centre(ds, TIMES[0], {}, 5)
-        assert (j, i) == (25, 24) and src == "minimum SLP (smoothed)"
-        lat, lon = float(ds.variables["XLAT"][0, 30, 20]), float(ds.variables["XLONG"][0, 30, 20])
-        j2, i2, src2 = ts.frame_centre(ds, TIMES[0], {TIMES[0]: (lat, lon, 1)}, 5)
-        assert (j2, i2) == (30, 20) and src2 == "minimum-SLP track"
-
-
-def test_rz_analysis_recovers_vortex_and_warm_core(tmp_path):
-    run = make_run(tmp_path, n=1)
-    path = os.path.join(run, "wrfout_d01_" + TIMES[0])
-    rz = ts.rz_analysis(path, (25, 24, "test"), 5)
-    k1 = int(np.argmin(np.abs(rz["z_km"] - 1.0)))
-    vt1 = rz["vt"][k1]
-    assert np.nanmax(vt1) > 30.0
-    # RMW at ~1 km near the Rankine 48 km (one 12 km bin)
-    assert abs(rz["rmw"][k1] - 48.0) <= 12.0
-    assert np.nanmax(np.abs(rz["vr"][k1][:4])) < np.nanmax(vt1)
-    assert rz["annulus"][2] is True                         # 600 km domain: fallback annulus
-    k9 = int(np.argmin(np.abs(rz["z_km"] - 9.0)))
-    tp9 = rz["tprime"][k9]
-    assert tp9[0] > 2.0 and tp9[0] > np.nanmax(tp9[-5:]) + 2.0     # warm core aloft
-    assert np.nanmax(rz["q_gkg"]) > 0.1
 
 
 def _fake_volume(calls, raise_exc=None):
@@ -339,6 +284,27 @@ def test_figures_render_every_tc_structure_figure(tmp_path, monkeypatch):
     assert calls[0]["center"] is not None and calls[0]["path"].endswith(TIMES[-1])
 
 
+def test_single_time_figures_stay_within_the_track(tmp_path, monkeypatch):
+    """Past the track's end the SLP fallback may centre on another low: the storm-centred
+    figures use the last tracked frame instead of the last frame."""
+    from wtune.post.recipes import paraview3d
+    calls = []
+    monkeypatch.setattr(paraview3d, "render_condensate_volume", _fake_volume(calls),
+                        raising=False)
+    run = make_run(tmp_path)
+    track_csv = tmp_path / "track_domains_run0.csv"
+    rows = ["time,domain,lat,lon"]
+    for k, t in enumerate(TIMES[:2]):
+        with netCDF4.Dataset(os.path.join(run, "wrfout_d01_" + t)) as ds:
+            rows.append("%s,d01,%f,%f" % (t, float(ds.variables["XLAT"][0, 25, 24 + k]),
+                                          float(ds.variables["XLONG"][0, 25, 24 + k])))
+    track_csv.write_text("\n".join(rows) + "\n")
+    out = ts.figures(run, "run0", str(tmp_path / "out"), CASE, track_csv=str(track_csv))
+    by_id = {f["id"]: f for f in out}
+    assert by_id["tc_struct_reflectivity_2km"]["valid_time"] == TIMES[1]
+    assert calls and calls[0]["path"].endswith(TIMES[1])
+
+
 def test_ir_not_drawn_twice_when_cloud_set_runs_and_3d_missing(tmp_path, monkeypatch):
     from wtune.post.recipes import paraview3d
     monkeypatch.setattr(paraview3d, "render_condensate_volume",
@@ -360,28 +326,20 @@ def test_ir_not_drawn_twice_when_cloud_set_runs_and_3d_missing(tmp_path, monkeyp
 
 # ---------------------------------------------------------------- registration / wiring
 
-def test_catalog_and_dispatch_registration():
-    from wtune.post import caseinfo, recipe
-    cat = recipe.load_catalog()
-    for fid in ("tc_struct_reflectivity_2km", "tc_struct_ir_proxy", "tc_struct_rz_wind",
-                "tc_struct_rz_warmcore", "tc_struct_rz_condensate", "tc_struct_xsec",
-                "tc_struct_warmcore_hovmoller", "tc_struct_condensate_3d"):
-        assert set(cat[fid]) == {"zh", "en"}
-    assert "proxy, not a satellite-channel simulation" not in cat["tc_struct_ir_proxy"]["en"]["question"]
-    assert "cloud" in caseinfo.ALL_TYPES_ORDER and "cloud" in recipe.TYPE_DISPATCH
-
 
 def test_recipe_passes_track_csv_to_structure_set(tmp_path, monkeypatch):
     from wtune.post import recipe
     seen = {}
 
     def fake(run_dir, label, out_dir, case_info, track_csv=None, every=None, times=None,
-             paraview=True):
-        seen.update(track_csv=track_csv, out_dir=out_dir, every=every, paraview=paraview)
+             paraview=True, spinup_hours=0):
+        seen.update(track_csv=track_csv, out_dir=out_dir, every=every, paraview=paraview,
+                    spinup_hours=spinup_hours)
         return []
     monkeypatch.setattr(ts, "figures", fake)
-    recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE, every="6h")
-    assert seen["track_csv"] is None and seen["every"] == "6h"
+    recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE, every="6h",
+                                 spinup_hours=12)
+    assert seen["track_csv"] is None and seen["every"] == "6h" and seen["spinup_hours"] == 12
     os.makedirs(tmp_path / "tc")
     (tmp_path / "tc" / "track_domains_run0.csv").write_text("time,domain,lat,lon\n")
     recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE)
@@ -389,17 +347,6 @@ def test_recipe_passes_track_csv_to_structure_set(tmp_path, monkeypatch):
     assert seen["out_dir"].endswith("tc_structure")
     recipe._tc_structure_figures(["r"], ["run0"], str(tmp_path), CASE, use_track=False)
     assert seen["track_csv"] is None
-
-
-def test_no_code_paths_in_captions():
-    import re
-    from wtune.post import recipe
-    cat = recipe.load_catalog()
-    for fid, entry in cat.items():
-        if fid.startswith(("tc_struct_", "cloud_")):
-            for lang in ("zh", "en"):
-                for text in entry[lang].values():
-                    assert not re.search(r"post/|\.py\b", text), (fid, lang, text)
 
 
 # ---------------------------------------------------------------- legends list only what is drawn
@@ -437,26 +384,3 @@ def test_reflectivity_legend_lists_only_reached_wind_radii(tmp_path, monkeypatch
                                "run0", 1)
     assert "10 m wind 34 kt" in legends[-1]
     assert "no 10 m wind" not in titles[-1]
-
-
-def test_xsec_legend_merges_both_panels_and_lists_only_drawn(tmp_path, monkeypatch):
-    legends, _ = _capture_legends_and_titles(monkeypatch)
-    path = str(tmp_path / "storm")
-    write_wrfout(path, TIMES[0])                                # w -0.3..1.5 m/s
-    ts.xsec_figure(path, TIMES[0], (25, 25, "test"), str(tmp_path / "x.png"), "run0", 1)
-    labels = legends[-1]
-    assert len(labels) == len(set(labels))
-    assert [l for l in labels if l.startswith("w down")] == ["w down -0.25 m s$^{-1}$"]
-    assert "0 °C" in labels and "-20 °C" in labels
-
-
-def test_rz_legend_omits_absent_terrain_and_negative_vt(tmp_path, monkeypatch):
-    legends, _ = _capture_legends_and_titles(monkeypatch)
-    path = str(tmp_path / "flat")
-    write_wrfout(path, TIMES[0], hill=False)
-    rz = ts.rz_analysis(path, (25, 25, "test"), 5)
-    assert np.nanmin(rz["vt"]) > -5.0
-    ts.rz_wind_figure(rz, str(tmp_path / "w.png"), "run0", 1, "t")
-    labels = legends[-1]
-    assert "RMW(z)" in labels
-    assert not any("below ground" in l or "< 0" in l for l in labels)

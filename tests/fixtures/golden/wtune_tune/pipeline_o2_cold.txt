@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O2: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
-pipeline: 預估調校時間 O1 ≈ 19 min  O2 ≈ 35 min <-  O3 ≈ 48 min  (running time; queue wait extra); whole run ~11:06:40 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 19 min  O2 ≈ 35 min <-  O3 ≈ 48 min  (running time; queue wait extra); whole run ~11:06:40 (cold start); prediction points for this case at ±10%: 3 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
@@ -31,42 +31,44 @@ node sweep: N=6  median=0.3100 s/step n=4 spread=0.0% speedup=3.23 eff=0.54
 node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
 node sweep: cores-n4-c70 submitted job 7011 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
 node sweep: cores-n4-c64 submitted job 7012 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c48 submitted job 7013 (ANCHOR ranks=192 omp=1 12x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c54 submitted job 7013 (ANCHOR ranks=216 omp=1 12x18, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n4-c36 submitted job 7014 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c48 submitted job 7014 (ANCHOR ranks=192 omp=1 12x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c36 submitted job 7015 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 core sweep N=4: measuring [72, 70, 64] once more (within 2x noise of the fastest)
-node sweep: cores-n4-c72-race submitted job 7015 (ANCHOR ranks=288 omp=1 16x18, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c70-race submitted job 7016 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c64-race submitted job 7017 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c72-race submitted job 7016 (ANCHOR ranks=288 omp=1 16x18, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c70-race submitted job 7017 (ANCHOR ranks=280 omp=1 14x20, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c64-race submitted job 7018 (ANCHOR ranks=256 omp=1 16x16, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share none
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=3 configs_per_job=2 total=6 (ok)
-round0 slot 0: submitted job 7018 (2 configs)
-round0 slot 1: submitted job 7019 (2 configs)
-round0 slot 2: submitted job 7020 (2 configs)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
+round0 slot 0: submitted job 7019 (2 configs)
+round0 slot 1: submitted job 7020 (2 configs)
+round0 slot 2: submitted job 7021 (2 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 startup_s: measured 28.5s/run from 6 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
 round0 top-up 1: s_est=0.293s/step (measured, was 10.000s/step) startup_s=28.5s configs_per_job=2 candidates=6
-round0-topup slot 0: submitted job 7021 (2 configs)
-round0-topup slot 1: submitted job 7022 (2 configs)
-round0-topup slot 2: submitted job 7023 (2 configs)
+round0-topup slot 0: submitted job 7022 (2 configs)
+round0-topup slot 1: submitted job 7023 (2 configs)
+round0-topup slot 2: submitted job 7024 (2 configs)
 [round0-topup] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-race: submitted job 7024 (G0003, G0004, G0005 once more, within 2x noise of the fastest)
+race: submitted job 7025 (G0003, G0004, G0005 once more, within 2x noise of the fastest)
 [race     ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
 === summary ===
 best:     N=4 c/n=72 12 ranks x 24 threads 1x12 tiles=48: 0.2792 s/step (4 runs)
-run:      predicted 17:28 for the whole simulation (phase 2 combine())
+run:      predicted 17:00 for the whole simulation (phase 2 combine())
 margin:   2.3% ahead of N=4 c/n=72 144 ranks x 2 threads 9x16 tiles=14 -> within noise: either is fine (noise 3%)
 not run:  N=13 early stop; N=7,9-12 not measured
 tuning:   running 0:00, queue 0:00 (not counted)
 
 === wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4]: objective=time: N=4 median=0.2792 s/step; min is 0.2792, smallest N within 3% noise of it)
-budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,8027
+budget=no cap  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 G0005            FAILED     12   24     1    12    48   block     0.2792  0.2727-0.2857  1.074x        -    4 -           False
@@ -101,10 +103,9 @@ BEST: G0005
   env:      OMP_NUM_THREADS=24 OMP_STACKSIZE=1G  ulimit -s unlimited
   NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
-=== full-run prediction (rank_by=predicted, G0005, 1 rebuilt point(s)) ===
-compute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)
-r_rad: night=1.000 day=3.900 source=fake
-whole run: compute 1020s + init 29s = 1049s (run-length I/O NOT included)  [init: measured round0 startup (6 runs)]
+=== full-run prediction (phase 2: G0005 at 3 rebuilt point(s): 2026-01-01T01:00:00, 2026-01-01T03:00:00, 2026-01-01T05:00:00) ===
+TOTAL: 17:00 (range 15:50 - 18:10)
+whole run: compute 1000s + init 20s = 1020s (run-length I/O NOT included)
 
 --- node selection (measured, ANCHOR config per node count) ---
 nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB
@@ -125,10 +126,11 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      72         72    1      0.3000      6     0.0%         - <- chosen
      70         70    1      0.3000      4     0.0%         - 
      64         64    1      0.3000      4     0.0%         - 
+     54         54    1      0.3000      2     0.0%         - 
      48         48    1      0.3000      2     0.0%         - 
      36         36    1      0.3000      2     0.0%         - 
 
---- measured layouts (22; best first; the full table is in tune_report.json node_selection.layouts) ---
+--- measured layouts (23; best first; the full table is in tune_report.json node_selection.layouts) ---
    N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
    4    72     12   24      1x12    48      0.2792    4.7%     4  finalist search
    4    72    144    2      9x16    14      0.2857    0.0%     4  finalist search
@@ -139,6 +141,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    4    72    288    1     16x18     1      0.3000    0.0%     6  cores/node sweep ANCHOR
    4    70    280    1     14x20     1      0.3000    0.0%     4  cores/node sweep ANCHOR
    4    64    256    1     16x16     1      0.3000    0.0%     4  cores/node sweep ANCHOR
+   4    54    216    1     12x18     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    4    48    192    1     12x16     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    4    36    144    1     12x12     1      0.3000    0.0%     2  cores/node sweep ANCHOR
    4    72    288    1     12x24     1      0.3000    0.0%     2  finalist search
@@ -171,15 +174,14 @@ skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
 === wtune tune -O2 (decision 0059) ===
 level O2; time cap: none (no time cap)  whole run implied by the t0 anchor (info): 7:00
 tuning time, estimated at start: O1 ≈ 19 min  O2 ≈ 35 min <-  O3 ≈ 48 min  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O2 ≈ 35.4 min
-phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      deferred (points planned and rebuilt after the layout search, at its winner)
 phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
-phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok (3 rebuilt point(s) at the winner, jobs 7700,7701,7702)
 phase physics  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      not run (physics advice needs -O3)
 whole-run time ±7% = ±1.2 min (common: fake case-type plan)
 suggested --time=00:32:00 (T rounded up to 15 min plus one band, >= 1.2x T)
-phase 2 plan: winner only x all 3 points (none left; startup 29s/run); tried: winner only x all 3 points ~1:46
-predicted whole run: 17:28 (range 16:37 - 18:20) at N=4 cores/node=72 {'ranks': 12, 'omp': 24, 'nx': 1, 'ny': 12, 'numtiles': 48, 'dist': 'block'}; suggested --time=00:32:00
-  compute 1020s + init 29s = 1049s (run-length I/O NOT included)  [init: measured round0 startup (6 runs)]
-tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 17:28 (phase 2 combine())
+predicted whole run: 17:00 (range 15:50 - 18:10) at N=4 cores/node=72 {'ranks': 12, 'omp': 24, 'nx': 1, 'ny': 12, 'numtiles': 48, 'dist': 'block'}; suggested --time=00:32:00
+  compute 1000s + init 20s = 1020s (run-length I/O NOT included)  [init: t]
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 17:00 (phase 2 combine())
 
 advice: 1 stub item(s)

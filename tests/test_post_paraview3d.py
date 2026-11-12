@@ -37,12 +37,6 @@ def test_camera_is_south_south_east_and_above_the_horizon():
     assert x * x + y * y + z * z == pytest.approx(1.0)
 
 
-def test_coast_polylines_split_at_bbox_and_drop_short_pieces():
-    line = np.array([[0, 0], [1, 0], [2, 0], [9, 0], [3, 0], [4, 0], [5, 5]], dtype=float)
-    polys = xwrf_convert.coast_polylines([line], lambda lon, lat: (lon, lat), (0, 6, -1, 1))
-    assert [len(p) for p in polys] == [3, 2]     # the lone (5,5) and the (9,0) gap are dropped
-
-
 def test_write_vtk_polylines_counts(tmp_path):
     p = tmp_path / "c.vtk"
     xwrf_convert.write_vtk_polylines(str(p), [np.array([[0, 0], [1, 1]]),

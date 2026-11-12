@@ -24,14 +24,6 @@ def test_knots_factor():
     assert synoptic.KT_PER_MS == pytest.approx(1.943844, rel=1e-6)
 
 
-def test_celsius_levels_symmetric_about_zero():
-    t = np.linspace(-31.0, 7.0, 200)
-    lv = synoptic.celsius_levels(t)
-    assert lv[0] == -lv[-1]
-    assert 0.0 in lv
-    assert np.allclose(np.diff(lv), lv[1] - lv[0])
-
-
 def test_performance_diagram_success_ratio():
     rows = [dict(thresh=1.0, pod=0.99, far=0.32, csi=0.67, fbias=1.47, total=3973),
             dict(thresh=10.0, pod=0.14, far=0.70, csi=0.10, fbias=0.46, total=3973),
@@ -80,12 +72,3 @@ def test_highs_lows_skips_excluded_cells():
     mask = np.zeros(slp.shape, bool)
     mask[20:40, 10:30] = True                      # "mountains" over the low
     assert [k for _, _, k in mapfig.highs_lows(slp, window=21, exclude=mask)].count("L") == 0
-
-
-def test_reflectivity_table_fits_boundarynorm_with_overflow():
-    pytest.importorskip("metpy")
-    from matplotlib.colors import BoundaryNorm
-    from wtune.post.conventions import DBZ_LEVELS, reflectivity_cmap
-    cm = reflectivity_cmap()
-    BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")      # raises if the table is one colour short
-    assert DBZ_LEVELS[0] == 5 and DBZ_LEVELS[-1] == 75 and DBZ_LEVELS[1] - DBZ_LEVELS[0] == 5

@@ -147,6 +147,11 @@ def run(args):
             w.writerow([station_id(r), r["name"], r["icao"], r["lat"], r["lon"], r["elev"]])
     written.append(cat)
     files["stations.csv"] = sources.sha256_file(cat)
+    stale = [n for n in os.listdir(base) if n.endswith(".gz") and n not in files]
+    for n in stale:
+        os.remove(os.path.join(base, n))       # a station or year an earlier fetch chose
+    if stale:
+        print("stations: removed %d file(s) this selection does not use" % len(stale))
     if urls:
         urls.append(HISTORY)
     sources.write_provenance(args.project, NAME, PROVENANCE, urls, files,

@@ -96,6 +96,8 @@ _SCALE = dict(slp=("viridis", None, "neither", "minmax"), t2=("coolwarm", None, 
 SCALE_RULE = dict(rain_acc="0 .. max over all times", **{k: ("true min/max over all times"
                   if v[3] == "minmax" else "pooled 2nd-98th percentile over all times")
                   for k, v in _SCALE.items()})
+SCALE_RULE["t2"] = ("degC; 0-centred diverging if the data crosses 0 degC, else sequential "
+                    "over the true min/max")
 
 
 def fixed_scale(run_dir, field, domain, times):
@@ -118,16 +120,18 @@ def fixed_scale(run_dir, field, domain, times):
             arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None, timeidx=ti),
                                      dtype="f8"))
     if field == "rain_acc":
-        # WPC isohyet thresholds in mm (decision 0064), up to one level above the run maximum
-        from wtune.post.obs_figs import PRECIP_LEVELS, precip_cmap
-        hi = max(float(np.nanmax(a)) for a in arrays)
-        upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
-        levels = PRECIP_LEVELS[:len(upto) + 1] if len(upto) < len(PRECIP_LEVELS) else PRECIP_LEVELS
-        return [0.0] + list(levels) if len(levels) < 2 else list(levels), precip_cmap(), "max"
+        # CWA thresholds over Taiwan, else WPC's (decision 0064), up to one level above the max
+        from wtune.post.rainscale import rain_scale
+        path, ti = refs[times[0]]
+        with netCDF4.Dataset(path) as ds:
+            lat, lon = np.asarray(ds.variables["XLAT"][0]), np.asarray(ds.variables["XLONG"][0])
+        levels, cmap, _name = rain_scale(lat, lon, max(float(np.nanmax(a)) for a in arrays))
+        return levels, cmap, "max"
     if field == "t2":
-        # degC on a diverging scale centred on 0 degC (decision 0064)
-        from wtune.post.recipes.synoptic import celsius_levels
-        return celsius_levels(np.concatenate([a.ravel() for a in arrays])), "RdBu_r", "both"
+        # degC (absolute temperature, not an anomaly): diverging about 0 degC only when the
+        # data crosses freezing (decision 0064), else sequential over the data range
+        from wtune.post.recipes.synoptic import t2_scale
+        return t2_scale(np.concatenate([a.ravel() for a in arrays]))
     cmap, floor, extend, rule = _SCALE.get(field, ("viridis", None, "both", "pct"))
     if rule == "minmax":
         levels = pooled_levels(arrays, lo_pct=0.0, hi_pct=100.0, nbins=18, floor=floor)
@@ -136,12 +140,17 @@ def fixed_scale(run_dir, field, domain, times):
     return levels, cmap, extend
 
 
+# fields whose time-series map takes the post.map_overlay wind10 barbs (plot_field overlay_wind)
+WIND_OVERLAY_FIELDS = ("t2", "wspd10")
+
+
 def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, times=None,
-                            include_mcape=False):
+                            include_mcape=False, overlay=None):
     """Writes one sub-directory per selected valid time, each a full figure set (decision
     0058 P3). Returns post/recipe.py-shaped fig()/missing() records with `valid_time` set on
     every entry and a `forecast_tag` extra, so post/report.py can group and order them for
-    time-by-time navigation."""
+    time-by-time navigation. overlay: post.map_overlay; "wind10" draws 10 m wind barbs on the
+    t2 and wspd10 maps (WIND_OVERLAY_FIELDS)."""
     from wtune.post.recipe import fig, missing
     from wtune.post.plotting import plot_field
     from wtune.post import tools
@@ -181,7 +190,9 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
                 lev, cmap, extend = scales[field] or (None, None, "neither")
                 written = plot_field(run_dir, field, time_dir, domain=domain,
                                      times=[valid_time], basemap="cartopy", levels=lev,
-                                     cmap=cmap, extend=extend, gridline_labels=True)
+                                     cmap=cmap, extend=extend, gridline_labels=True,
+                                     overlay_wind="wind10" in (overlay or [])
+                                     and field in WIND_OVERLAY_FIELDS)
             except (tools.ToolNotFoundError, ImportError) as e:
                 out.append(missing(fig_id, "wrf-python/cartopy", str(e), run=run_label))
                 continue

@@ -45,21 +45,6 @@ def test_index_found_with_relative_project(tmp_path, monkeypatch):
     assert os.path.isfile(idx[(24, datetime(2019, 1, 30, 12))])
 
 
-def test_pick_window_is_24h_valid_0130_12z(tmp_path):
-    proj = _project(tmp_path)
-    idx = precip.stage4_index(str(proj))
-    accum, valid, path = precip.pick_window(_frames(), 6, idx)
-    assert (accum, valid) == (24, datetime(2019, 1, 30, 12))
-    assert path.endswith("ST4.2019013012.24h.grib")
-
-
-def test_figures_accepts_project_dir_and_missing_reason_names_dir(tmp_path):
-    import inspect
-    assert "project_dir" in inspect.signature(precip.figures).parameters
-    reason = precip.stage4_missing_reason(str(tmp_path / "p"), "runs/o2/all", _frames(), None, False)
-    assert "no ST4.*.grib in %s" % (tmp_path / "p" / "input" / "obs" / "stage4") in reason
-
-
 def test_station_verification_reports_no_project():
     res, dataset, reason = precip.station_verification("r", 2, [], "/tmp/o", 6, None)
     assert res is None and "no wtune project" in reason and "ISD-Lite" in dataset

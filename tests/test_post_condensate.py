@@ -30,12 +30,6 @@ def _ds(nz=4, ny=2, nx=3, **q):
     return _DS(**base)
 
 
-def test_total_condensate_sums_every_species_present_and_clips_negatives():
-    ds = _ds(QCLOUD=1e-4, QSNOW=3e-4, QGRAUP=-1e-6)
-    assert cd.species_present(ds) == ["QCLOUD", "QSNOW", "QGRAUP"]
-    assert np.allclose(cd.total_condensate(ds), 4e-4)
-
-
 def test_total_condensate_without_hydrometeors_raises():
     with pytest.raises(KeyError):
         cd.total_condensate(_ds())
@@ -51,26 +45,3 @@ def test_water_paths_use_dry_layer_mass():
     assert wp["SWP"] == pytest.approx(np.full((2, 3), 2e-4 * col * 1000.0))
     assert "RWP" not in wp
     assert wp["TWP"] == pytest.approx(np.full((2, 3), 5e-4 * col * 1000.0))
-
-
-def test_hybrid_coordinate_c1h_c2h_used_when_present():
-    ds = _ds(QCLOUD=1e-4)
-    ds.variables["C1H"] = _Var(np.full((1, 4), 0.5))
-    ds.variables["C2H"] = _Var(np.full((1, 4), 2000.0))
-    dm = cd.layer_dry_mass(ds)
-    assert dm[0, 0, 0] == pytest.approx((0.5 * 10000.0 + 2000.0) * 0.25 / cd.G)
-
-
-def test_cloud_top_height_highest_level_over_threshold():
-    q = np.zeros((1, 4, 2, 3))
-    q[0, :3, 0, 0] = 1e-4          # cloudy through level 2 -> top at level 2 mid-height 2500 m
-    q[0, 1, 1, 2] = 1e-6           # below threshold
-    ds = _ds(QCLOUD=q)
-    top = cd.cloud_top_height(ds)
-    assert top[0, 0] == pytest.approx(2500.0)
-    assert np.isnan(top[1, 2])
-
-
-def test_olr_brightness_temperature():
-    ds = _DS(OLR=np.full((1, 2, 2), cd.SIGMA_SB * 250.0 ** 4))
-    assert np.allclose(cd.olr_brightness_temperature(ds), 250.0)

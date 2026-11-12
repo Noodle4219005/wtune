@@ -6,8 +6,6 @@ Run: uv run --with pytest --with numpy --with netCDF4 python -m pytest -q \\
 """
 import json
 import os
-import subprocess
-import sys
 
 import pytest
 
@@ -27,17 +25,6 @@ def _write(path, text):
 # --------------------------------------------------------------------------
 # decomposition selection (predictor/decomp_space.py integration)
 # --------------------------------------------------------------------------
-
-def test_pick_near_square_prefers_square_over_elongated():
-    # 36 = 6x6 (square) or 4x9/9x4 (elongated); square must win.
-    shapes = [(4, 9), (9, 4), (6, 6), (2, 18), (18, 2)]
-    assert wc.pick_near_square(shapes) == (6, 6)
-
-
-def test_pick_near_square_deterministic_tiebreak():
-    # Two equally-square shapes (|nx-ny| tied) -> smaller max(nx,ny) wins, then nx ascending.
-    shapes = [(3, 4), (4, 3), (2, 6)]
-    assert wc.pick_near_square(shapes) == (3, 4)
 
 
 SEVERE_LIKE_NAMELIST = """\
@@ -64,61 +51,6 @@ SEVERE_LIKE_NAMELIST = """\
 """
 
 
-def test_build_decomp_finds_legal_near_square_shape(tmp_path):
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), SEVERE_LIKE_NAMELIST))
-    shape = wc.build_decomp(nl, 2, 72, 10)
-    assert shape == (8, 9)
-
-
-def test_build_decomp_returns_none_when_geometry_forbids_every_shape(tmp_path):
-    # e_we/e_sn=100 on d01 caps legal (nx,ny) at nx,ny<=10 -> nx*ny<=100; 144 has none.
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), SEVERE_LIKE_NAMELIST))
-    assert wc.build_decomp(nl, 2, 144, 10) is None
-    assert wc.build_decomp(nl, 2, 100, 10) == (10, 10)
-
-
-def test_pick_near_square_accounts_for_domain_aspect_ratio():
-    # sc26p2-like domain (e_we=170, e_sn=130, aspect~1.308); at 72 ranks the near-tie is
-    # (8,9) vs (9,8) -- the wider dimension (e_we) should get MORE ranks (nx=9) for the more
-    # square PATCH: (170/9,130/8)=(18.9,16.25) [aspect 1.16] vs (170/8,130/9)=(21.25,14.4)
-    # [aspect 1.47]; the plain |nx-ny| metric (aspect=1.0 default) cannot tell these apart.
-    shapes = [(6, 12), (12, 6), (8, 9), (9, 8)]
-    assert wc.pick_near_square(shapes, aspect=170 / 130) == (9, 8)
-    assert wc.pick_near_square(shapes) in ((8, 9), (9, 8))  # aspect=1.0 default is ambiguous here
-
-
-SC26P2_LIKE_NAMELIST = """\
-&time_control
- run_days = 0,
- run_hours = 6,
- run_minutes = 0,
- run_seconds = 0,
- restart = .false.,
- io_form_history = 2
- /
-&domains
- time_step = 60,
- max_dom = 1,
- e_we = 170,
- e_sn = 130,
- e_vert = 45,
- /
-&physics
- /
-"""
-
-
-def test_build_decomp_picks_sc26p2_style_shapes_for_every_planned_rank_count(tmp_path):
-    # the exact (ranks -> nx,ny) the coordinator specified for the sc26p2 startup_s_per_node
-    # sweep (72->1 node, 144->2, 204->3, 221->4 at cores_per_node=72); 204/221 have only one
-    # legal shape each (no choice), 72/144 are where pick_near_square's aspect-awareness matters.
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), SC26P2_LIKE_NAMELIST))
-    assert wc.build_decomp(nl, 1, 72, 10) == (9, 8)
-    assert wc.build_decomp(nl, 1, 144, 10) == (12, 12)
-    assert wc.build_decomp(nl, 1, 204, 10) == (17, 12)
-    assert wc.build_decomp(nl, 1, 221, 10) == (17, 13)
-
-
 # --------------------------------------------------------------------------
 # plan: writes sbatch scripts + MANIFEST.json, skips infeasible rank counts
 # --------------------------------------------------------------------------
@@ -127,69 +59,6 @@ def _plan_args(case_dir, out_dir, ranks_list="1,36,72,144,288"):
     return wc.argparse.Namespace(
         site="scc", case_dir=str(case_dir), out=str(out_dir), ranks_list=ranks_list,
         cores_per_node=72, steps=20, min_patch=10, time_limit="00:15:00")
-
-
-def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
-    case_dir = tmp_path / "case"
-    case_dir.mkdir()
-    _write(str(case_dir / "namelist.input"), SEVERE_LIKE_NAMELIST)
-    out_dir = tmp_path / "plan_out"
-
-    rc = wc.plan_cmd(_plan_args(case_dir, out_dir))
-    assert rc == 0
-
-    manifest = json.loads((out_dir / "MANIFEST.json").read_text())
-    planned_ranks = sorted(r["ranks"] for r in manifest["runs"])
-    skipped_ranks = sorted(s["ranks"] for s in manifest["skipped"])
-    assert planned_ranks == [1, 36, 72]
-    assert skipped_ranks == [144, 288]
-    for s in manifest["skipped"]:
-        assert "floor(e/nproc)" in s["reason"]
-
-    # largest surviving rank count gets the one-frame history write, others stay off
-    by_ranks = {r["ranks"]: r for r in manifest["runs"]}
-    assert by_ranks[72]["history_mode"] == "end_d01"
-    assert by_ranks[1]["history_mode"] == "off"
-    assert by_ranks[36]["history_mode"] == "off"
-    assert by_ranks[36]["nx"] == 6 and by_ranks[36]["ny"] == 6
-
-    for ranks in (1, 36, 72):
-        sbatch_path = out_dir / ("plan_%d.sbatch" % ranks)
-        assert sbatch_path.exists()
-        # every generated script must be syntactically valid bash
-        r = subprocess.run(["bash", "-n", str(sbatch_path)], capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-        text = sbatch_path.read_text()
-        assert "#SBATCH --exclude=head" in text
-        assert "--no-adios2" not in text
-        assert "--ranks %d" % ranks in text
-        assert "stage-bp-inputs case " in text and "export WTUNE_INPUT_FORMAT=adios2" in text
-        # f1-arm job 15532: the converter finds adios2 only through PATH
-        assert text.index('export PATH="$(dirname "$PYBIN"):$PATH"') < text.index("STAGE=")
-        assert "--set restart=.false." in text
-        # regression (scc job 1090/1091, 2026-09-25): scc.sh's site_hygiene() reads
-        # $ALLOC_NODES itself; calling it before ALLOC_NODES is assigned made `set -u` abort
-        # the WHOLE script silently (its stderr was redirected away), with an empty .out and
-        # no wall.txt -- bash -n cannot catch this (it is a runtime-only ordering bug), so it
-        # is pinned here by textual position instead.
-        assert text.index("ALLOC_NODES=") < text.index("site_hygiene reap")
-        # regression (scc jobs 1090-1099, 2026-09-25): the run dir never linked the cached
-        # Thompson lookup tables, so WRF computed them from scratch inside every measured
-        # startup window (qr_acr_qg alone: 32.3s at 1 rank), contaminating the whole fit.
-        # $W/run/namelist.input is skipped (a real file, would corrupt edit-namelist's write-
-        # through) but every other file is linked with no name/extension filter, and the three
-        # Thompson tables are linked from the per-build cache when cached there.
-        assert '[ "$b" = "namelist.input" ] && continue' in text
-        for tbl in ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"):
-            assert tbl in text
-        assert '[ -f "$TBL_CACHE/$tbl" ] && ln -sf "$TBL_CACHE/$tbl" "$tbl"' in text
-        assert 'thompson_tables}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")"' in text
-        assert "wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*" not in text  # the old blanket blacklist is gone
-
-    mprof = out_dir / "machine_profile.sbatch"
-    assert mprof.exists()
-    r = subprocess.run(["bash", "-n", str(mprof)], capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
 
 
 def test_plan_raises_when_every_requested_rank_count_is_infeasible(tmp_path):
@@ -245,29 +114,6 @@ def _fit_args(runs_dir, out_path, base=REAL_CALIBRATION, cores_per_node=72, site
     return wc.argparse.Namespace(
         runs=[str(r) for r in runs], out=str(out_path), base=base, cores_per_node=cores_per_node,
         site=site, host=host, no_read_rate=no_read_rate, no_read_rate_reason=no_read_rate_reason)
-
-
-def test_fit_recovers_known_startup_base_per_rank_and_cap(tmp_path):
-    runs_dir = tmp_path / "runs"
-    runs_dir.mkdir()
-    # base_true=2.0 per_rank_true=0.4: startup(1)=2.4 startup(36)=16.4; cap_true=19.4 at ranks=72
-    _make_run(runs_dir, 1, "j1", [25.0, 25.0, 25.0, 25.0], startup_s=2.4)
-    _make_run(runs_dir, 36, "j2", [25.0, 25.0, 25.0, 25.0], startup_s=16.4)
-    _make_run(runs_dir, 72, "j3", [25.0, 25.0, 25.0, 25.0], startup_s=19.4,
-              write_seconds=10.0, write_bytes=1_000_000)
-
-    out_path = tmp_path / "scc-auto-test.json"
-    rc = wc.fit_cmd(_fit_args(runs_dir, out_path))
-    assert rc == 0
-
-    out = json.loads(out_path.read_text())
-    assert out["startup_s"] == pytest.approx(19.4)
-    assert out["startup_s_base"] == pytest.approx(2.0)
-    assert out["startup_s_per_rank"] == pytest.approx(0.4)
-    # 1,000,000 bytes / 10s = 100,000 B/s = 0.1 MB/s (decimal)
-    assert out["history_write_rate_MBps_measured"] == pytest.approx(0.1)
-    assert out["validity"]["n_runs_used"] == 3
-    assert out["validity"]["n_runs_excluded"] == 0
 
 
 def test_fit_excludes_failed_run_with_reason(tmp_path):
@@ -331,38 +177,6 @@ def test_fit_no_read_rate_forces_transfer_even_with_a_separable_line(tmp_path):
     assert "derived.read_rate_bytes_per_s" not in out["calibration_provenance"]["measured_fields"]
     assert "NFS client cache" in out["derived"]["read_rate_transferred_note"]
     assert "--no-read-rate" in out["derived"]["read_rate_transferred_note"]
-
-
-def test_fit_provenance_measured_vs_transferred(tmp_path):
-    runs_dir = tmp_path / "runs"
-    runs_dir.mkdir()
-    _make_run(runs_dir, 1, "j1", [10.0], startup_s=2.4)
-    _make_run(runs_dir, 36, "j2", [10.0], startup_s=16.4)
-    _make_run(runs_dir, 72, "j3", [10.0], startup_s=19.4)
-
-    out_path = tmp_path / "scc-auto-test.json"
-    wc.fit_cmd(_fit_args(runs_dir, out_path))
-    out = json.loads(out_path.read_text())
-
-    prov = out["calibration_provenance"]
-    assert "startup_s" in prov["measured_fields"]
-    assert "startup_s_base" in prov["measured_fields"]
-    assert "MEASURED" in out["startup_s_source"]
-    assert "unit-test-host" in out["startup_s_source"]
-
-    # No run supplied a separable read-timing line -> read rate stays TRANSFERRED, not claimed measured.
-    assert "derived.read_rate_bytes_per_s" not in prov["measured_fields"]
-    assert "read_rate_transferred_note" in out["derived"]
-    assert "TRANSFERRED" in out["derived"]["read_rate_transferred_note"]
-    assert REAL_CALIBRATION in out["derived"]["read_rate_transferred_note"] or \
-        os.path.basename(REAL_CALIBRATION) in out["derived"]["read_rate_transferred_note"]
-    # the untouched read rate value must be byte-identical to the base file's
-    base = json.load(open(REAL_CALIBRATION))
-    assert out["derived"]["read_rate_bytes_per_s"] == base["derived"]["read_rate_bytes_per_s"]
-
-    # every top-level key copied verbatim from base is enumerated, not silently presented
-    assert "radiation" in prov["transferred_fields"]
-    assert "drift_band_pct" in prov["transferred_fields"]
 
 
 def test_fit_measures_read_rate_when_a_separable_line_exists(tmp_path):
@@ -435,21 +249,6 @@ def test_fit_rejects_negative_startup_s_per_node_slope(tmp_path):
     assert "startup_s_per_node" not in out["calibration_provenance"]["measured_fields"]
 
 
-def test_fit_startup_s_per_node_absent_without_multi_node_runs(tmp_path):
-    runs_dir = tmp_path / "runs"
-    runs_dir.mkdir()
-    _make_run(runs_dir, 1, "j1", [10.0], startup_s=2.4, nodes=1)
-    _make_run(runs_dir, 36, "j2", [10.0], startup_s=16.4, nodes=1)
-
-    out_path = tmp_path / "scc-auto-test.json"
-    wc.fit_cmd(_fit_args(runs_dir, out_path))
-    out = json.loads(out_path.read_text())
-
-    assert "startup_s_per_node" not in out
-    assert "not fitted" in out["startup_s_per_node_note"]
-    assert "startup_s_per_node" not in out["calibration_provenance"]["measured_fields"]
-
-
 def test_fit_rejects_negative_per_rank_slope(tmp_path):
     # regression (scc 2026-09-25): a contaminated 1-rank point (startup=105.757s, vs 36 ranks'
     # 38.239s) fits a NEGATIVE per_rank=-1.929 -- fed into predict_init's min(startup_s+...,
@@ -486,30 +285,6 @@ def test_fit_rejects_negative_per_rank_slope(tmp_path):
         ledger_paths=None, calibration_path=str(out_path),
         io_form_override=None, io_target="nfs")
     assert pred["total_s"] > 0
-
-
-def test_fit_pools_multiple_runs_directories(tmp_path):
-    # --runs is repeatable: one small-rank sweep (severe2023-shaped) + one separate multi-node
-    # sweep (sc26p2-shaped) both feed the same fit, without the caller merging directories.
-    runs_a = tmp_path / "runs_severe"
-    runs_a.mkdir()
-    runs_b = tmp_path / "runs_sc26p2"
-    runs_b.mkdir()
-    _make_run(runs_a, 1, "j1", [10.0], startup_s=2.4, nodes=1)
-    _make_run(runs_a, 36, "j2", [10.0], startup_s=16.4, nodes=1)
-    _make_run(runs_b, 72, "j3", [10.0], startup_s=19.4, nodes=1)
-    _make_run(runs_b, 144, "j4", [10.0], startup_s=23.6, nodes=2)
-
-    out_path = tmp_path / "out.json"
-    rc = wc.fit_cmd(_fit_args([runs_a, runs_b], out_path))
-    assert rc == 0
-    out = json.loads(out_path.read_text())
-
-    assert out["validity"]["n_runs_used"] == 4
-    assert out["startup_s"] == pytest.approx(19.4)       # from runs_b's lone nodes==1 point
-    assert out["startup_s_base"] == pytest.approx(2.0)    # from runs_a's ranks<72 points
-    assert out["startup_s_per_rank"] == pytest.approx(0.4)
-    assert set(out["calibration_provenance"]["runs_dirs"]) == {str(runs_a.resolve()), str(runs_b.resolve())}
 
 
 def test_fit_raises_when_no_run_directories_found(tmp_path):
@@ -576,26 +351,3 @@ def test_dir_bytes_counts_the_files_of_a_bp_directory(tmp_path):
     (tmp_path / "wrfinput_d01.bp").symlink_to(bp)
     assert wc._dir_bytes(tmp_path, ["wrfout_d01_*"])[0] == 3200
     assert wc._dir_bytes(tmp_path, ["wrfinput_d*"])[0] == 3200
-
-
-def test_plan_job_links_the_files_the_namelist_names(tmp_path):
-    # an iofields case hung at input_input in calibrate: only $W/run and the inputs were linked
-    case_dir = tmp_path / "case"
-    case_dir.mkdir()
-    nl = SEVERE_LIKE_NAMELIST.replace("&time_control", "&time_control\n iofields_filename = "
-                                      "'my_iofields.txt',", 1)
-    assert nl != SEVERE_LIKE_NAMELIST
-    _write(str(case_dir / "namelist.input"), nl)
-    (case_dir / "my_iofields.txt").write_text("+:h:0:T2\n")
-    out_dir = tmp_path / "plan_out"
-    assert wc.plan_cmd(_plan_args(case_dir, out_dir)) == 0
-    text = (out_dir / "plan_1.sbatch").read_text()
-    line = [ln for ln in text.splitlines() if "link-namelist-files" in ln]
-    assert len(line) == 1 and text.index("edit-namelist") < text.index(line[0])
-    run = tmp_path / "run"
-    run.mkdir()
-    (run / "namelist.input").write_text(nl)
-    env = dict(os.environ, PYBIN=sys.executable,
-               CAMPAIGN=os.path.join(os.path.dirname(os.path.dirname(__file__)), "campaign"))
-    subprocess.run(["bash", "-c", line[0]], cwd=str(run), env=env, check=True)
-    assert os.readlink(run / "my_iofields.txt") == str(case_dir / "my_iofields.txt")

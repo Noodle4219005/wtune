@@ -68,6 +68,7 @@ core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; faste
 core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share 5:00:00
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=3 configs_per_job=37 total=109 (ok)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
 round0 slot 0: submitted job 7027 (37 configs)
 round0 slot 1: submitted job 7028 (36 configs)
 round0 slot 2: submitted job 7029 (36 configs)
@@ -91,6 +92,7 @@ confirm: submitted job 7033 (5 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=5:00:00
 node search: finalist N=5 cores/node=72, budget share 10:00:00
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=2 configs_per_job=74 total=140 (ok)
+proxy: skipped (no wrfinput_d01/wrfbdy_d01 in <TMP>) -- round0 keeps its own sample
 round0 slot 0: submitted job 7034 (70 configs)
 round0 slot 1: submitted job 7035 (70 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00

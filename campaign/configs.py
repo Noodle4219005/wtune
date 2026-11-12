@@ -69,9 +69,9 @@ from namelist_streams import (  # noqa: E402,F401
     _PER_RECORD_NAME_RE, adios2_input_streams, adios2_stream_edits, namelist_file_refs,
     per_record_has, per_record_streams)
 from namelist_text import (  # noqa: E402,F401
-    _NML_NEXT_KEY_RE, _delete_key_lines, _find_namelist_key, _get_scalar_first, _has_key,
-    _insert_after_domains, _insert_after_section_header, _namelist_ints,
-    _namelist_string_values, _replace_list_line, _set_namelist_value,
+    _NML_NEXT_KEY_RE, _delete_key_lines, _find_namelist_key, _force_gsfcgce_radar_ref,
+    _get_scalar_first, _has_key, _insert_after_domains, _insert_after_section_header,
+    _namelist_ints, _namelist_string_values, _replace_list_line, _set_namelist_value,
     _set_or_insert_time_control_scalar, _set_scalar, case_start_datetime)
 from physics_templates import (  # noqa: E402,F401
     DEFAULT_SCREEN_DIR, PHYSICS_TEMPLATES_JSON_PATH, _LEDGER_PHYSICS_KEYS, _PROBE_VERDICT_RE,

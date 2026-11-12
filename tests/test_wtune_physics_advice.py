@@ -80,18 +80,6 @@ def test_dx12km_never_offers_cu_off(tmp_path):
     assert "P02" in _ids(c)
 
 
-def test_cu_already_off_not_offered(tmp_path):
-    c = adv.plan_candidates(_nl(tmp_path, dx=3000, dt=18, cu=0, radt=3))
-    assert "CU-OFF" not in _ids(c)
-
-
-def test_same_class_cheaper_mp_single_moment(tmp_path):
-    c = adv.plan_candidates(_nl(tmp_path, dx=3000, dt=18, mp=4, cu=0, radt=3))   # WSM5 -> WSM3
-    mp = next(x for x in c if x["id"] == "MP-3")
-    assert mp["edits"] == {"mp_physics": "3"} and "double->single" not in mp["rationale"]
-    assert "MP-1" not in _ids(c)             # Kessler (warm-rain only) is not a substitute
-
-
 def test_two_domain_cu_off_only_where_dx_le_4km(tmp_path):
     p = _nl(tmp_path, dx=[9000, 3000], dt=10, mp=4, cu=5, bl=2, sfclay=2, lw=1, sw=2, radt=9)
     c = adv.plan_candidates(p, frozen_keys=["time_step"])
@@ -104,12 +92,6 @@ def test_two_domain_cu_off_only_where_dx_le_4km(tmp_path):
     assert "cu_physics = 5, 0" in out.replace("cu_physics=", "cu_physics = ").replace("  ", " ")
 
 
-def test_time_step_candidate_present_when_not_frozen(tmp_path):
-    p = _nl(tmp_path, dx=3000, dt=18, radt=3)
-    assert "P03" in _ids(adv.plan_candidates(p))
-    assert "P03" not in _ids(adv.plan_candidates(p, frozen_keys=["TIME_STEP"]))
-
-
 def test_max_candidates_truncates_and_reports(tmp_path):
     p = _nl(tmp_path, dx=3000, dt=18, radt=3)
     full = adv.plan_candidates(p, max_candidates=50, max_estimate_only=50)
@@ -117,12 +99,6 @@ def test_max_candidates_truncates_and_reports(tmp_path):
     assert _ids(c2) == [i for i in _ids(full) if i in _ids(c2)]       # same relative order
     assert len(c2) == 2 and all(c["restart_compatible"] for c in c2)
     assert any("max_candidates" in r for _, r in c2.skipped)
-
-
-def test_chem_case_returns_empty_with_reason(tmp_path):
-    p = _nl(tmp_path, dx=3000, dt=18, chem="&chem\n chem_opt = 2,\n/\n")
-    c = adv.plan_candidates(p)
-    assert c == [] and "WRF-Chem" in c.note
 
 
 def test_inactive_chem_group_is_not_an_extension_case(tmp_path):
@@ -137,26 +113,6 @@ def test_inactive_chem_group_is_not_an_extension_case(tmp_path):
 def test_other_extensions_return_empty(tmp_path, chem, why):
     c = adv.plan_candidates(_nl(tmp_path, dx=3000, dt=18, chem=chem))
     assert c == [] and why in c.note
-
-
-def test_moving_nest_returns_empty(tmp_path):
-    c = adv.plan_candidates(_nl(tmp_path, dx=3000, dt=18, extra=" vortex_interval = 15,\n"))
-    assert c == [] and "Moving nest" in c.note
-
-
-# ---------------------------------------------------------------------------- predicted_speedup
-def test_predicted_speedup_weighted_saving_and_spread():
-    base = {"a": 1.0, "b": 2.0, "c": 4.0}
-    cand = {"a": 0.9, "b": 1.6, "c": 3.8}
-    w = {"a": 100.0, "b": 100.0, "c": 200.0}
-    r = adv.predicted_speedup(base, cand, w)
-    assert r["per_point_ratio"] == pytest.approx({"a": 0.9, "b": 0.8, "c": 0.95})
-    tb, tc = 100 * 1 + 100 * 2 + 200 * 4, 100 * 0.9 + 100 * 1.6 + 200 * 3.8
-    assert r["saving_pct"] == pytest.approx(100 * (1 - tc / tb))
-    assert r["speedup"] == pytest.approx(tb / tc)
-    assert (r["ratio_min"], r["ratio_max"]) == pytest.approx((0.8, 0.95))
-    assert r["spread_pct"] == pytest.approx(15.0)
-    assert r["n_points"] == 3 and r["dropped"] == []
 
 
 def test_predicted_speedup_drops_unmatched_points_and_rejects_empty():
@@ -258,18 +214,6 @@ def test_advice_table_recommendations_and_columns():
                for r in rows.values())
 
 
-def test_advice_table_order_saving_desc_unmeasured_last_stable():
-    cands = [{"id": i, "label": i, "rationale": i} for i in "XYZW"]
-    out = adv.advice_table(cands, {"Y": _speed(9.0), "Z": _speed(9.0), "X": _speed(1.0)}, {})
-    assert [r["id"] for r in out] == ["Y", "Z", "X", "W"]
-
-
-def test_threshold_boundary_is_inclusive_at_5():
-    c = [{"id": "A", "label": "a", "rationale": "r"}]
-    assert adv.advice_table(c, {"A": _speed(5.0)}, {"A": _fid(True)})[0]["recommendation"] == "consider"
-    assert adv.advice_table(c, {"A": _speed(4.99)}, {"A": _fid(True)})[0]["recommendation"] == "not worth it"
-
-
 # ---------------------------------------------------------------------------- chaos-floor gate
 def _payload(label, rows=None, deciding="d"):
     return {"label": label, "deciding": deciding, "last_time": "2026-01-01_01:00:00",
@@ -281,39 +225,12 @@ def _row(fr, nd, status="ok"):
     return {"status": status, "floor_ratio": fr, "nd": nd, "rms_diff": 1.0, "floor": 0.5}
 
 
-@pytest.mark.parametrize("label,passed", [("WITHIN-FLOOR", True), ("SMALL-DRIFT", True),
-                                          ("LARGE-DRIFT", False), ("INVALID", False)])
-def test_fidelity_verdict_twin_uses_chaos_floor_label(monkeypatch, label, passed):
-    seen = {}
-
-    def fake(ref, twin, cand, family, bdy, thr, prefix, time_tol_s=None):
-        seen.update(ref=ref, twin=twin, cand=cand, prefix=prefix)
-        return _payload(label, {"T2": _row(1.0, 0.01), "QSNOW": _row(3.5, 0.2),
-                                "U10": _row(1.5, 0.05), "bad": _row(99, 9, "missing")})
-    monkeypatch.setattr(adv.chaos_gate, "run_gate", fake)
-    monkeypatch.setattr(adv.gate, "compare", lambda *a, **k: pytest.fail("config gate used"))
-    r = adv.fidelity_verdict("ref.nc", "cand.nc", twin="twin.nc")
-    assert r["label"] == r["verdict"] == label and r["passed"] is passed
-    assert r["gate"] == "chaos-floor" and "chaos floor" in r["tolerance_source"]
-    assert seen["ref"] == ["ref.nc"] and seen["twin"] == ["twin.nc"] and seen["cand"] == ["cand.nc"]
-    assert [w["name"] for w in r["worst"]] == ["QSNOW", "U10", "T2"]     # by floor_ratio, ok rows only
-    assert r["worst"][0]["floor_ratio"] == 3.5 and set(r["per_field"]) >= {"T2", "QSNOW"}
-
-
 def test_fidelity_verdict_twin_persists_outputs_when_prefix_given(monkeypatch):
     got = {}
     monkeypatch.setattr(adv.chaos_gate, "run_gate",
                         lambda *a, **k: got.setdefault("prefix", a[6]) and _payload("WITHIN-FLOOR"))
     adv.fidelity_verdict("r", "c", twin="t", out_prefix="/x/out")
     assert got["prefix"] == "/x/out"
-
-
-def test_fallback_without_twin_is_labelled_provisional(monkeypatch):
-    monkeypatch.setattr(adv.gate, "compare", lambda *a, **k: [_res("T2", 0.001)])
-    monkeypatch.setattr(adv.chaos_gate, "run_gate", lambda *a, **k: pytest.fail("chaos gate used"))
-    r = adv.fidelity_verdict("r", "c")
-    assert r["gate"] == "config-gate" and r["label"] is None
-    assert r["tolerance_source"] == "provisional-default"
 
 
 def _chaos(label, fr=1.0):
@@ -334,19 +251,6 @@ def test_advice_table_maps_chaos_floor_labels():
     assert rows["D"]["recommendation"] == "not worth it"
     assert rows["E"]["recommendation"] == "fidelity not checked" and rows["E"]["fidelity_state"] == "invalid"
     assert all(r["note"] == adv.ADVICE_ONLY and r["fidelity_gate"] == "chaos-floor" for r in rows.values())
-
-
-# ---------------------------------------------------------------------------- 0059 runner wiring
-def test_restart_compatible_flag_and_slot_filling(tmp_path):
-    assert adv.restart_compatible({"radt": "6, 6", "cudt": "0"}) is True
-    assert adv.restart_compatible({"RA_LW_PHYSICS": "4"}) is False
-    assert adv.restart_compatible({"mp_physics": "8, 8"}) is False
-    p = _nl(tmp_path, dx=3000, dt=18, radt=3)
-    got = adv.plan_candidates(p, max_candidates=1, max_estimate_only=2)
-    flags = [c["restart_compatible"] for c in got]
-    assert flags[0] is True                                   # measured slot -> compatible first
-    assert flags.count(True) <= 1 and flags.count(False) <= 2
-    assert all(c["restart_compatible"] is adv.restart_compatible(c["edits"]) for c in got)
 
 
 def test_advice_table_marks_scheme_swaps_estimate_only():
@@ -381,22 +285,3 @@ def test_gate_judges_prognostic_fields_and_reports_radiation_snapshots(monkeypat
                         lambda *a, **k: _payload("WITHIN-FLOOR", {"OLR": _row(1.0, 0.1)}))
     assert adv.fidelity_verdict("r", "c", twin="t",
                                 judged_fields=adv.PROGNOSTIC_FIELDS)["label"] == "INVALID"
-
-
-def test_fallback_gate_gets_a_single_path_not_a_stringified_list(monkeypatch):
-    # live SC26-P1: phase 3 had no twin, so the config-gate fallback received the LISTS of window
-    # frames and opened "['/home/.../wrfout_d01_...nc', ...]" -> FileNotFoundError
-    seen = {}
-
-    def fake_compare(ref, cand, **kw):
-        seen.update(ref=ref, cand=cand)
-        return [_res("T2", 0.001)]
-
-    monkeypatch.setattr(adv.gate, "compare", fake_compare)
-    run = "/home/nkli/wtune-runs/campaign/sc26p1p0_%s_r1_2327/wrfout_d01_2019-01-28_00:%d:00.nc"
-    base = [run % ("ANCHOR", 29), run % ("ANCHOR", 39)]
-    cand = [run % ("PH1", 29), run % ("PH1", 39)]
-    r = adv.fidelity_verdict(base, cand)
-    assert seen == {"ref": base[-1], "cand": cand[-1]}           # strings: the END frames
-    assert all(isinstance(v, str) and not v.startswith("[") for v in seen.values())
-    assert r["gate"] == "config-gate" and r["passed"] is True

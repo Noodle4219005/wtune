@@ -14,8 +14,11 @@ OUT=${WTUNE_CAMPAIGN_OUT:-$HOME/wtune-runs/campaign}
 HARDWARE_ID=${WTUNE_HARDWARE_ID:-f1-grace}
 OMP_RUNTIME=nvhpc
 QUOTA_FS=home2           # mmlsquota filesystem: writes stop at the 100 G soft limit
+# 100 G quotas: the default 60 GiB (sized for scc home1, 1000 G) aborted every probe at 75 G used
+# (haitang2017, 2026-10-28); a probe writes rank 0's rsl and no history
+MIN_FREE_GIB=${MIN_FREE_GIB:-5}
 export PATH=$HOME/.pixi/bin:$PATH
-PIXI_ENV=$HOME/wtune-envs/campaign
+PIXI_ENV=${WTUNE_PIXI_ENV:-$HOME/wtune-envs/campaign}
 CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
 CASES_JSON_DEFAULT=$CAMPAIGN/cases.json
 
@@ -25,6 +28,10 @@ site_env () {
   # this Open MPI has no UCX: keep its TCP on the IPoIB network, not the 1 Gb/s eno1
   # (conus12 at 4 nodes: 0.462 -> 0.053 s/step)
   export OMPI_MCA_btl_tcp_if_include=${OMPI_MCA_btl_tcp_if_include:-10.200.0.0/14}
+  # no shared-memory BTL (~3 % more s/step on one node, 3.01 vs 2.93). It was blamed for the
+  # haitang2017 first-step SIGSEGVs, but those were mp_physics 7 writing refl_10cm with
+  # do_radar_ref = 0 (fixed by forcing do_radar_ref = 1); btl/sm has not been re-measured since
+  export OMPI_MCA_btl=${OMPI_MCA_btl:-self,tcp}
 }
 
 # site_launch <ranks> <tpn> <omp> <dist>: fills SITE_LAUNCH_CMD, same contract as scc.sh's.
@@ -35,7 +42,9 @@ site_launch () {
   local nn="${SLURM_JOB_NUM_NODES:-1}"
   [ $(( tpn * nn )) -lt "$ranks" ] && tpn=$(( (ranks + nn - 1) / nn ))
   local map="ppr:${tpn}:node:PE=${omp}"
-  if [ $(( tpn % NUMA_PER_NODE )) -eq 0 ]; then
+  # NUMA_PER_NODE=1 on a two-die node means "fill one die": ppr:<tpn>:numa would put all tpn ranks
+  # of every die on the first node (72 slots) and fail with "not enough slots" at N>=2
+  if [ "$NUMA_PER_NODE" -gt 1 ] && [ $(( tpn % NUMA_PER_NODE )) -eq 0 ]; then
     map="ppr:$(( tpn / NUMA_PER_NODE )):numa:PE=${omp}"
   fi
   SITE_LAUNCH_CMD=(mpirun -np "$ranks" --map-by "$map" --bind-to core)

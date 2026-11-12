@@ -108,6 +108,93 @@ def read_subset(path):
     return lat, lon, z, datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
 
 
+# 850 hPa wind and moisture: the low-level jet and the moisture it carries (syn_era5_850_diff)
+LEVEL_HPA = 850
+LEVEL_FIELDS = (("U850", "u_component_of_wind", 1.0, "m s-1"),
+                ("V850", "v_component_of_wind", 1.0, "m s-1"),
+                ("Q850", "specific_humidity", 1000.0, "g kg-1"))
+
+
+def level_fields_at(ds, time, bbox, margin=2.0, level=LEVEL_HPA, fields=LEVEL_FIELDS):
+    """(lat_1d, lon_1d, {name: 2-D array}) of `fields` on the `level` hPa surface nearest
+    `time`, cropped like z500_at (q scaled to g/kg)."""
+    import numpy as np
+    era5_mod = _era5_mod()
+    lat_idx, lon_idx, lon_sel = era5_mod.crop_indices(ds["latitude"].values,
+                                                      ds["longitude"].values, bbox, margin)
+    snap = ds.sel(time=np.datetime64(time), method="nearest")
+    k = int(np.argmin(np.abs(ds["level"].values - level)))
+    out = {}
+    for name, var, scale, _units in fields:
+        a = np.asarray(snap[var].isel(level=k).values)
+        out[name] = a[lat_idx, :][:, lon_idx] * scale
+    return ds["latitude"].values[lat_idx], lon_sel, out
+
+
+def level_path(project_dir, time, level=LEVEL_HPA):
+    import os
+    return os.path.join(project_dir, "input", "era5",
+                        "lev%d_%s.nc" % (level, time.strftime("%Y%m%d%H")))
+
+
+def write_level(lat, lon, fields, valid, path):
+    import os
+    import netCDF4
+    import numpy as np
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    units = {name: u for name, _v, _s, u in LEVEL_FIELDS}
+    with netCDF4.Dataset(path, "w") as dst:
+        dst.createDimension("time", 1)
+        dst.createDimension("lat", len(lat))
+        dst.createDimension("lon", len(lon))
+        t = dst.createVariable("time", "f8", ("time",))
+        t.units, t.calendar = "hours since 1970-01-01 00:00:00", "standard"
+        t[:] = netCDF4.date2num(valid, t.units)
+        dst.createVariable("lat", "f8", ("lat",))[:] = lat
+        dst.createVariable("lon", "f8", ("lon",))[:] = lon
+        for name, a in fields.items():
+            v = dst.createVariable(name, "f4", ("time", "lat", "lon"))
+            v[:] = np.asarray(a, "f4")[None]
+            v.units = units.get(name, "")
+    return path
+
+
+def read_level(path):
+    """(lat_1d, lon_1d, {name: 2-D}, valid datetime) from a file written by write_level."""
+    import netCDF4
+    import numpy as np
+    with netCDF4.Dataset(path) as ds:
+        lat = np.asarray(ds.variables["lat"][:], dtype="f8")
+        lon = np.asarray(ds.variables["lon"][:], dtype="f8")
+        fields = {n: np.ma.filled(ds.variables[n][0], np.nan).astype("f8")
+                  for n, _v, _s, _u in LEVEL_FIELDS if n in ds.variables}
+        t = netCDF4.num2date(ds.variables["time"][0], ds.variables["time"].units)
+    return lat, lon, fields, datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
+
+
+def level_for(time, bbox, project_dir=None, margin=2.0):
+    """(lat, lon, {U850, V850, Q850}, valid, source): the project's local subset, else ARCO;
+    Era5UnavailableError (naming the fetch command) when neither is reachable."""
+    import os
+    import numpy as np
+    if project_dir:
+        path = level_path(project_dir, time)
+        if os.path.exists(path):
+            lat, lon, fields, valid = read_level(path)
+            return lat, lon, fields, valid, path
+    from wtune.post.fetch import has_internet
+    if not has_internet():
+        raise Era5UnavailableError("no local ERA5 %d hPa subset%s and no internet on this node -- %s"
+                                   % (LEVEL_HPA, " at %s" % level_path(project_dir, time)
+                                      if project_dir else "", fetch_hint(project_dir)))
+    ds = open_era5()
+    check_time_covered(ds, time)
+    lat, lon, fields = level_fields_at(ds, time, bbox, margin=margin)
+    valid = ds.sel(time=np.datetime64(time), method="nearest")["time"].values
+    valid = datetime.utcfromtimestamp(valid.astype("datetime64[s]").astype(int))
+    return lat, lon, fields, valid, "ARCO"
+
+
 def fetch_hint(project_dir=None):
     """The exact login-node command that fills <project>/input/era5/ (one run in the project ->
     its path; several -> a placeholder naming the choice; no project -> say so)."""

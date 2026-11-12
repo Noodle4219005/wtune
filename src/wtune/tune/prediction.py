@@ -192,18 +192,98 @@ def _probe_plan_preview(ctx: Ctx, nodes: int, best_config: dict) -> tuple | None
         return None
 
 
+REBUILD_WPS_PER_GRIB = 4.7          # haitang2017: wps/ (ungrib + met_em) 2.4 GB per 514 MB of GRIB
+REBUILD_WINDOW_BYTES = 0.25e9       # win_*/ (real.exe output, WRF run dir): 158 MB measured
+
+
+def _check_rebuild_space(out_dir: str, grib_bytes: list) -> None:
+    """Refuse to submit when the points' WPS and WRF files will not fit where they are written
+    (GPFS quota or free space, wtune.run.space): past a soft quota ungrib dies on "Disk quota
+    exceeded" and the point is silently lost (haitang2017 tune, 2026-10-27, 3 of 5 points)."""
+    from wtune.run import space
+    need = sum(REBUILD_WPS_PER_GRIB * b + REBUILD_WINDOW_BYTES for b in grib_bytes)
+    where = os.path.abspath(out_dir)
+    while not os.path.isdir(where) and os.path.dirname(where) != where:
+        where = os.path.dirname(where)
+    free, src = space.writable_bytes(where)
+    if need > free:
+        raise RuntimeError("rebuilt points need ~%.1f GB under %s but only %.1f GB is writable "
+                           "(%s) -- free space or move --out" % (need / 1e9, out_dir, free / 1e9,
+                                                                  src))
+
+
+REBUILD_NOMINAL_GRIB = 1.05e9       # per point: GFS 0.25 deg (Sundowner: 1049 MB fetched); ERA5 514 MB
+REBUILD_NOMINAL_POINTS = 2
+
+
+def rebuild_space_short(out_dir: str) -> str | None:
+    """Why the rebuild points cannot fit under out_dir, judged before anything is fetched from the
+    nominal forcing size, or None. _check_rebuild_space refuses after the layout search, when the
+    time kept for phase 2 can no longer go to it (Sundowner on f1-arm, four tunes: 4:45 unused)."""
+    from wtune.run import space
+    need = REBUILD_NOMINAL_POINTS * (REBUILD_WPS_PER_GRIB * REBUILD_NOMINAL_GRIB + REBUILD_WINDOW_BYTES)
+    where = os.path.abspath(out_dir)
+    while not os.path.isdir(where) and os.path.dirname(where) != where:
+        where = os.path.dirname(where)
+    try:
+        free, src = space.writable_bytes(where)
+    except OSError:
+        return None
+    if need > free:
+        return "rebuilt points need ~%.1f GB under %s, %.1f GB writable (%s)" % (
+            need / 1e9, out_dir, free / 1e9, src)
+    return None
+
+
+def _clean_rebuild_points(plans: list) -> None:
+    """Drop each scored point's grib/ and wps/ (3 GB per point on haitang2017; reproducible),
+    keeping plan.json, the logs and win_*/ (rsl files, the I/O probe). WTUNE_KEEP_REBUILD=1 keeps
+    everything."""
+    import shutil
+    if os.environ.get("WTUNE_KEEP_REBUILD") == "1":
+        return
+    for plan in plans:
+        pdir = plan.get("_plan_dir")
+        for sub_dir in ("grib", "wps"):
+            if pdir:
+                shutil.rmtree(os.path.join(pdir, sub_dir), ignore_errors=True)
+
+
+def rebuild_wave(nodes: int, max_nodes: int | None = None) -> int:
+    """How many rebuild points run at once: as many `nodes`-node jobs as fit in max_nodes
+    (default the machine's), at least one."""
+    cap = max_nodes or wtune.machine.max_nodes()
+    return max(1, int(cap) // max(1, int(nodes)))
+
+
+def rebuild_env_missing() -> list[str]:
+    """The site env variables a rebuild point needs that are not set."""
+    return [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+
+
 def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, case_dir: str,
                        out_dir: str, run_start: Any, spinup_min: float = 60,
                        grib_dir: str | None = None, date_shift_to: Any = None,
                        forcing: str | None = None,
-                       measure_steps: int | None = None) -> tuple | list:
+                       measure_steps: int | None = None,
+                       point_s: float | None = None) -> tuple | list:
     """Measure the rebuild points: one coldstart plan dir + job per point, fetched/staged/
     submitted concurrently (decision 0054), scored by score_windows_from_rsl. `spinup_min` must
     equal plan_points'; each `.at` is the measured window's midpoint, not its start T. Returns
-    ([PointMeasurement], "job,job"); RuntimeError on any infrastructure failure."""
+    ([PointMeasurement], "job,job"); RuntimeError on any infrastructure failure. With `point_s`
+    (one point's estimated job time) only the points whose waves end inside the time budget are
+    fetched and submitted, the first one always; points cancelled at the budget are left out and
+    the finished ones scored."""
     if not points:
         return []
-    missing_env = [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+    left = getattr(ctx, "budget_s", float("inf")) - (ctx.elapsed() if hasattr(ctx, "elapsed") else 0.0)
+    if point_s and left < float("inf"):
+        fit = max(1, int(left // point_s)) * rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
+        if fit < len(points):
+            print("C3 rebuild: %d of %d point(s) fit the %s left at ~%s each: the first %d"
+                  % (fit, len(points), _fmt_hms(max(0.0, left)), _fmt_hms(point_s), fit))
+            points = points[:fit]
+    missing_env = rebuild_env_missing()
     if missing_env:          # job 1236: staged without these, the windows died in 3 s
         raise RuntimeError("run_rebuild_points: %s not set -- source the site env (%s) before "
                            "running the driver"
@@ -214,9 +294,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     seg_timeout_min = _budget.rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
                                                           config.get("omp", 1))
 
-    owned_lock = threading.Lock()
-
-    def _prepare_and_submit(i, p):
+    def _prepare(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
@@ -227,36 +305,76 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
+        plan["_plan_dir"] = pdir
+        return plan, sbatch_path, total_bytes
+
+    # ERA5 fetches are network-bound (~3.5 min per point): fetch and stage concurrently; the
+    # submissions go in waves that keep the points' nodes within the machine's max_nodes (a
+    # point i waits, afterany, on point i - wave), so 5 points x 3 nodes on 8 nodes run 2 at once
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
+        done = list(pool.map(lambda ip: _prepare(*ip), enumerate(points)))
+    plans = [d[0] for d in done]
+    try:
+        return _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_start)
+    finally:
+        # also on a space refusal, a budget cancel or a failed job: 2-5.7 GB per tune otherwise
+        # stayed under <out>/rebuilt/ (Sundowner on f1-arm, 2026-11-09, three tunes)
+        _clean_rebuild_points(plans)
+
+
+def _submit_and_score(ctx, points, done, plans, nodes, case_dir, out_dir, run_start):
+    owned_lock = threading.Lock()
+    _check_rebuild_space(out_dir, [d[2] for d in done])
+    wave = rebuild_wave(nodes, getattr(ctx, "max_nodes", None))
+    job_ids = []
+    for i, (_plan, sbatch_path, _b) in enumerate(done):
+        dep = (" --dependency=afterany:%s" % job_ids[i - wave]) if i >= wave else ""
         _jobs.stop_before_submit()
-        job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
+        job_id = sweep.submit_job("sbatch%s %s" % (dep, sbatch_path),
+                                  sbatch_runner=ctx.sbatch_runner)
         with owned_lock:       # owned at once: another point failing must not orphan this job
             _jobs.record_job(ctx, job_id)
-        print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
-        plan["_plan_dir"] = pdir
-        return plan, job_id
-
-    # ERA5 fetches are network-bound (~3.5 min per point): fetch and submit concurrently
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
-        done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
-    plans = [d[0] for d in done]
-    job_ids = [d[1] for d in done]
+        job_ids.append(job_id)
+        print("C3 rebuild job submitted: %s (%s)%s" % (job_id, sbatch_path, dep), flush=True)
     states = _jobs.wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    keep = list(range(len(plans)))
+    if bad and hasattr(ctx, "elapsed") and ctx.elapsed() >= getattr(ctx, "budget_s", float("inf")):
+        # wait_for_jobs cancelled them at the --minutes budget: not a failure of the jobs
+        keep = [i for i, j in enumerate(job_ids) if j not in bad]
+        if not keep:
+            raise RuntimeError("C3 rebuild job(s) %s cancelled at the time budget before they finished"
+                               % ",".join(bad))
+        # Sundowner on f1-arm: point 0 finished in 4:10, point 1 was cancelled, both were dropped
+        print("C3 rebuild: job(s) %s cancelled at the time budget; predicting from the %d point(s) "
+              "that finished" % (",".join(bad), len(keep)))
+        bad = {}
     if bad:
         raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
                            "and diagnose read-only" % bad)
     sample_points, _geom_src = predict.read_wrfinput_sample_points(case_dir)
     calibration = predict.load_calibration(predict.calibration_path())
-    measurements = []
-    for plan in plans:
-        windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
-                                                                          calibration)
+    measurements, failed = [], []
+    for i, plan in enumerate(plans):
+        if i not in keep:
+            continue
+        try:
+            windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(
+                plan, sample_points, calibration)
+        except Exception as e:                              # noqa: BLE001 -- one point, not all
+            failed.append("point %d (%s): %s: %s" % (i, points[i].at, type(e).__name__, e))
+            continue
         for w, (anchor_s, _s_k) in zip(windows_out, anchors):
             at = run_start + datetime.timedelta(seconds=anchor_s)
             measurements.append(probe_plan.PointMeasurement(
                 at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
                 n_rad=w["n_rad"], r=w["r_local"]))
+    if failed:
+        print("WARNING: %d of %d rebuilt point(s) gave no measurement -- predicting from the "
+              "rest: %s" % (len(failed), len(keep), "; ".join(failed)), flush=True)
+    if failed and not measurements:
+        raise RuntimeError("no rebuilt point gave a measurement: %s" % "; ".join(failed))
     return measurements, ",".join(job_ids)
 
 
@@ -356,6 +474,10 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
         io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case,
         rsl_paths=rsl_paths or None, include_io=False)
     text = predict.render_text(pred)
+    if entry and entry.get("fidelity"):
+        text += ("\nNOTE: the s/step above is the joint proxy's (%s), not a real N-node run; on f1 "
+                 "x86 band scores read -1 to +6%% vs real (conus25, isc-synth, Big Chill)"
+                 % entry["fidelity"])
     if drift_note:
         text += "\n" + drift_note
     if ctx.prediction_cfg.get("measure_r_rad"):
@@ -507,13 +629,33 @@ def _nearest_wrapped(wrapped: list[dict], times: list) -> list[dict]:
     return sorted(out, key=lambda w: w["index"])
 
 
-def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: float, T_est_s: float,
+PRECISION_FLOOR_MIN = 2.0     # a relative precision never asks for less than this many minutes
+
+
+def precision_minutes(precision: Any, T_est_s: float) -> float:
+    """Minutes the whole-run prediction must hit: `precision` is minutes (a number) or "N%" of
+    the run's estimated wall time T_est_s, at least PRECISION_FLOOR_MIN. A fixed +-15 min let a
+    30 min run (haitang2017, 2026-10-27) through with no prediction point: off by 38 %."""
+    text = str(precision).strip()
+    if text.endswith("%"):
+        return max(PRECISION_FLOOR_MIN, float(text[:-1]) / 100.0 * float(T_est_s or 0.0) / 60.0)
+    return float(text)
+
+
+def precision_label(precision: Any) -> str:
+    """'+-10%' or '+-15 min' for messages."""
+    text = str(precision).strip()
+    return "±%s" % text if text.endswith("%") else "±%g min" % float(text)
+
+
+def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: Any, T_est_s: float,
                            measured: bool, sample_points: Any = None, run_start: Any = None,
                            run_end: Any = None, window_s: float = 0.0) -> dict:
     """Prediction points + whole-run band for `precision_min`: wtune.cost_drivers.
     plan_points_for_case (case types, cost indicators, TC track) with each needs_rebuild time
     mapped onto the nearest planned point; on failure (printed) the fallback band table.
-    Returns {selected, band, method, source, ...}."""
+    Returns {selected, band, method, source, ...}. precision_min: minutes or "N%" of T_est_s."""
+    precision_min = precision_minutes(precision_min, T_est_s)
     api = cost_drivers
     if api is not None and getattr(api, "plan_points_for_case", None) and run_start is not None:
         try:

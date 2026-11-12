@@ -47,6 +47,13 @@
    "dataset": "MET grid_stat",
    "reason": "grid_stat rc=1",
    "run": null
+  },
+  {
+   "id": "syn_era5_850_diff",
+   "missing": true,
+   "dataset": "ERA5 (ARCO)",
+   "reason": "no local ERA5 850 hPa subset at /proj/input/era5/lev850_2005082812.nc and no internet on this node -- run `wtune post fetch-era5 --project /proj --run-dir R` on the login node",
+   "run": null
   }
  ],
  "calls": [
@@ -599,6 +606,28 @@
     "crs": "<CRS>",
     "gridline_labels": true
    }
+  ],
+  [
+   "getvar",
+   "pressure",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "uvmet",
+   1,
+   null
+  ],
+  [
+   "interplevel",
+   850.0
+  ],
+  [
+   "getvar",
+   "QVAPOR",
+   1,
+   null
   ],
   [
    "z500_for",

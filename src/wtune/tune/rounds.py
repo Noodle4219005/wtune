@@ -191,11 +191,13 @@ def _round0_topup(ctx: Ctx, configs_by_cid: dict, s_est: float, refreshed_s_est:
 
 
 def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
-    """Round 0 at ctx.nodes: ANCHOR + a diverse decomp_space sample over floor(max_nodes/nodes)
-    parallel jobs (or the full space, ctx.full_space), then the measured startup and a top-up
-    wave when the measured s/step undercuts the estimate. With `fill` and a time cap, top-up
-    waves sized off the measured startup and s/step continue until the cap (less one race job)
-    or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
+    """Round 0 at ctx.nodes: ANCHOR + a diverse decomp_space sample (or the full space,
+    ctx.full_space). With ctx.proxy the sample is ranked by proxy_stage.select and only its picks
+    are real-probed, with no top-up waves after. Without the proxy (off, or it could not run) the
+    sample is real-probed over floor(max_nodes/nodes) parallel jobs, then the measured startup and
+    a top-up wave when the measured s/step undercuts the estimate; with `fill` and a time cap,
+    top-up waves sized off the measured startup and s/step continue until the cap (less one race
+    job) or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
     s_est, s_source, n_rows = ctx.estimate_s_per_step()
     if ctx.full_space:
         return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))
@@ -222,16 +224,27 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
         print("round0: SKIP -- every candidate (including the anchor) was excluded by --config "
               "search restrictions/exclude rules")
         return [], {}, []
+    if ctx.proxy:
+        from . import proxy_stage
+        configs0 = proxy_stage.select(ctx, configs0)
 
+    wave_slots = _proxy_slots(ctx, slots)
+    if ctx.proxy_used and 2 * len(configs0) * ctx.nodes <= ROUND0_TWICE_NODES_FACTOR * ctx.max_nodes:
+        wave_slots = max(wave_slots, 2 * len(configs0))
+        # nodes for two runs of each pick at once: the race's second run goes with the first
+        print("round0: %d config(s) x 2 runs, one job each" % len(configs0))
+        configs0 = configs0 + configs0
     job_ids, configs_by_cid, rows, job_configs, states = _submit_round0_wave(
-        ctx, configs0, slots, s_est, "round0")
+        ctx, configs0, wave_slots, s_est, "round0")
     if job_ids:
         wave0_results = aggregate_by_cid(rows, configs_by_cid)
         _adopt_round0_startup(ctx, job_configs, states, wave0_results)
         refreshed_s_est = update_s_est(wave0_results, s_est)
         fill = fill and math.isfinite(ctx.budget_s)
         wave = 1
-        while (fill or (wave == 1 and refreshed_s_est < s_est)) and ctx.elapsed() < ctx.budget_s:
+        # the proxy already ranked a 3x pool: no unranked top-up waves after it
+        while (not ctx.proxy_used and (fill or (wave == 1 and refreshed_s_est < s_est))
+               and ctx.elapsed() < ctx.budget_s):
             race = _job_time_est(ctx, RACE_MAX, 1, refreshed_s_est)["total_run_s"] if fill else 0.0
             topup = _round0_topup(dataclasses.replace(ctx, budget_s=ctx.budget_s - race),
                                   configs_by_cid, s_est, refreshed_s_est, slots, wave)
@@ -524,12 +537,27 @@ def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
     all_results[cid] = again
 
 
+ROUND0_TWICE_NODES_FACTOR = 8   # round0 after the proxy: ANCHOR + 3 picks x 2 runs at N = max_nodes
+
+
+def _proxy_slots(ctx: Ctx, slots: int) -> int:
+    """Parallel jobs once the proxy ranked the layouts: one config per job, up to
+    proxy_node_cap nodes at once (queue wait is not tune time; a config takes
+    ~startup + probe steps, 4-5 min on an ISC-size case, so a job of 3 ran 14 min)."""
+    if not ctx.proxy_used:
+        return slots
+    from .proxy_stage import proxy_node_cap
+    return max(slots, proxy_node_cap(ctx) // max(1, ctx.nodes))
+
+
 def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
     """With no confirm stage (-O2) the pick rests on one run: the layouts that tie with the
     fastest (common.close_to_best) run once more, in one job, merged into their results."""
     measured = {cid: r for cid, r in all_results.items() if r.get("config")}
     cids = close_to_best({cid: r["median"] for cid, r in measured.items()},
                          wtune.machine.measured("noise_frac"))
+    if ctx.proxy_used:
+        cids = [c for c in cids if int(measured[c].get("n") or 1) < 2]   # round0 ran them twice
     if not cids:
         return
     configs = [measured[c]["config"] for c in cids]
@@ -538,12 +566,19 @@ def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
     if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
         print("race: SKIP -- no budget left for a second run of %s" % cids)
         return
-    job_id, _path, _te = submit_configs_job(ctx, configs, reps=1, name_suffix="race",
-                                            s_est=s_est, time_est=est)
+    groups = chunk_round_robin(configs, min(len(configs), _proxy_slots(ctx, 1)))
+    job_ids = []
+    for k, g in enumerate(groups):
+        g_est = estimate_run_time([(c, measured[c["id"]]["median"]) for c in g], 1, ctx.steps,
+                                  startup_s=ctx.startup_s)
+        job_id, _path, _te = submit_configs_job(ctx, g, reps=1,
+                                                name_suffix="race" if k == 0 else "race%d" % k,
+                                                s_est=s_est, time_est=g_est)
+        job_ids.append(job_id)
     print("race: submitted job %s (%s once more, within 2x noise of the fastest)"
-          % (job_id, ", ".join(cids)))
-    _jobs.wait_for_jobs(ctx, [job_id], "race")
-    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, [job_id]),
+          % (",".join(map(str, job_ids)), ", ".join(cids)))
+    _jobs.wait_for_jobs(ctx, job_ids, "race")
+    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, job_ids),
                              {c: measured[c]["config"] for c in cids})
     for cid, r in again.items():
         all_results[cid] = merge_aggs(all_results[cid], r)

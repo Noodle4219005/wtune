@@ -61,7 +61,7 @@ Follow the wtune-event skill, Part 2: find the data at the official source, down
   start=$(date +%s.%N)
   mkdir -p "$d/tmp"
   sandbox "$d" timeout 1800 pi -p --no-session --no-context-files --no-skills \
-      --skill /work/wtune/.claude/skills/wtune-event --model "$model" --thinking "$thinking" \
+      --skill /work/wtune/skills/wtune-event --model "$model" --thinking "$thinking" \
       --tools read,bash,edit,write --mode json "$prompt" > "$d/events.jsonl" 2> "$d/stderr.txt"
   rc=$?
   usage=$(python3 "$here/usage.py" "$d/events.jsonl" "$d/reply.txt")

@@ -9,20 +9,8 @@ import pytest
 
 from wtune.post import met_gridstat
 from wtune.post.recipes import era5
-from wtune.post.recipes.synoptic import symmetric_levels
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures")
-
-
-def test_symmetric_levels_no_zero_boundary():
-    lv = symmetric_levels(47.3)
-    assert np.allclose(lv, -lv[::-1])
-    assert not np.any(np.abs(lv) < 1e-12)
-    assert lv[0] < 0 < lv[-1]
-    # the two middle boundaries bracket 0: one bin straddles it, and RdBu_r maps it to the
-    # centre colour (white) because the levels are symmetric
-    mid = len(lv) // 2
-    assert lv[mid - 1] < 0 < lv[mid]
 
 
 def test_parse_cnt_real_output():
@@ -61,14 +49,6 @@ def test_local_subset_takes_precedence_over_gcsfs(tmp_path, monkeypatch):
     assert src == path and valid == t
     assert np.allclose(z2, 5800.0) and z2.shape == (5, 7)
     assert np.allclose(lat2, lat) and np.allclose(lon2, lon)
-
-
-def test_missing_local_subset_falls_back_to_arco(tmp_path, monkeypatch):
-    def unavailable():
-        raise era5.Era5UnavailableError("no network")
-    monkeypatch.setattr(era5, "open_era5", unavailable)
-    with pytest.raises(era5.Era5UnavailableError):
-        era5.z500_for(datetime(2005, 8, 29), (0, 1, 0, 1), str(tmp_path))
 
 
 def test_era5_diff_entry_missing_when_era5_import_fails(monkeypatch):

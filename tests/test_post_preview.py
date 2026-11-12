@@ -74,3 +74,22 @@ def test_each_preview_figure_gets_its_values_as_netcdf_under_its_figures_name(tm
                                   for d in (1, 2)])
     with netCDF4.Dataset(nested) as ds:
         assert os.path.basename(nested) == "common_domain_map.nc" and sorted(ds.groups) == ["d01", "d02"]
+
+
+def test_stage4_only_for_a_grid_with_cells_over_the_us(tmp_path):
+    # haitang2017 d01 (2026-10-27): its NE corner crosses the date line, so its lat/lon box was
+    # -180..180 and "overlapped" Stage IV
+    import netCDF4
+    import numpy as np
+    from wtune.post import preview
+    lat, lon = np.meshgrid(np.linspace(-7, 41, 20), np.linspace(78, 200, 30), indexing="ij")
+    lon = np.where(lon > 180, lon - 360, lon)
+    for name, lo in (("asia", lon), ("us", lon - 200)):
+        with netCDF4.Dataset(str(tmp_path / name), "w") as d:
+            d.createDimension("Time", 1)
+            d.createDimension("y", 20)
+            d.createDimension("x", 30)
+            d.createVariable("XLAT", "f4", ("Time", "y", "x"))[:] = lat[None]
+            d.createVariable("XLONG", "f4", ("Time", "y", "x"))[:] = lo[None]
+    assert not preview._grid_in_box(str(tmp_path / "asia"), preview.STAGE4_BOX)
+    assert preview._grid_in_box(str(tmp_path / "us"), preview.STAGE4_BOX)

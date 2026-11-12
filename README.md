@@ -19,6 +19,12 @@ wtune submit      # 調校 → 執行 → 後處理，一次做完
 
 完整指令表在 [`docs/reference/cli.md`](docs/reference/cli.md)。
 
+## 結構
+
+![WTune 結構圖：指令、五個階段、模組與站點層](docs/figures/wtune-structure.svg)
+
+實線是階段內的流程，虛線是階段之間交接的資料；每個 job 都經過 `campaign/sites/<site>.sh` 與 Slurm（或 `mpirun --host`）啟動未修改的 WRF。原始檔是 [`docs/figures/wtune-structure.tex`](docs/figures/wtune-structure.tex)，用 `pdflatex` 重編。
+
 ## 不改什麼
 
 WTune 只動三樣東西：namelist、啟動方式（`mpirun` 參數）、環境變數。它不修改 WRF 原始檔，也不用 `LD_PRELOAD`、`--wrap`、PMPI 介入 `wrf.exe`。
@@ -65,6 +71,7 @@ pixi run --manifest-path envs/docs/pixi.toml serve      # MkDocs，原始檔在 
 | `envs/` | pixi 與 spack 環境 |
 | `tests/` | 測試 |
 | `docs/` | MkDocs 文件 |
+| `AGENT.md`、`skills/` | 給 agent（任何 harness）或手動操作者的工作說明：安裝與全部指令（`wtune-operate`）、事件與觀測（`wtune-event`）、審圖與判讀（`wtune-post`）；`.claude/skills/` 只是給 Claude Code 的連結 |
 | `examples/` | 設定檔範例 |
 | `results/derived-data/` | 報告數字背後的處理後資料 |
 | `archive/` | 已退役、沒有現行程式匯入的程式碼：`plov/`、`research/`、`experiments/`、`profilers/`、`deprecated/`、`unused-2026-10/` |

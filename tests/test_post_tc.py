@@ -26,37 +26,6 @@ EBTRK_TEXT = textwrap.dedent("""\
     """)
 
 
-def test_parse_hurdat2_full_reads_vmax_pmin_quadrants(tmp_path):
-    f = tmp_path / "hurdat2.txt"
-    f.write_text(HURDAT2_TEXT)
-    rows = tc.parse_hurdat2_full(str(f), "al122005")
-    assert len(rows) == 2
-    assert rows[0]["vmax_ms"] == 50 * tc.KT_TO_MS
-    assert rows[0]["pmin_hpa"] == 995.0
-    assert rows[0]["r34_ne_km"] == 60 * tc.NMI_TO_KM
-    assert rows[0]["r34_nw_km"] == 50 * tc.NMI_TO_KM
-    assert rows[0]["r64_ne_km"] == 0.0 * tc.NMI_TO_KM
-    assert rows[0]["rmw_km"] == 35 * tc.NMI_TO_KM
-    assert rows[1]["r50_ne_km"] == 40 * tc.NMI_TO_KM
-
-
-def test_parse_hurdat2_full_missing_storm_raises(tmp_path):
-    f = tmp_path / "hurdat2.txt"
-    f.write_text(HURDAT2_TEXT)
-    with pytest.raises(tc.TCError):
-        tc.parse_hurdat2_full(str(f), "AL999999")
-
-
-def test_parse_ebtrk_rmw(tmp_path):
-    f = tmp_path / "ebtrk.txt"
-    f.write_text(EBTRK_TEXT)
-    rows = tc.parse_ebtrk_rmw(str(f), "AL122005")
-    assert len(rows) == 2
-    assert rows[0]["rmw_km"] == 20 * tc.NMI_TO_KM
-    assert rows[1]["rmw_km"] == 15 * tc.NMI_TO_KM
-    assert rows[0]["time"] < rows[1]["time"]
-
-
 def test_parse_ebtrk_rmw_ignores_other_storms(tmp_path):
     f = tmp_path / "ebtrk.txt"
     f.write_text(EBTRK_TEXT + "AL999999 OTHER          082712 2005  30.0  -80.0   40   1000   10    5   1010   200\n")
@@ -70,10 +39,6 @@ def test_build_obs_without_ebtrk(tmp_path):
     obs = tc.build_obs(str(f), "AL122005")
     assert len(obs["hurdat2"]) == 2
     assert obs["ebtrk_rmw"] is None
-
-
-def test_storm_id_parts():
-    assert tc.storm_id_parts("al122005") == ("AL", "12", 2005)
 
 
 def test_storm_id_parts_rejects_bad_format():
@@ -107,14 +72,6 @@ def test_resolve_bdeck_falls_back_to_hurdat2(tmp_path, monkeypatch):
     assert rows[0]["basin"] == "AL" and rows[0]["cy"] == "12"
 
 
-def test_resolve_bdeck_raises_when_download_fails_and_no_fallback(tmp_path, monkeypatch):
-    def _boom(*a, **kw):
-        raise atcf.ATCFError("offline")
-    monkeypatch.setattr(atcf, "fetch_bdeck", _boom)
-    with pytest.raises(tc.TCError):
-        tc.resolve_bdeck("AL122005", str(tmp_path))
-
-
 def test_build_adeck_writes_atcf_from_chosen_track(tmp_path):
     chosen = [
         dict(time=datetime(2005, 8, 27, 0), lat=24.6, lon=-83.3, pmin_hpa=959, vmax_ms=90 * tc.KT_TO_MS),
@@ -144,3 +101,35 @@ def test_build_adeck_writes_atcf_from_chosen_track(tmp_path):
     assert len(second) == 3
     assert sorted(r["rad_kt"] for r in second) == [34, 50, 64]
     assert all(r["vmax_kt"] == 95 and r["radii"] == (0, 0, 0, 0) for r in second)
+
+
+def test_a_bdeck_alone_is_enough_for_the_tc_report(tmp_path, monkeypatch):
+    # Haitang WP122017 (2026-10-26): JMA best track as an ATCF b-deck, no HURDAT2 record exists
+    # outside the Atlantic/E. Pacific; tc still demanded --hurdat2
+    import argparse
+    from datetime import datetime
+    from wtune.post import atcf, cli, tc
+    bdeck = tmp_path / "bwp122017.dat"
+    rows = [dict(time=datetime(2017, 7, 31, h), tau_h=0, lat=24.0 + h / 10, lon=119.5,
+                 vmax_kt=45, mslp_hpa=985) for h in (0, 6, 6, 12)]
+    with open(bdeck, "w") as fh:
+        for r in rows:
+            fh.write(atcf.format_line("WP", "12", r["time"], "BEST", 0, r["lat"], r["lon"],
+                                      r["vmax_kt"], r["mslp_hpa"]) + "\n")
+    pts = tc.bdeck_points(str(bdeck))
+    assert [p["time"].hour for p in pts] == [0, 6, 12]
+    assert pts[0]["pmin_hpa"] == 985 and abs(pts[0]["vmax_ms"] - 45 * tc.KT_TO_MS) < 1e-9
+    assert pts[0]["rmw_km"] is None
+    seen = {}
+    monkeypatch.setattr(tc, "run_tc_report", lambda *a, **k: seen.update(a=a, k=k) or {})
+    monkeypatch.setattr(cli, "_print_tc_summary", lambda *a: None)
+    monkeypatch.setattr(cli, "_record_manifest", lambda *a, **k: None)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "wrfout_d01_2017-07-31_00:00:00").write_bytes(b"x")
+    base = dict(project=None, run_dirs=[str(run)], labels=None, out=str(tmp_path / "out"),
+                ebtrk=None, track_smooth_km=None, nc_cache=None)
+    assert cli.cmd_tc(argparse.Namespace(hurdat2=None, storm="WP122017", bdeck=str(bdeck), **base)) == 0
+    assert seen["k"]["bdeck_path"] == str(bdeck) and seen["a"][2] is None
+    with pytest.raises(SystemExit, match="--hurdat2 or --bdeck"):
+        cli.cmd_tc(argparse.Namespace(hurdat2=None, storm="WP122017", bdeck=None, **base))

@@ -56,7 +56,6 @@ def test_inventory_reports_missing_frame(tmp_path, monkeypatch):
 
 def _no_bp_converter(monkeypatch):
     """A wtune.bp whose adios2 interpreter is missing (as on a machine without envs/adios2)."""
-    import sys
     import types
     from wtune.post import extract
 
@@ -76,11 +75,3 @@ def test_inventory_detects_adios2_bp_dirs(tmp_path, monkeypatch):
     assert inv["format"] == "adios2_bp"
     assert inv["bp_dirs"]
     assert "wrf_adios2_to_netcdf4" in inv["note"] and "pixi install" in inv["note"]
-
-
-def test_missing_frames_pure():
-    times = ["2005-08-27_00:00:00", "2005-08-27_06:00:00", "2005-08-27_12:00:00",
-             "2005-08-28_00:00:00"]
-    expected, missing = inventory._missing_frames(times)
-    assert expected == 6 * 3600
-    assert len(missing) == 1

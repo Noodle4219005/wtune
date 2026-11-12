@@ -104,7 +104,8 @@ def test_radius_time_plot_is_cyclonic_positive_in_the_sh(monkeypatch, tmp_path):
             nc.createVariable(name, "f8", ("Time", "y", "x"))[0] = a
     monkeypatch.setattr(tc_extra.atcf, "parse_file", lambda p: [
         {"tau_h": h, "time": datetime(2020, 1, 1), "lat": lat0, "lon": lon0} for h in (0, 6)])
-    monkeypatch.setattr(tc_extra, "frame_ref", lambda run_dir, domain, t: (path, 0))
+    monkeypatch.setattr(tc_extra, "list_frame_refs", lambda run_dir, domain=1: [
+        ("2020-01-01_00:00:00", path, 0), ("2020-01-01_06:00:00", path, 0)])
     grids = []
     import matplotlib.axes
     real = matplotlib.axes.Axes.pcolormesh
@@ -114,6 +115,44 @@ def test_radius_time_plot_is_cyclonic_positive_in_the_sh(monkeypatch, tmp_path):
     g = grids[0]
     np.testing.assert_allclose(g[1:8], 20.0, atol=0.5)      # +20 m/s, not -20 or 20 cos(alpha)
     assert np.isnan(g[-1]).all()                            # 375-400 km: beyond the domain
+
+
+def test_radius_time_plot_has_a_column_only_where_a_frame_is(monkeypatch, tmp_path):
+    # hourly a-deck on 3-hourly output: two empty columns out of three (haitang2017); a history
+    # time a few time steps off the hour is the same frame
+    monkeypatch.setattr(tc_extra.atcf, "parse_file", lambda p: [
+        {"tau_h": h, "time": datetime(2017, 7, 31), "lat": 25.0, "lon": 120.0}
+        for h in range(0, 10)])
+    refs = [("2017-07-31_00:00:00", "/f0", 0), ("2017-07-31_03:01:30", "/f3", 0),
+            ("2017-07-31_06:00:00", "/f6", 0), ("2017-07-31_09:30:00", "/f9", 0)]
+    monkeypatch.setattr(tc_extra, "list_frame_refs", lambda run_dir, domain=1: refs)
+    opened = []
+
+    class DS:
+        def __init__(self, p):
+            opened.append(p)
+            self.variables = {k: np.zeros((1, 5, 5)) for k in
+                              ("XLAT", "XLONG", "U10", "V10", "SINALPHA")}
+            self.variables["COSALPHA"] = np.ones((1, 5, 5))
+
+        def getncattr(self, name):
+            return 3000.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr("netCDF4.Dataset", DS)
+    monkeypatch.setattr(tc_extra, "ring_means", lambda vt, rr, bins, dx: np.ones(len(bins) - 1))
+    xs = []
+    import matplotlib.axes
+    real = matplotlib.axes.Axes.pcolormesh
+    monkeypatch.setattr(matplotlib.axes.Axes, "pcolormesh",
+                        lambda self, x, y, g, **kw: xs.append(list(x)) or real(self, x, y, g, **kw))
+    assert tc_extra.radius_time_plot("/run", "adeck", str(tmp_path / "rt.png"))
+    assert xs[0] == [0.0, 3.0, 6.0] and opened == ["/f0", "/f3", "/f6"]   # 09:30 is too far
+    assert tc_extra.nearest_frame(refs, datetime(2017, 7, 31, 9)) is None
 
 
 # ---- 3: cyclonic is positive in both hemispheres
@@ -191,11 +230,49 @@ def test_synoptic_charts_survive_a_missing_field(monkeypatch, tmp_path):
                         lambda c, fig: (_ for _ in ()).throw(KeyError("U")))
     monkeypatch.setattr(synoptic, "_model_bbox", lambda np_, ds: (0, 1, 0, 1))
     monkeypatch.setattr(synoptic, "_era5_diff_entry", lambda *a: {"id": "era5"})
+    monkeypatch.setattr(synoptic, "_era5_850_entry", lambda *a: {"id": "era5_850"})
     out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
     assert _ids(out) == [("_z500_vort_chart", False), ("_slp_thickness_chart", False),
                          ("_thetae850_chart", False), ("syn_250_jet", True),
-                         ("_t2_wind10_chart", False), ("era5", False)]
+                         ("_t2_wind10_chart", False), ("era5", False), ("era5_850", False)]
     assert out[3]["reason"] == "history stream lacks U (iofields-reduced output?)"
+
+
+def test_synoptic_reads_the_850_hpa_fields_while_the_wrfout_is_open(monkeypatch, tmp_path):
+    # haitang2017: the ERA5 entries ran after `with Dataset` closed the file; reading the 850 hPa
+    # wind there raised "NetCDF: Not a valid ID" and the whole synoptic set became one entry
+    state = {"open": False}
+
+    class DS(_DS):
+        def __enter__(self):
+            state["open"] = True
+            return self
+
+        def __exit__(self, *a):
+            state["open"] = False
+            return False
+    monkeypatch.setattr(synoptic, "_post_spinup_time",
+                        lambda *a: (("2020-01-01_00:00:00", "/p", 0), []))
+    monkeypatch.setattr("netCDF4.Dataset", lambda p: DS())
+    monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace())
+    monkeypatch.setattr("wtune.post.conventions.ds_time_label", lambda ds, t: t)
+    monkeypatch.setattr(synoptic, "_read_shared_fields", lambda c: None)
+    for name in ("_z500_vort_chart", "_slp_thickness_chart", "_thetae850_chart",
+                 "_t2_wind10_chart", "_jet250_chart"):
+        monkeypatch.setattr(synoptic, name, lambda c, *a, _n=name: {"id": _n})
+    monkeypatch.setattr(synoptic, "_model_bbox", lambda np_, ds: (0, 1, 0, 1))
+    monkeypatch.setattr(synoptic, "_era5_diff_entry", lambda *a: {"id": "era5"})
+    seen = []
+    monkeypatch.setattr(synoptic, "_model_850", lambda c: seen.append(state["open"]) or {"U850": 1})
+    monkeypatch.setattr(synoptic, "_era5_850_entry",
+                        lambda c, r, p, b, f, mi, m, box: {"id": "850", "m": m})
+    out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
+    assert seen == [True] and out[-1] == {"id": "850", "m": {"U850": 1}}
+    monkeypatch.setattr(synoptic, "_model_850", lambda c: (_ for _ in ()).throw(KeyError("QVAPOR")))
+    out = synoptic.figures(["/run"], ["r"], str(tmp_path), {})
+    assert [o["id"] for o in out][:5] == ["_z500_vort_chart", "_slp_thickness_chart",
+                                         "_thetae850_chart", "_jet250_chart", "_t2_wind10_chart"]
+    assert "QVAPOR" in out[-1]["m"]
 
 
 def test_pbl_time_height_survives_a_failing_cross_section(monkeypatch, tmp_path):
@@ -221,10 +298,10 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
     def boom(exc):
         return lambda *a, **k: (_ for _ in ()).throw(exc)
     info = {"domains": [{"domain": 1}]}
-    monkeypatch.setattr(terrain, "_terrain_wind_map", lambda *a: "w.png")
+    monkeypatch.setattr(terrain, "_terrain_wind_map", lambda *a, **k: "w.png")
     monkeypatch.setattr(terrain, "_cross_section_figure", boom(KeyError("W")))
     monkeypatch.setattr(terrain, "_rain_over_terrain", boom(KeyError("RAINC")))
-    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: ("v.png", None))
+    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a, **k: ("v.png", None))
     monkeypatch.setattr(terrain, "list_frame_refs", boom(IndexError("x")))
     monkeypatch.setattr(terrain, "_point_stat", boom(ValueError("bad obs")))
     out = terrain.figures(["/run"], ["r"], str(tmp_path), info, project_dir=str(tmp_path))
@@ -233,9 +310,9 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
                          ("terrain_leeward_station", True), ("terrain_point_stat", True)]
     assert "lacks RAINC" in out[2]["reason"]
 
-    monkeypatch.setattr(moisture, "_pw_figure", lambda *a: "pw.png")
+    monkeypatch.setattr(moisture, "_pw_figure", lambda *a, **k: "pw.png")
     monkeypatch.setattr(moisture, "_pw_change_figure", boom(KeyError("QVAPOR")))
-    monkeypatch.setattr(moisture, "_ivt_figure", lambda *a: "ivt.png")
+    monkeypatch.setattr(moisture, "_ivt_figure", lambda *a, **k: "ivt.png")
     monkeypatch.setattr(moisture, "_cross_section_figure", boom(IndexError("x")))
     monkeypatch.setattr(moisture, "_point_time_height", boom(KeyError("HGT")))
     out = moisture.figures(["/run"], ["r"], str(tmp_path), info, tc_centre=(20.0, 130.0))
@@ -247,9 +324,9 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
 
 def test_terrain_point_stat_not_repeated_on_the_precip_domain(monkeypatch, tmp_path):
     for name in ("_terrain_wind_map", "_rain_over_terrain"):
-        monkeypatch.setattr(terrain, name, lambda *a: None)
+        monkeypatch.setattr(terrain, name, lambda *a, **k: None)
     monkeypatch.setattr(terrain, "_cross_section_figure", lambda *a, **k: None)
-    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: (None, "x"))
+    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a, **k: (None, "x"))
     monkeypatch.setattr(terrain, "list_frame_refs", lambda *a, **k: [])
     calls = []
     monkeypatch.setattr(terrain, "_point_stat",
@@ -278,7 +355,7 @@ def test_valley_time_height_barbs_are_in_kt(monkeypatch, tmp_path):
                 "uvmet": np.stack([z * 0.0 + 10.0, z * 0.0])}[name]
     monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace(
         getvar=getvar, latlon_coords=lambda v, as_np=True: (np.zeros((ny, nx)),) * 2))
-    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds: (7, 7))
+    monkeypatch.setattr(terrain, "_find_valley_point", lambda hgt, landmask, bounds, **k: (7, 7))
     barbs, titles = [], []
     monkeypatch.setattr(matplotlib.axes.Axes, "barbs",
                         lambda self, x, y, u, v, **kw: barbs.append((u, v)))
@@ -417,3 +494,28 @@ def test_repro_envelope_compare_error_is_one_missing_entry(monkeypatch, tmp_path
     out = common.figures(["/a", "/b"], ["a", "b"], str(tmp_path), {}, decomposition_only=True)
     assert _ids(out) == [("common_domain_map", False), ("common_repro_envelope", True)]
     assert out[1]["reason"] == "diffwrf rc=2"
+
+
+def test_era5_850_box_stats_are_the_case_area_means(tmp_path):
+    # a d01-wide RMSE says little about the Taiwan Strait; the box means of the matched cells
+    # do. MET's pairs file holds only DIFF_* (haitang2017: "no FCST_*/OBS_* raw fields")
+    netCDF4 = pytest.importorskip("netCDF4")
+    from wtune.post import met_gridstat
+    from datetime import datetime
+    lat, lon = np.arange(20.0, 26.0), np.arange(118.0, 124.0)
+    p = str(tmp_path / "pairs.nc")
+    with netCDF4.Dataset(p, "w") as ds:
+        ds.createDimension("lat", len(lat))
+        ds.createDimension("lon", len(lon))
+        ds.createVariable("lat", "f8", ("lat",))[:] = lat
+        ds.createVariable("lon", "f8", ("lon",))[:] = lon
+        d = np.full((6, 6), 2.0)
+        d[:2] = 9.0                                        # 20-21N: outside the box below
+        d[3, 3] = np.nan                                   # not matched (masked)
+        ds.createVariable("DIFF_F_WSPD850_0_all_all_O_WSPD850_0_all_all_INTERIOR", "f4",
+                          ("lat", "lon"))[:] = d
+    o = met_gridstat._write_regular_nc(lat, lon, np.full((6, 6), 8.0), datetime(2017, 8, 1, 23),
+                                       str(tmp_path / "era5_WSPD850.nc"), name="O_WSPD850")
+    got = synoptic.box_stats(p, o, (22.0, 25.0, 119.0, 122.0))
+    assert got == {"model": 10.0, "era5": 8.0, "bias": 2.0, "n": 15}
+    assert synoptic.box_stats(p, o, (40.0, 41.0, 119.0, 122.0)) is None

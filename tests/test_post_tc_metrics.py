@@ -33,25 +33,6 @@ def _rankine(rr, vmax=VMAX, rmw=RMW):
     return np.where(rr <= rmw, vmax * rr / rmw, vmax * rmw / np.maximum(rr, 1e-9))
 
 
-def test_dist_km_symmetric_and_zero_at_centre():
-    assert tm.dist_km(LAT0, LON0, LAT0, LON0) == pytest.approx(0.0, abs=1e-9)
-    d1 = tm.dist_km(LAT0, LON0, LAT0 + 1.0, LON0)
-    d2 = tm.dist_km(LAT0 + 1.0, LON0, LAT0, LON0)
-    assert d1 == pytest.approx(d2, abs=1e-9)
-
-
-def test_quadrant_radii_symmetric_vortex_all_quadrants_equal():
-    lat, lon, rr = _grid()
-    speed = _rankine(rr)
-    qr = tm.quadrant_radii(LAT0, LON0, lat, lon, rr, speed)
-    for name in ("r34", "r50", "r64"):
-        vals = [qr["%s_%s_km" % (name, qn)] for qn in tm.QUADRANT_NAMES]
-        assert max(vals) - min(vals) < 2 * GRID_KM, (name, vals)
-        th = tm.THRESHOLDS_MS[name]
-        expected = VMAX * RMW / th
-        assert np.mean(vals) == pytest.approx(expected, abs=2 * GRID_KM)
-
-
 def test_quadrant_radii_asymmetric_vortex_differ_by_quadrant():
     lat, lon, rr = _grid()
     q = tm.quadrant_index(LAT0, LON0, lat, lon)

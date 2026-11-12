@@ -13,7 +13,9 @@ from typing import Any, Callable
 
 from wtune.post import met_gridstat, tools
 from wtune.post.extract import list_frame_refs
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 KT_PER_MS = 1.943844          # kt per m s-1
 _SYNOPTIC_DOMAIN = 1          # read on d01, the domain the extent test used
@@ -21,13 +23,16 @@ _THICKNESS_DIVIDE = 540.0     # dam; rain/snow line of the classic surface chart
 _HGT_HIGH_TERRAIN_M = 500.0   # no H/L centres where SLP is a reduction over terrain above this
 
 
-def _post_spinup_time(run_dir: str, domain: int, spinup_hours: float) -> tuple:
-    """(last frame at least spinup_hours after the first, else the last frame; all frames)."""
+def _post_spinup_time(run_dir: str, domain: int, spinup_hours: float, map_time=None) -> tuple:
+    """(the frame nearest map_time, else the last frame at least spinup_hours after the first,
+    else the last frame; all frames)."""
     from datetime import datetime
     from wtune.post.caseinfo import WRF_TIME_FMT
     frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if not frames:
         return None, []
+    if map_time is not None:
+        return frame_at(frames, map_time), frames
     t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT)
     post = [f for f in frames
            if (datetime.strptime(f[0], WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours]
@@ -159,6 +164,7 @@ def _slp_thickness_chart(c: _Chart, fig: Callable) -> dict:
     """Classic surface chart (decision 0064): isobars every 4 hPa with H/L + thickness
     (z500 - z1000 differenced here; wrf-python has no thickness getvar)."""
     np = c.np
+    from wtune.post.recipes.mapfig import slp_isobar_field
     slp = np.asarray(c.wrf.getvar(c.ds, "slp", timeidx=c.ti, units="hPa"), dtype="f8")
     thickness_dam = (c.z500_ext - c.z1000_ext) / 10.0
     slp_levels = np.arange(4.0 * np.floor(np.nanmin(slp) / 4.0), np.nanmax(slp) + 4.0, 4.0)
@@ -168,7 +174,8 @@ def _slp_thickness_chart(c: _Chart, fig: Callable) -> dict:
                "%s d01 SLP (isobars every 4 hPa) + 1000-500 hPa thickness (dashed, dam)  %s\n"
                "1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)"
                % (c.run_label, c.tlabel),
-               contour_field=slp, contour_levels=slp_levels, contour_label_fmt="%d",
+               contour_field=slp_isobar_field(slp, c.ds.variables["HGT"][0]),
+               contour_levels=slp_levels, contour_label_fmt="%d",
                contours=th_sets, hl_field=slp,
                hl_exclude=np.asarray(c.ds.variables["HGT"][0]) > _HGT_HIGH_TERRAIN_M,
                ds=c.ds, crs=c.crs, gridline_labels=True,
@@ -225,19 +232,21 @@ def _jet250_chart(c: _Chart, fig: Callable) -> dict:
 
 
 def _t2_wind10_chart(c: _Chart, fig: Callable) -> dict:
-    """Surface chart (decision 0064): T2 (degC) diverging about 0 degC, 0 degC bold, barbs in kt."""
+    """Surface chart (decision 0064): T2 (degC) on t2_scale (diverging about 0 degC when the field
+    crosses freezing, else sequential), 0 degC bold where it occurs, barbs in kt."""
     np, wrf_mod, ds, ti = c.np, c.wrf, c.ds, c.ti
     t2c = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=ti), dtype="f8") - 273.15
     u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
     v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
-    t2_levels = celsius_levels(t2c)
+    t2_levels, t2_cmap, t2_extend = t2_scale(t2c)
+    freezing = float(np.nanmin(t2c)) < 0.0 < float(np.nanmax(t2c))
     p5 = os.path.join(c.out_dir, "syn_t2_wind10.png")
     c.save_map(p5, c.lats, c.lons,
                "%s d01 T2 (degC, 0 degC bold) + 10 m wind (kt)  %s" % (c.run_label, c.tlabel),
-               fill_field=t2c, fill_label="T2 (degC)", fill_cmap="RdBu_r",
-               fill_levels=t2_levels, fill_extend="both",
+               fill_field=t2c, fill_label="T2 (degC)", fill_cmap=t2_cmap,
+               fill_levels=t2_levels, fill_extend=t2_extend,
                contours=[dict(field=t2c, levels=[0.0], colors="k", linewidths=1.6,
-                              label="0 degC isotherm")],
+                              label="0 degC isotherm")] if freezing else [],
                u=u10, v=v10, barb_factor=KT_PER_MS, barb_label="wind barbs in kt",
                ds=ds, crs=c.crs, gridline_labels=True)
     return fig("syn_t2_wind10", p5, c.run_label, domain="d01", valid_time=c.time_str)
@@ -286,15 +295,184 @@ def _era5_diff_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig:
         return missing("syn_era5_diff", "MET grid_stat", str(e))
 
 
+def _model_850(c: _Chart) -> dict:
+    """Model 850 hPa earth-relative wind (m/s) and specific humidity (g/kg) on the WRF grid;
+    NaN where 850 hPa is below the ground."""
+    np, wrf_mod = c.np, c.wrf
+    p = wrf_mod.getvar(c.ds, "pressure", timeidx=c.ti)
+    uv = np.asarray(wrf_mod.interplevel(wrf_mod.getvar(c.ds, "uvmet", timeidx=c.ti), p, 850.0))
+    w = np.asarray(wrf_mod.interplevel(wrf_mod.getvar(c.ds, "QVAPOR", timeidx=c.ti), p, 850.0))
+    q = 1000.0 * w / (1.0 + w)                     # mixing ratio -> specific humidity (ERA5's)
+    return {"U850": uv[0], "V850": uv[1], "Q850": q}
+
+
+def box_stats(pairs_nc, obs_nc, box):
+    """{model, era5, bias, n} means inside box (lat0, lat1, lon0, lon1) over the cells Grid-Stat
+    matched: bias from the pairs file's DIFF (MET writes no FCST/OBS fields there), ERA5 from
+    the obs file on the same verification grid, model = ERA5 + DIFF. The case area, which a
+    d01-wide RMSE says little about."""
+    import netCDF4
+    import numpy as np
+    from wtune.post.conventions import lon_in_range
+    with netCDF4.Dataset(pairs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("DIFF_"))
+        d = np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
+        lat = np.asarray(ds.variables["lat"][:], "f8")
+        lon = np.asarray(ds.variables["lon"][:], "f8")
+    with netCDF4.Dataset(obs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("O_"))
+        o = np.ma.filled(ds.variables[name][0], np.nan).astype("f8")
+    if lat.ndim == 1:
+        lon, lat = np.meshgrid(lon, lat)
+    if o.shape != d.shape:
+        raise met_gridstat.METError("pairs %s and obs %s grids differ" % (d.shape, o.shape))
+    sel = ((lat >= box[0]) & (lat <= box[1]) & lon_in_range(lon, box[2], box[3])
+           & np.isfinite(d) & np.isfinite(o))
+    if not sel.any():
+        return None
+    return dict(model=float((o[sel] + d[sel]).mean()), era5=float(o[sel].mean()),
+                bias=float(d[sel].mean()), n=int(sel.sum()))
+
+
+def _era5_850_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig: Callable,
+                    missing: Callable, m: dict | str, focus_box: list | None = None) -> dict:
+    """ERA5 850 hPa wind speed and specific humidity, model - ERA5 with MET Grid-Stat RMSE/bias
+    (interior of the model domain): the low-level jet and the moisture it carries. m: the
+    model's _model_850 fields, read while the wrfout was open, or the reason they are not."""
+    np = c.np
+    try:
+        from wtune.post.recipes.era5 import Era5UnavailableError, level_for
+    except ImportError as e:
+        return missing("syn_era5_850_diff", "ERA5 (ARCO)", str(e))
+    try:
+        from datetime import datetime
+        from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+        try:
+            from wtune.project import find_project
+            project_dir = find_project(c.out_dir)
+        except Exception:
+            project_dir = None
+        e_lat, e_lon, e_f, e_valid, e_src = level_for(
+            datetime.strptime(c.time_str, WRF_TIME_FMT), model_bbox, project_dir)
+        if isinstance(m, str):          # ERA5 first: its fetch command is the actionable reason
+            return missing("syn_era5_850_diff", "wrfout_d01 850 hPa wind / QVAPOR", m)
+        work = os.path.join(c.out_dir, "gridstat_era5_850")
+        os.makedirs(work, exist_ok=True)
+        poly = met_gridstat.write_interior_polygon(path, spec_bdy_width(run_dir),
+                                                   os.path.join(work, "interior.poly"))
+        stats = {}
+        for name, model, obs, units in (
+                ("WSPD850", np.hypot(m["U850"], m["V850"]), np.hypot(e_f["U850"], e_f["V850"]),
+                 "m s-1"),
+                ("Q850", m["Q850"], e_f["Q850"], "g kg-1")):
+            stats[name] = met_gridstat.grid_stat_field(
+                np.asarray(c.lats), np.asarray(c.lons), model, e_lat, e_lon, obs, e_valid, poly,
+                os.path.join(work, name), name, units)
+        focus = {n: box_stats(st["pairs_nc"], os.path.join(work, n, "era5_%s.nc" % n),
+                              focus_box) for n, st in stats.items()} if focus_box else {}
+        from wtune.post.conventions import path_time_label
+        p = os.path.join(c.out_dir, "syn_era5_850_diff.png")
+        _era5_850_map(p, c, path_time_label(path, c.time_str), m, e_lat, e_lon, e_f, stats,
+                      focus_box, focus)
+        extra = {"wspd850_rmse_ms": stats["WSPD850"]["rmse"],
+                 "wspd850_bias_ms": stats["WSPD850"]["bias"],
+                 "q850_rmse_gkg": stats["Q850"]["rmse"],
+                 "q850_bias_gkg": stats["Q850"]["bias"], "n": stats["Q850"]["n"],
+                 "era5_source": e_src}
+        for n, key, unit in (("WSPD850", "wspd850", "ms"), ("Q850", "q850", "gkg")):
+            if focus.get(n):
+                extra.update({"focus_%s_model_%s" % (key, unit): focus[n]["model"],
+                              "focus_%s_era5_%s" % (key, unit): focus[n]["era5"],
+                              "focus_%s_bias_%s" % (key, unit): focus[n]["bias"],
+                              "focus_n": focus[n]["n"]})
+        return fig("syn_era5_850_diff", p, c.run_label, domain="d01", valid_time=c.time_str,
+                   extra=extra)
+    except Era5UnavailableError as e:
+        return missing("syn_era5_850_diff", "ERA5 (ARCO)", str(e))
+    except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError) as e:
+        return missing("syn_era5_850_diff", "MET grid_stat", str(e))
+    except FIELD_ERRORS as e:
+        return missing("syn_era5_850_diff", "ERA5 850 hPa / Grid-Stat pairs", error_reason(e))
+
+
+def _pairs_diff(pairs_nc):
+    import netCDF4
+    import numpy as np
+    with netCDF4.Dataset(pairs_nc) as ds:
+        name = next(v for v in ds.variables if v.startswith("DIFF_"))
+        lat = np.asarray(ds.variables["lat"][:])
+        lon = np.asarray(ds.variables["lon"][:])
+        return lat, lon, np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
+
+
+def _era5_850_map(out_path, c, time_label, m, e_lat, e_lon, e_f, stats, focus_box=None,
+                  focus=None):
+    """Two panels on the model projection: 850 hPa wind speed and specific humidity, model -
+    ERA5 (Grid-Stat DIFF on the ERA5 grid); model wind black, ERA5 wind grey."""
+    import numpy as np
+    import cartopy.crs as ccrs
+    from wtune.post.plotting import _coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir
+    plt = _matplotlib()
+    _set_cartopy_data_dir()
+    pc = ccrs.PlateCarree()
+    fig_, axes = plt.subplots(1, 2, figsize=(13.0, 5.6), layout="constrained",
+                              subplot_kw={"projection": c.crs})
+    ny, nx = np.shape(c.lats)
+    ms = max(1, min(ny, nx) // 15)
+    elon2, elat2 = np.meshgrid(e_lon, e_lat)
+    es = max(1, min(len(e_lat), len(e_lon)) // 15)
+    for ax, name, label, cmap in ((axes[0], "WSPD850", "850 hPa wind speed, model - ERA5 (m/s)",
+                                   "RdBu_r"),
+                                  (axes[1], "Q850", "850 hPa specific humidity, model - ERA5 (g/kg)",
+                                   "BrBG")):
+        ax.set_extent([c.xlim[0], c.xlim[1], c.ylim[0], c.ylim[1]], crs=c.crs)
+        d_lat, d_lon, diff = _pairs_diff(stats[name]["pairs_nc"])
+        finite = diff[np.isfinite(diff)]
+        vmax = max(float(np.percentile(np.abs(finite), 99)), 1e-3) if finite.size else 1.0
+        levels = symmetric_levels(vmax)
+        cf = ax.contourf(d_lon, d_lat, np.ma.masked_invalid(diff), levels=levels,
+                         cmap=plt.get_cmap(cmap), extend="both", transform=pc)
+        fig_.colorbar(cf, ax=ax, ticks=levels, shrink=0.85, label=label)
+        if name == "WSPD850":
+            ax.quiver(elon2[::es, ::es], elat2[::es, ::es], e_f["U850"][::es, ::es],
+                      e_f["V850"][::es, ::es], color="0.55", width=0.003, scale=400,
+                      transform=pc, zorder=4)
+            q = ax.quiver(np.asarray(c.lons)[::ms, ::ms], np.asarray(c.lats)[::ms, ::ms],
+                          m["U850"][::ms, ::ms], m["V850"][::ms, ::ms], color="k", width=0.003,
+                          scale=400, transform=pc, zorder=5)
+            ax.quiverkey(q, 0.88, -0.07, 10, "10 m/s (model black, ERA5 grey)",
+                         labelpos="W", fontproperties={"size": 8})
+        if _natural_earth_ready():
+            _coastline(ax, None, ccrs, True, lats=c.lats, lons=c.lons, terrain=False, nest_rings=[])
+        st = stats[name]
+        title = ("%s\nRMSE %.2f  bias %+.2f  (MET Grid-Stat, ERA5 0.25\u00b0, interior, n=%d)"
+                 % (label, st["rmse"], st["bias"], st["n"]))
+        fb = (focus or {}).get(name)
+        if fb:
+            title += ("\npost.focus box (dashed): model %.1f, ERA5 %.1f, bias %+.2f (n=%d)"
+                      % (fb["model"], fb["era5"], fb["bias"], fb["n"]))
+            la0, la1, lo0, lo1 = focus_box
+            ax.plot([lo0, lo1, lo1, lo0, lo0], [la0, la0, la1, la1, la0], "k--", lw=1.2,
+                    transform=pc, zorder=6)
+        ax.set_title(title, fontsize=9)
+    fig_.suptitle("%s d01 850 hPa: the low-level flow and its moisture against ERA5  %s"
+                  % (c.run_label, time_label), fontsize=10)
+    fig_.savefig(out_path, dpi=figdpi.dpi())
+    plt.close(fig_)
+    return out_path
+
+
 def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dict,
-            spinup_hours: float = 6) -> list[dict]:
-    """The synoptic charts of the first run's last post-spin-up d01 frame -> figure/missing
-    entries; wrf-python/cartopy missing -> one 'syn_maps' missing entry."""
+            spinup_hours: float = 6, map_time: str | None = None,
+            focus_box: list | None = None) -> list[dict]:
+    """The synoptic charts of the first run's d01 frame nearest map_time (run_recipe: the rain
+    peak), else its last post-spin-up frame -> figure/missing entries; wrf-python/cartopy
+    missing -> one 'syn_maps' missing entry."""
     from wtune.post.recipe import fig, missing
     from wtune.post.recipes.mapfig import save_map
 
     run_dir, run_label = run_dirs[0], labels[0]
-    chosen, frames = _post_spinup_time(run_dir, _SYNOPTIC_DOMAIN, spinup_hours)
+    chosen, frames = _post_spinup_time(run_dir, _SYNOPTIC_DOMAIN, spinup_hours, map_time)
     out = []
     if chosen is None:
         return [missing("syn_maps", "wrfout_d01_*", "no frames found")]
@@ -320,11 +498,18 @@ def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dic
                 except FIELD_ERRORS as e:
                     out.append(missing(fid, "wrfout_d01", error_reason(e)))
             model_bbox = _model_bbox(np, ds)
+            try:            # read while the file is open: the ERA5 entries run after it closes
+                m850 = _model_850(c)
+            except FIELD_ERRORS as e:
+                m850 = error_reason(e)
+            except Exception as e:      # noqa: BLE001 -- one figure, never the whole set
+                m850 = "%s: %s" % (type(e).__name__, e)
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("syn_maps", "wrf-python/cartopy", str(e)))
         return out
 
     out.append(_era5_diff_entry(c, run_dir, path, model_bbox, fig, missing))
+    out.append(_era5_850_entry(c, run_dir, path, model_bbox, fig, missing, m850, focus_box))
     return out
 
 
@@ -341,6 +526,25 @@ def celsius_levels(t_c: Any, step: float | None = None) -> Any:
     step = step or (2.0 if vmax <= 20 else 3.0 if vmax <= 36 else 5.0)
     vmax = step * np.ceil(vmax / step)
     return np.arange(-vmax, vmax + step, step)
+
+
+def t2_scale(t_c: Any) -> tuple:
+    """(levels, cmap, extend) for a T2 map in degC. The maps draw absolute temperature, not an
+    anomaly, so a colour scale centred on 0 degC only means something where the freezing line
+    is in the picture: RdBu_r symmetric about 0 (celsius_levels, decision 0064) when the field's
+    1st-99th percentile spans 0 degC, else sequential viridis over the data range -- a
+    0-25 degC field on -24..+24 used half of the colour bar for temperatures that never occur."""
+    import numpy as np
+    from wtune.post.recipes.mapfig import nice_levels
+    vals = np.asarray(t_c, dtype="f8")
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return celsius_levels(vals), "RdBu_r", "both"
+    lo, hi = np.percentile(vals, [1, 99])
+    if lo < 0.0 < hi:
+        return celsius_levels(vals), "RdBu_r", "both"
+    lo, hi = float(vals.min()), float(vals.max())
+    return nice_levels(lo, max(hi, lo + 1.0), 14), "viridis", "neither"
 
 
 def symmetric_levels(vmax: float, nbins: int = 12) -> Any:
@@ -403,6 +607,6 @@ def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon
                  % (run_label, time_str, gs["rmse_m"], gs["bias_m"]), fontsize=9)
     from wtune.post.basemap import caption_rect
     fig_.tight_layout(rect=caption_rect(fig_))
-    fig_.savefig(out_path, dpi=130)
+    fig_.savefig(out_path, dpi=figdpi.dpi(130))
     plt.close(fig_)
     return out_path

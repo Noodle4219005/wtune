@@ -36,7 +36,9 @@ from datetime import datetime, timedelta
 
 from wtune.post import met_pointstat, sources, tools
 from wtune.post.extract import list_frame_refs
+from wtune.post.focus import frame_at
 from wtune.post.recipes.common import FIELD_ERRORS, error_reason
+from wtune.post import figdpi
 
 
 DEFAULT_XSEC_TOP_KM = 10.0
@@ -81,19 +83,19 @@ def _fill_below_valid(arr):
     return arr
 
 
-def _terrain_wind_map(run_dir, run_label, domain, out_dir):
+def _terrain_wind_map(run_dir, run_label, domain, out_dir, time_str=None):
     """Terrain fill + 10 m wind (black barbs) + 700 hPa wind (red barbs), one figure
     (decision 0057 update item 1)."""
     import netCDF4
     import numpy as np
     import cartopy.crs as ccrs
     wrf_mod = __import__("wrf")
-    from wtune.post.plotting import (WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir)
+    from wtune.post.plotting import _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     plt = _plt()
     with netCDF4.Dataset(path0) as ds:
         ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
@@ -123,26 +125,25 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
         fig.colorbar(cf, ax=ax, label="terrain height (m)")
         _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False)   # the fill already is terrain
 
-        # WIND_SUBSAMPLE (post/plotting.py) is tuned for the coarser regional domains that
-        # module usually plots; a 1 km nest has far more grid points across the same
-        # displayed extent, so the fixed stride left barbs dense enough to look like a solid
-        # colour fill (maria1km d02, 2026-09-29 scc T1 run). Scale the stride to the domain's
-        # own grid size instead, aiming for roughly 25 barbs across the shorter axis.
-        stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        from wtune.post.basemap import bdy_width_of, interior_mask, masked_barbs
+        # stride from the domain's own size (a 1 km nest looked like a solid fill, maria1km
+        # d02, 2026-09-29); the 700 hPa set sits between the 10 m one, and not underground
+        from wtune.post.basemap import (above_ground, barb_stride, bdy_width_of, interior_mask,
+                                        masked_barbs)
+        stride = barb_stride(lons.shape)
         interior = interior_mask(lons.shape, bdy_width_of(ds), fill=np.asarray(ter))
         from wtune.post.conventions import KT_PER_MS, ds_time_label
         masked_barbs(ax, lons, lats, np.asarray(u10) * KT_PER_MS, np.asarray(v10) * KT_PER_MS,
                      stride, mask=interior, length=5, color="black",
                      transform=ccrs.PlateCarree(), label="10 m wind")
         masked_barbs(ax, lons, lats, np.asarray(u700) * KT_PER_MS, np.asarray(v700) * KT_PER_MS,
-                     stride, mask=interior, length=5, color="red",
+                     stride, mask=interior & above_ground(ds, 700.0, ti), offset=stride // 2,
+                     length=5, color="red",
                      transform=ccrs.PlateCarree(), label="700 hPa wind")
         ax.set_title("%s  d%02d  terrain + 10 m (black) / 700 hPa (red) wind, barbs in kt\n%s"
                      % (run_label, domain, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "terrain_wind_d%02d.png" % domain)
         fig.tight_layout()
-        fig.savefig(out_path)
+        fig.savefig(out_path, dpi=figdpi.dpi())
         plt.close(fig)
     return out_path
 
@@ -151,7 +152,8 @@ class CrossSectionError(RuntimeError):
     pass
 
 
-def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=None):
+def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=None,
+                               time_str=None):
     """A geodesic line through the domain INTERIOR's highest HGT point, extended
     halfwidth_km (default post/recipes/xsection.DEFAULT_HALFWIDTH_KM, 150 km) in each
     direction along the domain-mean 700 hPa wind bearing -- placed directly in lat/lon via
@@ -170,8 +172,9 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
     rectangle, so a bbox-based clip could still accept a point the real interior excludes.
 
     Raises CrossSectionError if the domain is too small for bdy_width to leave any interior
-    at all. Returns a dict: start_ll, end_ll, peak_ll, bearing_deg, halfwidth_km, bdy_width,
-    time0, path0, hgt, lats2d, lons2d, interior_bounds (j0, j1, i0, i1)."""
+    at all. time_str: the frame (post/focus.frame_at; default the last). Returns a dict:
+    start_ll, end_ll, peak_ll, bearing_deg, halfwidth_km, bdy_width, time0, path0, hgt,
+    lats2d, lons2d, interior_bounds (j0, j1, i0, i1)."""
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
@@ -180,7 +183,7 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
 
     halfwidth_km = halfwidth_km if halfwidth_km is not None else DEFAULT_HALFWIDTH_KM
     frames = list_frame_refs(run_dir, domain=domain)
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = frame_at(frames, time_str)
     bdy_width = bdy_width if bdy_width is not None else spec_bdy_width(run_dir)
 
     with netCDF4.Dataset(path0) as ds:
@@ -229,7 +232,7 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
 
 
 def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km=None,
-                          halfwidth_km=None):
+                          halfwidth_km=None, time_str=None):
     """Standard mountain-wave-style cross-section (2026-09-29 second lead review): w shading
     (RdBu_r, symmetric about 0), theta isentropes every 2 K as thin black lines, a muted
     along-line-wind contour, a filled terrain silhouette, a real-km distance axis centred on
@@ -247,7 +250,8 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
     from wtune.post.recipes.xsection import (centred_distance_km, draw_locator_inset, line_unit_vector, smooth_horizontal)
 
     top_km = top_km if top_km is not None else DEFAULT_XSEC_TOP_KM
-    line_info = default_cross_section_line(run_dir, domain, halfwidth_km=halfwidth_km)
+    line_info = default_cross_section_line(run_dir, domain, halfwidth_km=halfwidth_km,
+                                           time_str=time_str)
     time0, path0 = line_info["time0"], line_info["path0"]
     ti = line_info.get("timeidx", 0)
     hgt, lats2d, lons2d = line_info["hgt"], line_info["lats2d"], line_info["lons2d"]
@@ -388,7 +392,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
                        point_ll=peak_marker)
 
     out_path = os.path.join(out_dir, "terrain_crosssection_d%02d.png" % domain)
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path
 
@@ -412,14 +416,13 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
         lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=ti), as_np=True)
         crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=ti))
         out_path = os.path.join(out_dir, "terrain_rain_d%02d.png" % domain)
-        # WPC isohyet thresholds in mm, same scale as precip_accum (decision 0064)
+        # same scale as precip_accum: CWA over Taiwan, else WPC (post/rainscale.py)
         from wtune.post.conventions import ds_time_label
-        from wtune.post.obs_figs import PRECIP_LEVELS, precip_cmap
+        from wtune.post.rainscale import rain_scale
         hi = float(np.nanmax(rain)) if np.isfinite(rain).any() else 0.0
-        lev = [lv for lv in PRECIP_LEVELS if lv <= hi]
-        lev = PRECIP_LEVELS[:max(2, len(lev) + 1)]
-        cm = precip_cmap()
-        colors = [cm(x) for x in np.linspace(0, 1, len(lev))]
+        lev, cm, _name = rain_scale(lats, lons, hi)
+        colors = ([*cm.colors, cm.get_over()] if len(getattr(cm, "colors", ())) == len(lev) - 1
+                  else [cm(x) for x in np.linspace(0, 1, len(lev))])
         save_map(out_path, lats, lons,
                 "%s  d%02d  accumulated precipitation since init (shaded) + terrain (brown, 500 m)\n%s"
                 % (run_label, domain, ds_time_label(ds, time0)),
@@ -436,7 +439,7 @@ VALLEY_RIDGE_DELTA_M = 300.0  # required relief between the point and its own wi
 
 
 def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
-                       ridge_delta_m=VALLEY_RIDGE_DELTA_M):
+                       ridge_delta_m=VALLEY_RIDGE_DELTA_M, inside=None):
     """(j, i) of a genuine valley: LANDMASK==1, inside the domain interior (`bounds` =
     (j0, j1, i0, i1), excluding the lateral boundary zone), a local HGT minimum in a
     `window`x`window` neighbourhood, with that neighbourhood's own max at least
@@ -444,7 +447,8 @@ def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
     (2026-09-29 fourth lead review: the previous global-HGT-minimum pick landed on a sea
     point, HGT=-1 m, sitting in the lateral boundary row, with a flat theta profile). None if
     no interior land point qualifies -- the caller reports that as missing(), not a forced
-    pick."""
+    pick. inside: bool array (post.focus); a candidate inside it wins when one exists, as in
+    focus.rain_focus (haitang2017: the domain-wide pick was in Fujian)."""
     import numpy as np
     from scipy.ndimage import maximum_filter, minimum_filter
 
@@ -457,6 +461,8 @@ def _find_valley_point(hgt, landmask, bounds, window=VALLEY_WINDOW,
     mask = np.zeros_like(candidate)
     mask[j0:j1, i0:i1] = True
     candidate &= mask
+    if inside is not None and (candidate & inside).any():
+        candidate &= inside
     if not candidate.any():
         return None
     hgt_masked = np.where(candidate, hgt, np.inf)
@@ -477,7 +483,7 @@ VALLEY_THETA_CONTOUR_STEP_K = 1.0
 VALLEY_BARB_HEIGHTS_KM = (0.25, 1.0, 1.75, 2.5)   # a few representative heights inside 0-3 km
 
 
-def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
+def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None, focus_box=None):
     """Time-height diagram (theta) at a genuine valley point (_find_valley_point) -- a
     boundary-layer diagnostic (cold pool, nocturnal inversion, daytime mixing; decision 0057
     update item 5). Plots 0..VALLEY_TOP_AGL_KM (fixed 3 km AGL -- the boundary layer, not the
@@ -494,6 +500,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
     from datetime import datetime
     wrf_mod = __import__("wrf")
     from wtune.post.caseinfo import _interior_bounds, spec_bdy_width
+    from wtune.post.focus import box_mask
 
     frames = list_frame_refs(run_dir, domain=domain)
     if len(frames) < 2:
@@ -513,7 +520,8 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
         return None, ("d%02d is too small for spec_bdy_width=%d to leave any interior"
                       % (domain, bdy_width))
 
-    point = _find_valley_point(hgt, landmask, bounds)
+    point = _find_valley_point(hgt, landmask, bounds,
+                               inside=box_mask(lats2d, lons2d, focus_box))
     if point is None:
         return None, ("no interior land point is a genuine valley (LANDMASK==1, a local HGT "
                       "minimum in a %dx%d window with >=%g m surrounding relief, outside the "
@@ -612,7 +620,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
                     lat_here, lon_here, hgt_here), fontsize=9)
     out_path = os.path.join(out_dir, "terrain_valley_timeheight_d%02d.png" % domain)
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=figdpi.dpi())
     plt.close(fig)
     return out_path, None
 
@@ -732,7 +740,7 @@ def _plot_leeward(model, obs, title, path):
     axes[-1].set_xlabel("valid time (UTC)")
     fig.autofmt_xdate()
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, dpi=figdpi.dpi())
     plt.close(fig)
     return path
 
@@ -836,7 +844,8 @@ def _terrain_domain(case_info):
 
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None):
+           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, map_time=None,
+           focus_box=None):
     from wtune.post.recipe import fig, missing, note
     from wtune.post.recipes import precip
 
@@ -846,7 +855,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     out = []
 
     try:
-        path = _terrain_wind_map(run_dir, run_label, domain, out_dir)
+        path = _terrain_wind_map(run_dir, run_label, domain, out_dir, time_str=map_time)
         if path:
             out.append(fig("terrain_wind_map", path, run_label, domain="d%02d" % domain))
         else:
@@ -858,7 +867,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
 
     try:
         path = _cross_section_figure(run_dir, run_label, domain, out_dir, line=cross_section,
-                                     top_km=xsec_top_km, halfwidth_km=xsec_halfwidth_km)
+                                     top_km=xsec_top_km, halfwidth_km=xsec_halfwidth_km,
+                                     time_str=map_time)
         if path:
             out.append(fig("terrain_crosssection", path, run_label, domain="d%02d" % domain))
         else:
@@ -880,7 +890,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("terrain_rain", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        path, reason = _valley_time_height(run_dir, run_label, domain, out_dir)
+        path, reason = _valley_time_height(run_dir, run_label, domain, out_dir,
+                                           focus_box=focus_box)
         if path:
             out.append(fig("terrain_valley_timeheight", path, run_label, domain="d%02d" % domain))
         else:

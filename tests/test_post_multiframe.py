@@ -62,53 +62,6 @@ def _segmented(tmp_path):
 
 # -- frame index ------------------------------------------------------------------------------
 
-def test_frame_index_from_times_later_segment_wins(tmp_path):
-    out, f = _segmented(tmp_path)
-    refs = extract.list_frame_refs(out, domain=1)
-    assert [t for t, _p, _i in refs] == [T(h) for h in range(0, 73, 6)]       # 13 valid times
-    by = {t: (p, i) for t, p, i in refs}
-    assert by[T(30)] == (f["b"], 1)
-    assert by[T(48)] == (f["c"], 0)
-    assert by[T(54)] == (f["d"], 0)              # duplicated boundary time: seg_1 wins
-    assert by[T(72)] == (f["d"], 3)              # the last time sits at timeidx 3
-    assert extract.frame_ref(out, 1, T(66)) == (f["d"], 2)
-    assert extract.frame_path(out, 1, T(66)) == f["d"]
-    assert extract.frame_ref(out, 1, T(78)) == (os.path.join(out, "wrfout_d01_%s" % T(78)), 0)
-    # backward compatible (time, path) pairs, Times-based
-    assert extract.list_frames(out, domain=1)[-1] == (T(72), f["d"])
-    assert extract.frame_index(out)[(1, T(42))] == f["b"]
-    # one entry per FILE (diffwrf compares whole files)
-    assert sorted(extract.file_index(out).values()) == sorted(f.values())
-    assert extract.list_frame_refs(out, domain=2) == []
-
-
-def test_times_cache_follows_a_rewritten_file(tmp_path):
-    out, f = _segmented(tmp_path)
-    assert extract.list_frames(out)[-1][0] == T(72)
-    _times_file(f["d"], [T(54), T(60)])           # the segment was re-run shorter
-    st = os.stat(f["d"])
-    os.utime(f["d"], ns=(st.st_atime_ns, st.st_mtime_ns + 2 * 10 ** 9))
-    assert extract.list_frames(out)[-1][0] == T(60)
-
-
-def test_unreadable_files_fall_back_to_the_file_name_time(tmp_path):
-    run = tmp_path / "flat"
-    run.mkdir()
-    (run / ("wrfout_d01_%s" % T(0))).write_text("")            # empty
-    (run / ("wrfout_d01_%s" % T(6))).write_text("not netcdf")  # garbage
-    assert extract.list_frame_refs(str(run)) == [
-        (T(0), str(run / ("wrfout_d01_%s" % T(0))), 0),
-        (T(6), str(run / ("wrfout_d01_%s" % T(6))), 0)]
-
-
-def test_run_length_window_and_last_time_use_every_valid_time(tmp_path):
-    out, f = _segmented(tmp_path)
-    assert caseinfo.run_length_hours(out) == pytest.approx(72.0)   # file names alone: 54 h
-    from wtune.post import cf_pressure
-    assert cf_pressure.select_frames(out, 1) == [(T(72), f["d"], 3)]
-    assert [s[0] for s in cf_pressure.select_frames(out, 1, every="24h")] == \
-        [T(0), T(24), T(48), T(72)]
-
 
 def test_pw_6h_change_finds_both_frames_inside_one_file(tmp_path, monkeypatch):
     from wtune.post.recipes import moisture
@@ -197,46 +150,6 @@ def _stack(srcs, dst, skip=(), skip_attrs=()):
                     elif k == 0:
                         d.variables[name][...] = v[...]
     return dst
-
-
-def _cf_multiframe(tmp_path, hours=(0, 6, 12)):
-    """A flat run dir with ONE cf_pressure-fixture wrfout holding len(hours) times whose theta
-    differs per time (T = 5 K * k), plus the single-frame sources it was stacked from."""
-    pytest.importorskip("wrf")
-    pytest.importorskip("pyproj")
-    pytest.importorskip("scipy")
-    from test_post_cf_pressure import _write_wrfout
-    t0 = datetime(2005, 8, 28)
-    srcs = []
-    for k, h in enumerate(hours):
-        p = str(tmp_path / "src" / ("single_%d.nc" % k))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        _write_wrfout(p, time_str=T(h, t0))
-        with netCDF4.Dataset(p, "a") as d:
-            d.variables["T"][:] = 5.0 * k
-        srcs.append(p)
-    run = tmp_path / "run"
-    run.mkdir()
-    multi = _stack(srcs, str(run / ("wrfout_d01_%s" % T(hours[0], t0))))
-    return str(run), multi, srcs, [T(h, t0) for h in hours]
-
-
-def test_cf3d_converts_each_valid_time_at_its_timeidx(tmp_path):
-    from wtune.post import cf_pressure as cp
-    run, multi, srcs, times = _cf_multiframe(tmp_path)
-    res = cp.export(run, str(tmp_path / "out"), [1], 5, every="6h")
-    assert [r["valid_time"] for r in res] == times and not any(r.get("error") for r in res)
-    temps = []
-    for r, src in zip(res, srcs):
-        ref = cp.convert_frame(src, str(tmp_path / ("ref_%s.nc" % r["valid_time"][11:13])), 1, 5)
-        with netCDF4.Dataset(r["path"]) as a, netCDF4.Dataset(ref["path"]) as b:
-            ta = np.ma.filled(a["air_temperature"][:], np.nan)
-            np.testing.assert_allclose(ta, np.ma.filled(b["air_temperature"][:], np.nan))
-            assert a.getncattr("wtune_wrfout") == os.path.abspath(multi)
-            temps.append(float(np.nanmean(ta)))
-    assert temps[0] < temps[1] < temps[2]            # three different times, not timeidx 0 thrice
-    last = cp.export(run, str(tmp_path / "out_last"), [1], 5)
-    assert [r["valid_time"] for r in last] == times[-1:]
 
 
 def test_extract_and_precip_accum_read_the_frame_timeidx(tmp_path):

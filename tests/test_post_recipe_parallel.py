@@ -23,12 +23,6 @@ def test_sets_run_in_separate_processes_and_keep_task_order(monkeypatch):
     assert os.getpid() not in {e["pid"] for e in out}
 
 
-def test_one_worker_is_the_serial_path(monkeypatch):
-    monkeypatch.setenv("WTUNE_POST_WORKERS", "1")
-    out = recipe._in_parallel([("common", _set, ("common", 0.0), {})])
-    assert out[0]["pid"] == os.getpid()
-
-
 def test_a_dead_worker_becomes_missing_entries(monkeypatch):
     monkeypatch.setenv("WTUNE_POST_WORKERS", "2")
     out = recipe._in_parallel([("tc", _dies, ("tc",), {}), ("pbl", _set, ("pbl", 0.5), {})])

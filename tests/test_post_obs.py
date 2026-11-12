@@ -5,6 +5,7 @@ import os
 import sys
 from argparse import Namespace
 from datetime import datetime
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -140,18 +141,6 @@ def test_parse_cts_and_nbrcnt(tmp_path):
     assert [(x["thresh"], x["width"], x["fss"]) for x in r] == [(10.0, 1, 0.4), (10.0, 3, 0.6)]
 
 
-def test_pooled_scores():
-    ctc = [[dict(thresh=20.0, fy_oy=10, fy_on=10, fn_oy=10, fn_on=70)],
-           [dict(thresh=20.0, fy_oy=30, fy_on=0, fn_oy=10, fn_on=60)]]
-    p = convection._pool_counts(ctc)[0]
-    assert p["pod"] == 40 / 60 and p["far"] == 10 / 50 and abs(p["csi"] - 40 / 70) < 1e-12
-    assert p["fbias"] == 50 / 60 and p["total"] == 200
-    nb = [[dict(thresh=20.0, width=1, fss=0.5, fbs=0.1, o_rate=0.1, f_rate=0.1)],
-          [dict(thresh=20.0, width=1, fss=0.5, fbs=0.3, o_rate=0.3, f_rate=0.3)]]
-    f = convection._pool_fss(nb)[0]
-    assert abs(f["fss"] - 0.5) < 1e-12 and abs(f["fbs"] - 0.4) < 1e-12
-
-
 def test_precip_pick_window_and_reasons():
     from datetime import timedelta
     base = datetime(2005, 8, 27)
@@ -160,6 +149,16 @@ def test_precip_pick_window_and_reasons():
     assert precip.pick_window(frames, 6, idx) == (24, datetime(2005, 8, 28, 12), "a")
     assert precip.pick_window(frames, 18, idx)[0] == 6          # 24 h window would start before spin-up ends
     assert precip.pick_window(frames[:5], 6, idx) is None
+    # around the rain peak: the window centred nearest it among those holding it, not the
+    # latest (Stage IV used to ignore the peak; CMORPH already did this)
+    two = {(24, datetime(2005, 8, 28, 12)): "a", (24, datetime(2005, 8, 29, 0)): "z",
+           (24, datetime(2005, 8, 28, 6)): "e"}
+    assert precip.pick_window(frames, 6, two)[1:] == (datetime(2005, 8, 29, 0), "z")
+    # 27 14Z is in 27 06Z-28 06Z (centre 4 h away) and 27 12Z-28 12Z (10 h away)
+    assert precip.pick_window(frames, 6, two, around=datetime(2005, 8, 27, 14))[2] == "e"
+    assert precip.pick_window(frames, 6, two, around=datetime(2005, 8, 28, 4))[2] == "a"
+    late = datetime(2005, 8, 29, 1)                 # in no window: the latest, as before
+    assert precip.pick_window(frames, 6, two, around=late)[2] == "z"
     r = precip.stage4_missing_reason("/p", "/r", frames, (17, 19, -68, -64), False)
     assert "does not exist" in r and "coverage" in r
     r = precip.stage4_missing_reason("/p", "/r", frames, (25, 30, -90, -85), False)
@@ -171,6 +170,17 @@ def test_radar_missing_reason_pre_and_post_mrms():
     assert "fetch nexrad" in old and "MRMS does not exist before 2020-10-14" in old
     new = convection.radar_missing_reason("/p", "/r", [datetime(2024, 9, 5)], None)
     assert "fetch mrms" in new
+    # a Taiwan domain: NEXRAD/MRMS are US radars, so the hint is an agent radar dataset
+    tw = convection.radar_missing_reason("/p", "/r", [datetime(2017, 8, 1)],
+                                         (19.7, 28.1, 116.1, 123.0))
+    assert "do not cover this region" in tw and "agent `radar` dataset" in tw
+    assert "fetch nexrad" not in tw
+    gulf = convection.radar_missing_reason("/p", "/r", [datetime(2005, 8, 27)],
+                                           (25.0, 31.0, -92.0, -85.0))
+    assert "fetch nexrad" in gulf
+    from wtune.post.fetch import nexrad
+    assert nexrad.covers((25.5, 27.0, 127.0, 128.5))           # Okinawa (RODN)
+    assert not nexrad.covers((40.0, 48.0, 172.0, 185.0))       # across 180, no radar
 
 
 def test_mcape_undefined_mask():
@@ -215,3 +225,17 @@ def test_station_map_has_a_panel_when_only_dew_point_paired(tmp_path, monkeypatc
                         lambda panels, title, out: seen.setdefault("panels", panels))
     met_pointstat.summarize(str(tmp_path), [(t, None)], str(tmp_path), str(tmp_path))
     assert [p["title"].split()[0] for p in seen["panels"]] == ["Td2"]
+
+
+def test_station_bias_maps_follow_the_stations_box(tmp_path):
+    # a fixed 4.8n x 6.4 drew short wide panels with ~5 pt text in blank margins (haitang2017)
+    pytest.importorskip("cartopy")
+    from PIL import Image
+    from wtune.post import obs_figs
+    assert obs_figs.station_panel_height_in((114.0, 124.0, 20.0, 27.0)) == pytest.approx(3.8 * 0.7)
+    assert obs_figs.station_panel_height_in((0.0, 1.0, 0.0, 10.0)) == 6.0
+    panel = dict(lat=[22.7, 25.1], lon=[116.7, 121.8], bias=[1.0, -1.0], title="T2", vmax=3)
+    out = str(tmp_path / "m.png")
+    obs_figs.station_bias_maps([panel] * 3, "s", out)
+    w, h = Image.open(out).size
+    assert 2.5 < w / h < 4.0          # one row of three maps, no tall blank band

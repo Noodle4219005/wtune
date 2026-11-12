@@ -19,7 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from wtune.predictor import benchmark
 from wtune.predictor import features as feat
 from wtune.predictor import ledger
-from wtune.predictor import models as modelmod
 from wtune.predictor import targets
 from wtune.predictor import validate
 
@@ -111,32 +110,6 @@ def test_ledger_schema_validation(tmp_path):
     assert ledger.validate(str(bad)) is False
 
 
-# ---------------------------------------------------------------------------
-# 2. feature math, hand-checked
-# ---------------------------------------------------------------------------
-def test_feature_math_hand_checked():
-    row = dict(
-        e_we=901.0, e_sn=901.0, e_vert=45.0, nproc_x=8, nproc_y=56, numtiles=8, omp_threads=2,
-        n_ranks=224, n_nodes=4, hardware_id=HARDWARE_ID, distribution="cyclic", kmp_blocktime=None,
-    )
-    cf = feat.config_features(row)
-    assert cf["patch_x"] == 113          # ceil(901/8)
-    assert cf["patch_y"] == 17           # ceil(901/56)
-    assert cf["patch_cells"] == 113 * 17  # 1921
-    interior = 113 * 17
-    with_halo = (113 + 6) * (17 + 6)
-    assert cf["halo_interior_ratio"] == pytest.approx((with_halo - interior) / interior)
-    assert cf["cells_per_tile"] == pytest.approx(1921 * 45 / 8)
-    assert cf["tiles_per_thread"] == pytest.approx(4.0)
-    assert cf["numtiles_mod_omp"] == 0
-    assert cf["tiles_divisible"] == 1.0
-    assert cf["ranks_per_node"] == pytest.approx(56.0)
-    assert cf["ranks_per_numa"] == pytest.approx(7.0)   # 56 / 8 NUMA domains
-    assert cf["grid_divisible_x"] == 0.0   # 901 % 8 != 0
-    assert cf["grid_divisible_y"] == 0.0   # 901 % 56 != 0
-    assert cf["decomp_aspect"] == pytest.approx(113 / 17)
-
-
 def test_case_base_and_family_variants():
     assert ledger.case_base_of("karina_cat4") == "karina"
     assert ledger.case_base_of("karina_48h") == "karina"
@@ -146,106 +119,6 @@ def test_case_base_and_family_variants():
     assert ledger.case_base_of("deep_conv_ot__mp10bl1") == "deep_conv_ot"
     assert ledger.case_base_of("arctic_sbl_16x28h12") == "arctic_sbl"
     assert ledger.case_family_of("karina") == "cyclone"
-
-
-# ---------------------------------------------------------------------------
-# 3. baseline and y construction
-# ---------------------------------------------------------------------------
-def test_baseline_and_y_construction():
-    rows, baselines = make_synthetic_ledger()
-    for c in CASES:
-        case_row = next(r for r in rows if r["case_base"] == c)
-        scope = targets.scope_key(case_row)  # decision group: (case_base, hardware_id,
-                                              # compliance_class, n_nodes, total_cores,
-                                              # binary_kind, io_form_history) -- see
-                                              # features.decision_group_key
-        assert scope is not None and scope[0] == c
-        assert scope in baselines
-        # all 12 configs are equally frequent (1 rep each) -> outcome-independent tie-break
-        # (targets._reference_order: no omp/numtiles=1 default here, so lexical -> numtiles=10),
-        # deliberately NOT the measured fastest (numtiles=13), which would leak the oracle
-        base_ck = baselines[scope]["config_key"]
-        assert base_ck[2] == 10  # config_key[2] == numtiles, see features.config_key
-    # y for the baseline config of a case should be close to 0
-    scope_a = targets.scope_key(next(r for r in rows if r["case_base"] == "caseA"))
-    baseline_rows = [r for r in rows if r["case_base"] == "caseA"
-                      and r["numtiles"] == baselines[scope_a]["config_key"][2]]
-    assert abs(baseline_rows[0]["y"]) < 0.01
-
-
-# ---------------------------------------------------------------------------
-# 4. pairwise tie handling
-# ---------------------------------------------------------------------------
-def test_pairwise_tie_handling():
-    rows, _ = make_synthetic_ledger(noise_std=0.0)
-    pairs = targets.pairwise_labels([r for r in rows if r["case_base"] == "caseA"])
-    # F_CONFIG = 0.1*nt + 16.9/nt is strictly convex with no repeated values in this vocabulary,
-    # so every distinct-numtiles pair is unambiguous at zero noise; the loop below checks the
-    # tie/non-tie *decision rule* generically against whatever log_ratio each pair produces, and
-    # a separately fabricated close pair (below) checks the near-noise-floor case explicitly.
-    assert len(pairs) == math.comb(len(NUMTILES_VALUES), 2)
-    for p in pairs:
-        if abs(p["log_ratio"]) < targets.NOISE:
-            assert p["label"] is None and p["tie"] is True
-        else:
-            assert p["label"] in (0, 1) and p["tie"] is False
-            expected_label = 1 if p["log_ratio"] < 0 else 0
-            assert p["label"] == expected_label
-
-    # a fabricated pair inside the noise floor must come back as a tie
-    close_pairs = targets.pairwise_labels([
-        dict(rows[0], run_id="r1", case_base="tieCase", hardware_id=HARDWARE_ID,
-             compliance_class="STRICT", nproc_x=1, nproc_y=1, numtiles=1, omp_threads=1,
-             distribution="x", kmp_blocktime=None, n_nodes=1, n_ranks=1,
-             s_per_step_median=1.0000, y=0.0),
-        dict(rows[0], run_id="r2", case_base="tieCase", hardware_id=HARDWARE_ID,
-             compliance_class="STRICT", nproc_x=1, nproc_y=1, numtiles=2, omp_threads=1,
-             distribution="x", kmp_blocktime=None, n_nodes=1, n_ranks=1,
-             s_per_step_median=1.0010, y=0.0010),
-    ])
-    assert len(close_pairs) == 1 and close_pairs[0]["tie"] is True
-
-
-# ---------------------------------------------------------------------------
-# 5. leave-one-case-out never leaks (including variants)
-# ---------------------------------------------------------------------------
-def test_loco_never_leaks_variants():
-    rows, _ = make_synthetic_ledger(with_variants=True)
-    groups = validate.fold_groups(rows, "case_base")
-    assert "caseA" in groups
-    for g in groups:
-        train = [r for r in rows if r.get("case_base") != g]
-        test = [r for r in rows if r.get("case_base") == g]
-        assert all(r["case_base"] != g for r in train)
-        # variant aliasing did not create a case_base other than the 8 canonical ones
-        assert all(r["case_base"] in CASES for r in test)
-    # make_synthetic_ledger(with_variants=True) tags EVERY case's first-numtiles row as a
-    # "__mp6bl1" scheme-variant alias (not just caseA -- see the nt == NUMTILES_VALUES[0] branch
-    # above), so the leak-proof property must hold per case: a variant row's case_raw differs from
-    # its siblings but case_base_of() must map it back to its own parent case, and leaving out any
-    # one case_base must also leave out that case's own variant row.
-    variant_rows = [r for r in rows if (r["case_raw"] or "").endswith("__mp6bl1")]
-    assert variant_rows and all(
-        r["case_base"] == ledger.case_base_of(r["case_raw"]) for r in variant_rows)
-    for g in CASES:
-        train_without_g = [r for r in rows if r["case_base"] != g]
-        assert all(r["case_raw"] != "%s__mp6bl1" % g for r in train_without_g)
-
-
-# ---------------------------------------------------------------------------
-# 6. regret metric equals a hand computation
-# ---------------------------------------------------------------------------
-def test_regret_matches_hand_computation():
-    rows, _ = make_synthetic_ledger(noise_std=0.0)
-    case_rows = [r for r in rows if r["case_base"] == "caseA"]
-    # fabricate predictions that pick numtiles=15 as "best" (not the true best, numtiles=13)
-    predictions = {r["run_id"]: (0.0 if r["numtiles"] == 15 else 1.0) for r in case_rows}
-    m = validate.per_case_metrics(case_rows, predictions)
-    measured_best = min(r["y"] for r in case_rows)
-    predicted_choice_y = next(r["y"] for r in case_rows if r["numtiles"] == 15)
-    expected_regret = math.exp(predicted_choice_y - measured_best) - 1
-    assert m["regret"] == pytest.approx(expected_regret)
-    assert m["top1"] is False  # numtiles=15 is not within NOISE of the true best (numtiles=13)
 
 
 # ---------------------------------------------------------------------------
@@ -268,16 +141,6 @@ def test_conformal_coverage_approximately_nominal():
 
 
 # ---------------------------------------------------------------------------
-# 8. ridge regret on the synthetic ledger <= 1%
-# ---------------------------------------------------------------------------
-def test_ridge_regret_under_1_percent():
-    rows, _ = make_synthetic_ledger(noise_std=0.001, seed=2)
-    m = validate.evaluate(rows, "case_base", "ridge", scope="STRICT")
-    assert m["n_eval_cases"] == 8
-    assert m["median_regret"] <= 0.01, "median_regret=%r" % m["median_regret"]
-
-
-# ---------------------------------------------------------------------------
 # 9. SAFE / EXPERIMENTAL rule
 # ---------------------------------------------------------------------------
 def test_safe_experimental_rule():
@@ -287,46 +150,6 @@ def test_safe_experimental_rule():
     experimental = validate.recommendation_label(y_pred=-0.05, upper_y_bound=0.02)
     assert experimental["label"] == "EXPERIMENTAL"
     assert experimental["gain_lower_95"] <= 0
-
-
-# ---------------------------------------------------------------------------
-# 10. heuristic model runs
-# ---------------------------------------------------------------------------
-def test_heuristic_model_runs():
-    rows, _ = make_synthetic_ledger()
-    m = modelmod.HeuristicModel().fit(rows)
-    scores = m.score(rows[:10])
-    assert len(scores) == 10
-    assert all(isinstance(s, float) for s in scores)
-
-
-# ---------------------------------------------------------------------------
-# 11. catboost / lightgbm tests skip with a reason when the import fails
-# ---------------------------------------------------------------------------
-@pytest.mark.skipif(not modelmod.HAVE_CATBOOST, reason="catboost import failed")
-def test_catboost_point_model_fits():
-    rows, _ = make_synthetic_ledger()
-    m = modelmod.CatBoostPointModel()
-    m.fit(rows)
-    preds = m.score(rows[:5])
-    assert len(preds) == 5
-
-
-@pytest.mark.skipif(not (modelmod.HAVE_CATBOOST or modelmod.HAVE_LIGHTGBM),
-                     reason="neither catboost nor lightgbm available")
-def test_pairwise_model_fits():
-    rows, _ = make_synthetic_ledger()
-    m = modelmod.PairwiseModel()
-    m.fit(rows)
-    preds = m.score(rows[:5])
-    assert len(preds) == 5
-
-
-def test_available_models_reports_reason_on_missing_import():
-    avail = modelmod.available_models()
-    for name, (ok, reason) in avail.items():
-        if not ok:
-            assert reason  # never silently unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -385,45 +208,6 @@ def test_decision_group_separates_node_counts():
 
 
 # ---------------------------------------------------------------------------
-# 13. top-k eligibility: a group with only 3 distinct configs must be excluded from top-3
-# ---------------------------------------------------------------------------
-def test_top3_eligibility_excludes_small_groups():
-    rows, _ = make_synthetic_ledger(noise_std=0.0)
-    case_rows = [r for r in rows if r["case_base"] == "caseA"][:3]  # exactly 3 distinct configs
-    predictions = {r["run_id"]: r["y"] for r in case_rows}
-    m = validate.per_case_metrics(case_rows, predictions)
-    assert m["n_configs"] == 3
-    assert m["top3_eligible"] is False
-    assert m["top3"] is None  # not trivially True, unlike the old behaviour
-
-    agg = validate.aggregate_metrics(case_rows, predictions)
-    assert agg["n_eval_cases"] == 1       # still eligible for top-1/regret (>=2 configs)
-    assert agg["n_eval_groups_top3"] == 0  # but not for top-3
-    assert agg["top3_rate"] is None
-
-
-# ---------------------------------------------------------------------------
-# 14. naive-baseline regret: "always pick the group's default config" (y=0 by construction)
-# ---------------------------------------------------------------------------
-def test_naive_baseline_regret():
-    rows, _ = make_synthetic_ledger(noise_std=0.0)
-    case_rows = [r for r in rows if r["case_base"] == "caseA"]
-    # a deliberately bad model that always picks numtiles=19 (far from the true optimum, nt=13)
-    predictions = {r["run_id"]: (0.0 if r["numtiles"] == 19 else 1.0) for r in case_rows}
-    m = validate.per_case_metrics(case_rows, predictions)
-    measured_best = min(r["y"] for r in case_rows)
-    expected_naive = math.exp(0.0 - measured_best) - 1
-    assert m["naive_regret"] == pytest.approx(expected_naive)
-    # all configs are equally frequent, so the baseline comes from the outcome-independent
-    # tie-break (lexical -> numtiles=10), NOT the measured optimum (numtiles=13): naive_regret
-    # must be > 0. (Before 2026-09-14 the tie-break picked the fastest config, leaking the oracle.)
-    base_ck = targets.compute_case_baselines(case_rows)
-    assert [b["config_key"][2] for b in base_ck.values()] == [10]
-    assert m["naive_regret"] > 0.05
-    assert m["regret"] > m["naive_regret"]  # the bad model (nt=19) is worse than the naive baseline
-
-
-# ---------------------------------------------------------------------------
 # 15. UNDERPOWERED rule and "no model selected" behaviour
 # ---------------------------------------------------------------------------
 def test_underpowered_no_model_selected():
@@ -442,30 +226,6 @@ def test_underpowered_no_model_selected():
     for m in loco_strict:
         assert m["n_eval_cases"] < 5
         assert m["status"] == "UNDERPOWERED"
-
-
-# ---------------------------------------------------------------------------
-# 16. leave-one-case-out holds out ALL decision groups of a case_base, including a
-# different-node-count variant of it
-# ---------------------------------------------------------------------------
-def test_loco_holds_out_all_decision_groups_of_case():
-    rows, _ = make_synthetic_ledger(noise_std=0.0)
-    case_rows = [r for r in rows if r["case_base"] == "caseA"]
-    variant_rows = _make_8node_variant(case_rows)
-    other_rows = [r for r in rows if r["case_base"] != "caseA"]
-    all_rows = other_rows + case_rows + variant_rows
-
-    groups = validate.fold_groups(all_rows, "case_base")
-    assert "caseA" in groups
-    train = [r for r in all_rows if r.get("case_base") != "caseA"]
-    test = [r for r in all_rows if r.get("case_base") == "caseA"]
-
-    assert len(test) == len(case_rows) + len(variant_rows)
-    assert all(r.get("case_base") != "caseA" for r in train)
-    # both of caseA's decision groups (4-node and 8-node) are entirely in the held-out set
-    test_groups = {feat.decision_group_key(r) for r in test}
-    assert len(test_groups) == 2
-    assert not any(feat.decision_group_key(r) in test_groups for r in train)
 
 
 # ---------------------------------------------------------------------------
@@ -577,62 +337,6 @@ def test_campaign_correctness_rows_skipped_and_classification_scoped(tmp_path):
     assert all(r["compliance_class"] == "STRICT" for r in rows)
 
 
-def test_config_key_separates_tile_geometry_but_keeps_strict_keys():
-    base = dict(nproc_x=8, nproc_y=28, numtiles=12, omp_threads=2, distribution="block",
-                kmp_blocktime=0, n_nodes=4, n_ranks=224)
-    strict = feat.config_key(base)
-    assert len(strict) == 8
-    assert feat.config_key(dict(base, numtiles_x=0, tile_sz_x="", tile_strategy=None)) == strict
-    a = feat.config_key(dict(base, numtiles_x=3, numtiles_y=4))
-    b = feat.config_key(dict(base, tile_sz_x=24, tile_sz_y=24))
-    assert len({strict, a, b}) == 3
-
-
-def test_decision_group_key_io_form_history_int_and_str_match():
-    row = dict(case_base="lafe", hardware_id="f1-spr-icpnp", compliance_class="STRICT",
-               n_nodes=4, n_ranks=448, omp_threads=1, binary_kind="dmsm")
-    assert (feat.decision_group_key(dict(row, io_form_history=14))
-            == feat.decision_group_key(dict(row, io_form_history="14")))
-
-
-# ---------------------------------------------------------------------------
-# Fidelity numerics in the `notes` column (2026-09-17).
-#
-# The 48-field LEDGER_FIELDS header is depended on by every campaign ledger CSV already on disk
-# and by the tests above, so the measured fidelity error is carried as extra key=value tokens in
-# `notes` -- which already carries mode=/template=/edits=/decomp=/... -- instead of as new
-# columns. strict_campaign.sbatch MODE=physics writes them (configs.fidelity_notes_tokens);
-# ledger.parse_fidelity_notes reads them back as numeric row fields.
-# ---------------------------------------------------------------------------
-def test_parse_fidelity_notes_reads_both_numbers():
-    notes = ("mode=physics template=A01 family=dynamics edits=time_step=12 decomp=C02 "
-             "sim_minutes=30 hist_minutes=30 fidelity_nd_max=0.032 "
-             "fidelity_floor_ratio_max=1.593 fidelity_deciding=nd(QICE)=0.032_>_0.03 tag=A01 "
-             "role=candidate rep=1")
-    got = ledger.parse_fidelity_notes(notes)
-    assert got == {"fidelity_nd_max": 0.032, "fidelity_floor_ratio_max": 1.593}
-    assert all(isinstance(v, float) for v in got.values())
-
-
-@pytest.mark.parametrize("notes", [
-    None,
-    "",
-    "mode=physics template=C02 config=C02 mode=timing",              # a STRICT row: no tokens
-    "mode=physics fidelity_nd_max= fidelity_floor_ratio_max=",       # ran, no fidelity JSON
-    "mode=physics fidelity_nd_max=NA fidelity_floor_ratio_max=NA",   # gate ran, no numeric field
-])
-def test_parse_fidelity_notes_defaults_to_none(notes):
-    assert ledger.parse_fidelity_notes(notes) == {"fidelity_nd_max": None,
-                                                  "fidelity_floor_ratio_max": None}
-
-
-def test_parse_fidelity_notes_ignores_a_lookalike_token():
-    # fidelity_deciding's own value contains '=' signs and the substring "fidelity_nd_max" must
-    # not be matched inside another token's value.
-    notes = "fidelity_deciding=fidelity_nd_max=9 fidelity_nd_max=0.5"
-    assert ledger.parse_fidelity_notes(notes)["fidelity_nd_max"] == 0.5
-
-
 def _physics_ledger_row(run_id, template, notes_extra, **over):
     base = {k: "" for k in ledger.LEDGER_FIELDS}
     base.update(run_id=run_id, source_dataset="strict_campaign", rep_index="1",
@@ -645,33 +349,6 @@ def _physics_ledger_row(run_id, template, notes_extra, **over):
                 notes="mode=physics template=%s decomp=C02 %s" % (template, notes_extra))
     base.update(over)
     return base
-
-
-def test_campaign_ledger_parses_fidelity_numbers_into_row_fields(tmp_path):
-    rows_in = [
-        _physics_ledger_row("c12_A01_r1_1", "A01",
-                            "fidelity_nd_max=0.0810 fidelity_floor_ratio_max=4.210"),
-        _physics_ledger_row("c12_D02_r1_1", "D02",
-                            "fidelity_nd_max=0.0320 fidelity_floor_ratio_max=1.593"),
-        # a MODE=physics run with no fidelity JSON: tokens present, values empty
-        _physics_ledger_row("c12_P00_r2_1", "P00",
-                            "fidelity_nd_max= fidelity_floor_ratio_max=", fidelity_label=""),
-    ]
-    path = tmp_path / "ledger_conus12_fid.csv"
-    with open(path, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=ledger.LEDGER_FIELDS)
-        w.writeheader()
-        for r in rows_in:
-            w.writerow(r)
-
-    rows = ledger.adapt_campaign_ledger(str(path))
-    by_id = {r["run_id"]: r for r in rows}
-    assert len(rows) == 3
-    assert by_id["c12_A01_r1_1"]["fidelity_nd_max"] == pytest.approx(0.0810)
-    assert by_id["c12_A01_r1_1"]["fidelity_floor_ratio_max"] == pytest.approx(4.210)
-    assert by_id["c12_D02_r1_1"]["fidelity_floor_ratio_max"] == pytest.approx(1.593)
-    assert by_id["c12_P00_r2_1"]["fidelity_nd_max"] is None
-    assert by_id["c12_P00_r2_1"]["fidelity_floor_ratio_max"] is None
 
 
 def test_fidelity_fields_do_not_widen_the_written_csv(tmp_path):

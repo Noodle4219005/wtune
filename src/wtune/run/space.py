@@ -88,7 +88,10 @@ def _gpfs_device(path: str) -> Optional[str]:
 
 def quota_headroom(path: str, runner: Optional[Callable] = None) -> Optional[float]:
     """Bytes left under the user's GPFS block quota (the soft limit, where f1-arm already
-    blocks writes; the hard limit when no soft one is set) for path's filesystem, else None."""
+    blocks writes; the hard limit when no soft one is set) for path's filesystem, else None.
+    in_doubt counts as used: open files on 16 MiB-block GPFS sit there (wiki
+    f1-arm-home2-gpfs-16mib-blocks-make-every-open-rsl-file-cost-16-mib) and writes fail once
+    used + in_doubt reaches the limit."""
     dev = _gpfs_device(os.path.realpath(path))
     if not dev or (runner is None and not os.access(MMLSQUOTA, os.X_OK)):
         return None
@@ -100,6 +103,7 @@ def quota_headroom(path: str, runner: Optional[Callable] = None) -> Optional[flo
         f = line.split()
         if len(f) >= 5 and f[0] == dev and f[1] == "USR":
             used, soft, hard = (int(x) for x in f[2:5])
+            used += int(f[5]) if len(f) > 5 and f[5].isdigit() else 0
             limit = soft or hard
             return (limit - used) * 1024.0 if limit else None
     return None

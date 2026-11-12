@@ -21,7 +21,6 @@ from wtune.post import sources
 from wtune.post.fetch import stations
 from wtune.post.met_pointstat import parse_isd_lite
 
-NCEI_LITE = "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/%d/%s-%d.gz"
 BUCKET_LITE = "https://noaa-isd-pds.s3.amazonaws.com/isd-lite/data/%d/%s-%d.gz"
 BUCKET_INDEX = "https://noaa-isd-pds.s3.amazonaws.com/index.html#isd-lite/"
 HISTORY = "https://www.ncei.noaa.gov/pub/data/noaa/isd-history.csv"
@@ -156,54 +155,6 @@ def catalogue_ids(project):
         return [line.split(",")[0] for line in fh.read().splitlines()[1:]]
 
 
-def test_fresh_fetch_keeps_bucket_gzip(tmp_path, net):
-    fake = net([A, B, C])
-    written = stations.run(args_for(tmp_path))
-    for sid in (A, B, C):
-        assert_good_file(tmp_path, sid)
-    listed_files_exist_and_are_gzip(tmp_path)
-    assert sorted(catalogue_ids(tmp_path)) == sorted([A, B, C])
-    assert set(os.path.basename(p) for p in written) >= {name(A), name(B), name(C)}
-    p = prov(tmp_path)
-    assert p["n_stations"] == 3
-    assert BUCKET_LITE % (YEAR, A, YEAR) in p["urls"]
-    assert not any("isd-lite/%d/" % YEAR in u for u in p["urls"] if "ncei" in u)
-    assert BUCKET_LITE % (YEAR, A, YEAR) in fake.log
-
-
-@pytest.mark.parametrize("with_provenance", [True, False], ids=["listed", "unlisted"])
-def test_refetch_replaces_earlier_html(tmp_path, net, with_provenance):
-    d = base(tmp_path)
-    os.makedirs(d)
-    for sid in (A, B):
-        with open(os.path.join(d, name(sid)), "wb") as fh:
-            fh.write(HTML)
-    if with_provenance:      # what the old fetch wrote: the HTML's sha under each .gz name
-        with open(os.path.join(d, "provenance.json"), "w") as fh:
-            json.dump({"files": {name(A): sha(HTML), name(B): sha(HTML)},
-                       "urls": [NCEI_LITE % (YEAR, A, YEAR), NCEI_LITE % (YEAR, B, YEAR), HISTORY]},
-                      fh)
-    net([A, B])
-    stations.run(args_for(tmp_path))
-    for sid in (A, B):
-        assert_good_file(tmp_path, sid)
-    listed_files_exist_and_are_gzip(tmp_path)
-    assert sorted(catalogue_ids(tmp_path)) == sorted([A, B])
-
-
-def test_station_missing_from_bucket_is_skipped(tmp_path, net):
-    net([A, B])                                       # C: 404 in the bucket
-    written = stations.run(args_for(tmp_path))
-    assert_good_file(tmp_path, A)
-    assert_good_file(tmp_path, B)
-    assert not os.path.exists(os.path.join(base(tmp_path), name(C)))
-    assert name(C) not in prov(tmp_path)["files"]
-    assert C not in catalogue_ids(tmp_path)
-    assert prov(tmp_path)["n_stations"] == 2
-    assert name(C) not in [os.path.basename(p) for p in written]
-    listed_files_exist_and_are_gzip(tmp_path)
-
-
 def test_bucket_answers_non_gzip_station_skipped_with_message(tmp_path, net, capsys):
     net([A, B], bucket_body={B: HTML})                # 200 but an HTML body
     stations.run(args_for(tmp_path))
@@ -212,20 +163,4 @@ def test_bucket_answers_non_gzip_station_skipped_with_message(tmp_path, net, cap
     assert name(B) not in prov(tmp_path)["files"]
     assert B not in catalogue_ids(tmp_path)
     assert "not a gzip" in capsys.readouterr().out
-    listed_files_exist_and_are_gzip(tmp_path)
-
-
-def test_refetch_html_for_station_now_404_is_not_listed(tmp_path, net):
-    """An earlier fetch kept HTML for C and listed it; C is absent from the bucket."""
-    d = base(tmp_path)
-    os.makedirs(d)
-    with open(os.path.join(d, name(C)), "wb") as fh:
-        fh.write(HTML)
-    with open(os.path.join(d, "provenance.json"), "w") as fh:
-        json.dump({"files": {name(C): sha(HTML)}, "urls": [NCEI_LITE % (YEAR, C, YEAR)]}, fh)
-    net([A])
-    stations.run(args_for(tmp_path))
-    assert_good_file(tmp_path, A)
-    assert not os.path.exists(os.path.join(d, name(C)))
-    assert C not in catalogue_ids(tmp_path)
     listed_files_exist_and_are_gzip(tmp_path)

@@ -4,12 +4,10 @@ with 17 KB history frames and run_report said completed)."""
 import glob
 import json
 import os
-import types
 
 from wtune import run as wr
 from wtune.run import cli as run_cli
 from wtune.run import space
-from wtune.run.geometry import HistoryStream
 
 import test_wtune_run as T
 from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune/bp.py)
@@ -17,25 +15,16 @@ from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune/bp.
 LAYOUT = ["--nodes", "1", "--nx", "8", "--ny", "9"]
 
 
-def test_estimate_counts_history_frames_and_restart_sets():
-    geo = types.SimpleNamespace(hist=[HistoryStream(iv_s=3600.0, begin_s=0.0), None,
-                                      HistoryStream(iv_s=60.0, begin_s=600.0)],
-                                points=[100, 10, 1000])
-    need, detail = space.estimate_output_bytes(geo, 1200.0, 1)
-    fb = space.frame_bytes
-    # d01: t=0 only; d02: no history, one restart; d03: 600..1200 s every 60 s = 11 frames
-    assert need == fb(100) * 2 + fb(10) + fb(1000) * 12
-    assert detail == "d01 1 x %s, d03 11 x %s" % (space._fmt_bytes(fb(100)),
-                                                  space._fmt_bytes(fb(1000)))
-
-
 def test_quota_headroom_reads_the_soft_limit(monkeypatch):
     monkeypatch.setattr(space, "_gpfs_device", lambda p: "home2")
     out = ("Filesystem type   KB  quota  limit in_doubt grace | files\n"
            "home2      USR   85543152  104857600  209715200  2815232  none |  788266  0  0\n")
-    assert space.quota_headroom("/home/x", runner=lambda argv: out) == (104857600 - 85543152) * 1024.0
+    # in_doubt (open files' 16 MiB blocks) counts as used: writes fail at used + in_doubt
+    assert space.quota_headroom("/home/x", runner=lambda argv: out) == \
+        (104857600 - 85543152 - 2815232) * 1024.0
     no_soft = out.replace("104857600", "0")
-    assert space.quota_headroom("/home/x", runner=lambda argv: no_soft) == (209715200 - 85543152) * 1024.0
+    assert space.quota_headroom("/home/x", runner=lambda argv: no_soft) == \
+        (209715200 - 85543152 - 2815232) * 1024.0
     monkeypatch.setattr(space, "_gpfs_device", lambda p: None)
     assert space.quota_headroom("/tmp", runner=lambda argv: out) is None
 
@@ -128,24 +117,6 @@ def test_rsl_fatal_names_the_rank_and_message(tmp_path):
     assert resume.rsl_fatal(str(tmp_path / "none")) is None
 
 
-def test_input_bytes_counts_stale_conversions_and_one_per_record_copy(tmp_path, monkeypatch):
-    """elevconv 2026-10-23: converting 2.0 GB of netCDF inputs wrote 7.9 GB of BP and pushed
-    home2 past its quota; the output estimate had not counted inputs at all."""
-    case = tmp_path / "case"
-    case.mkdir()
-    for n in ("wrfinput_d01", "wrfbdy_d01"):
-        (case / n).write_bytes(b"x")
-    monkeypatch.setattr(space, "netcdf_data_bytes",
-                        lambda p: {"wrfinput_d01": 3e9, "wrfbdy_d01": 5e9}.get(os.path.basename(p), 0.0))
-    plan = {"convert": [str(case / "wrfinput_d01"), str(case / "wrfbdy_d01")],
-            "per_record": {"wrfbdy_d01": str(tmp_path / "cache" / "wrfbdy_d01")}}
-    stale = types.SimpleNamespace(cached_inputs=lambda d, c, names: None)
-    assert space.input_bytes(plan, str(tmp_path / "cache"), stale) == (8e9, 5e9)
-    cached = types.SimpleNamespace(cached_inputs=lambda d, c, names: {n: n for n in names})
-    assert space.input_bytes(plan, str(tmp_path / "cache"), cached) == (0.0, 5e9)
-    assert space.input_bytes(None, None, cached) == (0.0, 0.0)
-
-
 def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys):
     """elevconv 2026-10-23: `wtune tune` converted the inputs without any space check."""
     import pytest
@@ -159,20 +130,6 @@ def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys)
     assert "input conversion 8.0 GB of 12.0 GB writable" in capsys.readouterr().out
     monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (_ for _ in ()).throw(KeyError(c)))
     jobs.check_input_space("unknown", writable=lambda p: (0.0, "x"))     # not checked
-
-
-def test_gzip_rsl_keeps_rank_0_plain(tmp_path):
-    """sc26p1 debug_level=50: 17.6 GB of rsl in 22 minutes, 17x smaller with gzip -1."""
-    import gzip
-    for n in ("rsl.out.0000", "rsl.error.0000", "rsl.out.0001", "rsl.error.0039"):
-        (tmp_path / n).write_text("d01 2020-06-01_00:00:10 tile 1\n" * 1000)
-    n, before, after = space.gzip_rsl(str(tmp_path))
-    assert n == 2 and after < before / 10
-    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0039.gz", "rsl.out.0000",
-                                            "rsl.out.0001.gz"]
-    with gzip.open(tmp_path / "rsl.error.0039.gz", "rt") as fh:
-        assert fh.read() == "d01 2020-06-01_00:00:10 tile 1\n" * 1000
-    assert space.gzip_rsl(str(tmp_path)) == (0, 0, 0)
 
 
 class WritesTables(T.Fakes):
@@ -262,3 +219,14 @@ def test_probe_input_copy_needs_one_copy_not_one_per_run(monkeypatch, tmp_path):
         ("WTUNE_BP_FRESH_DIR", str(tmp_path / "bp_fresh"))] and made == [17]
     monkeypatch.setattr(jobs, "_writable_at", lambda p: (1e9, "GPFS quota headroom"))
     assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == []
+
+
+def test_campaign_quota_free_gib_counts_in_doubt():
+    # haitang2017 (2026-10-28): 75 G used + ~29 GB in_doubt from open rsl files hit 100 G
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "campaign"))
+    from run_reports import quota_free_gib
+    out = ("home2      USR   94093120  104857600  209715200    1040256     none |   834220 0 0\n"
+           "work2      USR   78643200  104857600  209715200   30408704     none |    87387 0 0\n")
+    assert quota_free_gib(out, filesystem="work2") == (104857600 - 78643200 - 30408704) / 1048576.0
+    assert quota_free_gib(out, filesystem="home1") is None

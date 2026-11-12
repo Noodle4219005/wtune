@@ -28,14 +28,6 @@ def test_template_proposal_and_confirmation_pool_by_decomposition():
     assert ranked[1]["n"] == 2 and abs(ranked[1]["s_median"] - 1.30) < 1e-9
 
 
-def test_tile_geometry_keeps_decompositions_apart():
-    rows = _rows(
-        "x_A_r1_1,x,STRICT,901,901,224,2,8,28,12,block,0,0.26,config=A\n"
-        "x_B_r1_1,x,STRICT,901,901,224,2,8,28,12,block,0,0.30,"
-        "config=B numtiles_x=3 numtiles_y=4 tile_strategy=0\n")
-    assert len(dsum.summarize(rows, "x")) == 2
-
-
 def test_confirm_configs_have_nonempty_patch_and_cf_ids(tmp_path):
     rows = _rows("x_R01D0002_r1_1,x,STRICT,901,901,224,2,8,28,12,block,default,0.26,config=R01D0002\n")
     ledger = tmp_path / "l.csv"

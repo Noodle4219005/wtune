@@ -118,6 +118,15 @@ def project_storm(project_doc):
     return storm.get("id"), storm.get("hurdat2")
 
 
+def project_bdeck(project_doc):
+    """project.yaml's storm.bdeck (an ATCF b-deck, e.g. a JMA best track converted), or None."""
+    return ((project_doc or {}).get("storm") or {}).get("bdeck")
+
+
+# terrain/moisture: the cross-section figures' line; hovmoller: precip_hovmoller's line
+CROSS_SECTION_KINDS = ("terrain", "moisture", "hovmoller")
+
+
 def project_cross_section(project_doc, kind):
     """project.yaml's optional cross_sections.<kind> override (dict with lat0/lon0/lat1/lon1),
     or None -- decision 0057 update: "也可由 project.yaml 指定"."""
@@ -143,10 +152,25 @@ def project_exclude_nodes(project_doc):
 
 
 def project_post_defaults(project_doc):
-    """project.yaml's post block: {"types", "every", "fetch"}; missing keys -> None ([] for
-    fetch, the observation datasets `wtune submit` fetches before post)."""
+    """project.yaml's post block: {"types", "every", "fetch", "focus"}; missing keys -> None ([]
+    for fetch, the observation datasets `wtune submit` fetches before post). focus: [lat_min,
+    lat_max, lon_min, lon_max], the area the point figures and peak time look at
+    (post/focus.py)."""
     post = (project_doc or {}).get("post") or {}
-    return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [])
+    focus = post.get("focus")
+    if focus is not None and (len(focus) != 4 or focus[0] >= focus[1] or focus[2] >= focus[3]):
+        raise ProjectError("post.focus must be [lat_min, lat_max, lon_min, lon_max], got %r"
+                           % (focus,))
+    return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [],
+                focus=[float(v) for v in focus] if focus else None,
+                times=list(post.get("times") or []),
+                map_domains=list(post.get("map_domains") or []),
+                figures_off=list(post.get("figures_off") or []),
+                figures_on=list(post.get("figures_on") or []),
+                stations=list(post.get("stations") or []),
+                station_vars=list(post.get("station_vars") or []),
+                station_method=post.get("station_method"), calm_kt=post.get("calm_kt"),
+                map_overlay=list(post.get("map_overlay") or []))
 
 
 def project_case_id(project_doc):
@@ -209,6 +233,7 @@ def machine_line(project_doc):
     values["node_memory_gib"] = "%g" % values["node_memory_gib"]
     values["node_preflight"] = "on" if values["node_preflight"] else "off"
     values["copy_probe_inputs"] = "on" if values["copy_probe_inputs"] else "off"
+    values["exclusive"] = "on" if values["exclusive"] else "off"
     values["measured"] = ",".join(
         "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
@@ -446,7 +471,7 @@ Storm-following central pressure and max 10 m wind time series: prefers an exist
 search via wrf-python when no track csv is found yet, so this script produces something
 even before the tc recipe has run.
 """
-from post import custom_api as api
+from wtune.post import custom_api as api
 
 
 def run(ctx):
@@ -616,20 +641,45 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     example_path = os.path.join(path, "analysis", "example_tc_track.py")
     with open(example_path, "w") as fh:
         fh.write(_EXAMPLE_SCRIPT)
+    write_agents_pointer(path)
 
     manifest_append(path, ["wtune", "project", "init", path], out_dir=path, exit_code=0,
                     key_paths=[case_dir] if case_dir else [])
     return path
 
 
-def set_project(project_dir, storm=None, hurdat2=None, argv=None):
-    """`wtune project set [--project DIR] [--storm ID] [--hurdat2 F]`: updates project.yaml's
-    storm block in place (every other key and the key order are kept) and records the command
-    in manifest.jsonl. Returns the updated storm dict."""
-    if not (storm or hurdat2):
-        raise ProjectError("nothing to set (give --storm and/or --hurdat2)")
+def write_agents_pointer(project_dir) -> str:
+    """<project>/AGENTS.md: where this WTune's agent instructions are (AGENT.md and the skills,
+    absolute paths). Agent harnesses read AGENTS.md from the directory they work in."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    skills = os.path.join(repo, "skills")
+    text = ("# WTune project\n\n"
+            "Before any WTune work in this project, read %s.\n\n"
+            "- install, project, inputs, tune, run, monitor, other commands: %s\n"
+            "- events and observations: %s\n"
+            "- figures, preview, post-processing, assessment: %s\n\n"
+            "Run WTune as `%s`.\n"
+            % (os.path.join(repo, "AGENT.md"),
+               os.path.join(skills, "wtune-operate", "SKILL.md"),
+               os.path.join(skills, "wtune-event", "SKILL.md"),
+               os.path.join(skills, "wtune-post", "SKILL.md"),
+               os.path.join(repo, "bin", "wtune")))
+    out = os.path.join(project_dir, "AGENTS.md")
+    with open(out, "w") as fh:
+        fh.write(text)
+    return out
+
+
+def set_project(project_dir, storm=None, hurdat2=None, argv=None, bdeck=None):
+    """`wtune project set [--project DIR] [--storm ID] [--hurdat2 F] [--bdeck F]`: updates
+    project.yaml's storm block in place (every other key and the key order are kept) and records
+    the command in manifest.jsonl. Returns the updated storm dict."""
+    if not (storm or hurdat2 or bdeck):
+        raise ProjectError("nothing to set (give --storm, --hurdat2 and/or --bdeck)")
     if hurdat2 and not os.path.isfile(hurdat2):
         raise ProjectError("--hurdat2 %s not found" % hurdat2)
+    if bdeck and not os.path.isfile(bdeck):
+        raise ProjectError("--bdeck %s not found" % bdeck)
     doc = load_project(project_dir)
     block = dict(doc.get("storm") or {})
     block.setdefault("id", None)
@@ -638,6 +688,8 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
         block["id"] = storm
     if hurdat2:
         block["hurdat2"] = os.path.abspath(hurdat2)
+    if bdeck:
+        block["bdeck"] = os.path.abspath(bdeck)
     doc["storm"] = block  # an existing key keeps its position; a missing one is appended
     path = os.path.join(project_dir, PROJECT_YAML)
     tmp = path + ".tmp"
@@ -645,16 +697,203 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
         yaml.safe_dump(doc, fh, sort_keys=False, allow_unicode=True)
     os.replace(tmp, path)
     manifest_append(project_dir, argv or ["wtune", "project", "set"], out_dir=project_dir,
-                    exit_code=0, key_paths=[block["hurdat2"]] if hurdat2 else [])
+                    exit_code=0, key_paths=[p for p in (block["hurdat2"] if hurdat2 else None,
+                                                        block.get("bdeck") if bdeck else None) if p])
     return block
 
 
+def _floats(text, n, flag):
+    try:
+        vals = [float(v) for v in text.split(",")]
+    except ValueError:
+        vals = []
+    if len(vals) != n:
+        raise ProjectError("%s expects %d comma-separated numbers, got %r" % (flag, n, text))
+    return vals
+
+
+STATION_VARS = ("t2", "td2", "wspd10", "wdir10", "gust", "slp")
+STATION_METHODS = ("nearest", "bilinear")
+MAP_OVERLAYS = ("wind10",)
+# `wtune project set` flag -> (namespace attribute, post.* key); all values are comma lists
+# except --post-station-method and --post-calm-kt. "none" clears a key.
+POST_LIST_FLAGS = (("--post-times", "post_times", "times"),
+                   ("--post-map-domains", "post_map_domains", "map_domains"),
+                   ("--post-figures-off", "post_figures_off", "figures_off"),
+                   ("--post-figures-on", "post_figures_on", "figures_on"),
+                   ("--post-stations", "post_stations", "stations"),
+                   ("--post-station-vars", "post_station_vars", "station_vars"),
+                   ("--post-overlay", "post_overlay", "map_overlay"))
+POST_SCALAR_FLAGS = (("--post-station-method", "post_station_method", "station_method"),
+                     ("--post-calm-kt", "post_calm_kt", "calm_kt"))
+_CANONICAL_TIME_FORMATS = ("%Y-%m-%dT%H", "%Y-%m-%dT%H:%M")
+# Also WRF's own spelling (2022-04-05_06:00:00) and a space instead of T or _.
+_TIME_FORMATS = _CANONICAL_TIME_FORMATS + tuple(
+    "%%Y-%%m-%%d%s%s" % (sep, tail) for sep in ("T", "_", " ")
+    for tail in ("%H", "%H:%M", "%H:%M:%S")
+    if (sep, tail) not in (("T", "%H"), ("T", "%H:%M")))
+TIME_EXAMPLES = "2022-04-05T06, 2022-04-05T06:00, 2022-04-05_06:00:00, 2022-04-05 06:00"
+
+
+def parse_iso_time(text, flag="--post-times"):
+    """A UTC time as YYYY-MM-DDTHH[:MM[:SS]] with T, _ or a space between date and hour (WRF's
+    2022-04-05_06:00:00 included) -> naive datetime; ProjectError otherwise."""
+    for fmt in _TIME_FORMATS:
+        try:
+            return datetime.strptime(text.strip(), fmt)
+        except ValueError:
+            pass
+    raise ProjectError("%s: %r is not a time; accepted: YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM (UTC), "
+                       "also with _ or a space instead of T and with :SS; e.g. %s"
+                       % (flag, text, TIME_EXAMPLES))
+
+
+def _canonical_time(text, flag):
+    """text unchanged when it is already YYYY-MM-DDTHH[:MM], else YYYY-MM-DDTHH:MM."""
+    dt = parse_iso_time(text, flag)
+    for fmt in _CANONICAL_TIME_FORMATS:
+        try:
+            datetime.strptime(text, fmt)
+            return text
+        except ValueError:
+            pass
+    return dt.strftime("%Y-%m-%dT%H:%M")
+
+
+def figure_catalog_ids():
+    """Figure ids `wtune post recipe` can draw (post/recipes/catalog.json keys)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "post", "recipes",
+                        "catalog.json")
+    with open(path) as fh:
+        return [k for k in json.load(fh) if not k.startswith("_")]
+
+
+def _check_post_list(key, flag, items):
+    if key == "times":
+        for t in items:
+            parse_iso_time(t, flag)
+    elif key == "map_domains":
+        if items != ["all"]:
+            for d in items:
+                if not re.fullmatch(r"d\d{2}", d) or d == "d00":
+                    raise ProjectError("%s: use all or dNN domains such as d01,d03, got %r"
+                                       % (flag, d))
+    elif key in ("figures_off", "figures_on"):
+        known = figure_catalog_ids()
+        bad = [i for i in items if i not in known]
+        if bad:
+            raise ProjectError("%s: unknown figure id %s; catalog ids (first 40 of %d): %s"
+                               % (flag, ", ".join(bad), len(known), ", ".join(known[:40])))
+    elif key == "stations":
+        for sid in items:
+            if not re.fullmatch(r"[A-Za-z0-9]+", sid):
+                raise ProjectError("%s: station id must be letters and digits only, got %r"
+                                   % (flag, sid))
+    elif key == "station_vars":
+        bad = [v for v in items if v not in STATION_VARS]
+        if bad:
+            raise ProjectError("%s: unknown variable %s; use %s"
+                               % (flag, ", ".join(bad), ",".join(STATION_VARS)))
+    elif key == "map_overlay":
+        bad = [v for v in items if v not in MAP_OVERLAYS]
+        if bad:
+            raise ProjectError("%s: unknown overlay %s; supported: %s"
+                               % (flag, ", ".join(bad), ",".join(MAP_OVERLAYS)))
+
+
+def apply_post_options(doc, values):
+    """The --post-times/--post-map-domains/--post-figures-off/--post-figures-on/--post-stations/
+    --post-station-vars/--post-station-method/--post-calm-kt/--post-overlay values (dict
+    namespace attribute -> text or None) onto doc["post"] (in place); each flag replaces its
+    key, 'none' clears it, ProjectError names the flag and the accepted form."""
+    post, errors = {}, []
+    for flag, attr, key in POST_LIST_FLAGS:
+        text = values.get(attr)
+        if text is None:
+            continue
+        try:
+            items = [v.strip() for v in text.split(",") if v.strip()]
+            if text.strip().lower() == "none":
+                items = []
+            elif not items:
+                raise ProjectError("%s: empty value (use 'none' to clear)" % flag)
+            if key == "map_domains" and "all" in items:
+                items = ["all"]
+            _check_post_list(key, flag, items)
+            if key == "times":
+                items = [_canonical_time(t, flag) for t in items]
+        except ProjectError as e:
+            errors.append(str(e))
+            continue
+        post[key] = items or None
+    for flag, attr, key in POST_SCALAR_FLAGS:
+        text = values.get(attr)
+        if text is None:
+            continue
+        text = str(text).strip()
+        if text.lower() == "none":
+            val = None
+        elif key == "station_method":
+            if text not in STATION_METHODS:
+                errors.append("%s: use %s, got %r" % (flag, "|".join(STATION_METHODS), text))
+                continue
+            val = text
+        else:
+            try:
+                val = float(text)
+            except ValueError:
+                val = -1.0
+            if not 0 < val <= 50:
+                errors.append("%s: calm threshold in knots, 0 < x <= 50, got %r" % (flag, text))
+                continue
+        post[key] = val
+    if errors:      # all-or-nothing: nothing above touched doc, so project.yaml stays as it was
+        raise ProjectError("; ".join(errors) + " (no flag was applied; project.yaml unchanged)")
+    if post:
+        doc["post"] = dict(doc.get("post") or {}, **post)
+    return doc
+
+
+def post_option_values(ns):
+    """{attribute: value} of the new post flags on a parsed `project set` namespace."""
+    return {attr: getattr(ns, attr, None)
+            for _f, attr, _k in POST_LIST_FLAGS + POST_SCALAR_FLAGS}
+
+
+def apply_drawing_options(doc, post_focus=None, cross_sections=None, post_options=None):
+    """--post-focus, --cross-section and the new --post-* drawing flags (post_options, see
+    apply_post_options) onto a project document (in place); raises ProjectError on a malformed
+    value. Also what `wtune post check` validates a review's fix with."""
+    if post_options:
+        apply_post_options(doc, post_options)
+    if post_focus is not None:
+        focus = None if post_focus.lower() == "none" else _floats(post_focus, 4, "--post-focus")
+        post = dict(doc.get("post") or {}, focus=focus)
+        project_post_defaults(dict(post=post))          # validates the box
+        doc["post"] = post
+    for spec in cross_sections or []:
+        kind, _, line = spec.partition("=")
+        if kind not in CROSS_SECTION_KINDS:
+            raise ProjectError("--cross-section KIND=lat0,lon0,lat1,lon1 with KIND %s, got %r"
+                               % (" or ".join(CROSS_SECTION_KINDS), spec))
+        sections = dict(doc.get("cross_sections") or {})
+        sections[kind] = None if line.lower() == "none" else dict(
+            zip(("lat0", "lon0", "lat1", "lon1"), _floats(line, 4, "--cross-section")))
+        doc["cross_sections"] = sections
+    return doc
+
+
 def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
-                         post_fetch=None, register_case=False, argv=None, machine=None):
-    """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/
-    --register-case` and the machine flags: updates those keys in place. "none" clears
-    post_every and post_fetch. Returns the updated document."""
+                         post_fetch=None, register_case=False, argv=None, machine=None,
+                         post_focus=None, cross_sections=None, post_options=None):
+    """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/--post-focus/
+    --cross-section/--register-case` and the machine flags: updates those keys in place. "none"
+    clears post_every, post_fetch, post_focus and a cross-section. Returns the updated
+    document."""
     doc = load_project(project_dir)
+    # Validate the drawing flags before anything with a side effect (register_case writes
+    # cases.json): a bad flag rejects the whole call and leaves every file as it was.
+    apply_drawing_options(doc, post_focus, cross_sections, post_options)
     if machine:
         doc["machine"] = project_machine(
             dict(machine=wtune.machine.merged(doc.get("machine"), machine)))
@@ -707,6 +946,10 @@ def info_project(project_dir):
     post = project_post_defaults(doc)
     lines.append("post defaults: --types %s --every %s; submit fetches: %s"
                  % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
+    extra = ["%s=%s" % (k, v) for k, v in post.items()
+             if k not in ("types", "every", "fetch") and v not in (None, [], {})]
+    if extra:
+        lines.append("post drawing options: " + "; ".join(extra))
     report = latest_tune_report(project_dir, case.get("id"))
     if report:
         lines.append("latest tune report: %s" % os.path.relpath(report, project_dir))
@@ -754,9 +997,14 @@ def build_parser():
                             % wtune.machine.user_file())
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
+    p_set.add_argument("--bdeck", default=None,
+                       help="ATCF b-deck best track (a storm outside HURDAT2, e.g. JMA converted)")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
     p_set.add_argument("--cores-per-node", type=int, default=None,
-                       help="hardware cores of one compute node (built-in 72)")
+                       help="cores of one compute node WRF may use (built-in 72)")
+    p_set.add_argument("--hardware-cores-per-node", type=int, default=None,
+                       help="cores Slurm bills for an --exclusive node when WRF uses fewer "
+                            "(built-in 0: the same as --cores-per-node)")
     p_set.add_argument("--max-nodes", type=int, default=None,
                        help="compute nodes one job may use (built-in 13)")
     p_set.add_argument("--partition", default=None,
@@ -789,6 +1037,10 @@ def build_parser():
     p_set.add_argument("--copy-probe-inputs", type=_on_off, default=None, metavar="{on,off}",
                        help="each probe job reads its own copy of the BP inputs (built-in on); "
                             "off where the filesystem has a quota and no NFS open stall")
+    p_set.add_argument("--exclusive", type=_on_off, default=None, metavar="{on,off}",
+                       help="jobs hold whole nodes (built-in on); off: only the cores their "
+                            "tasks use, on one socket when --numa-per-node is 1 -- for a "
+                            "cluster with no idle nodes, at the price of a neighbour's noise")
     p_set.add_argument("--node-preflight", type=_on_off, default=None, metavar="{on,off}",
                        help="probe every node with one srun before a tune (built-in on); off "
                             "where the scheduler limits how many jobs a user may submit")
@@ -805,6 +1057,45 @@ def build_parser():
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,
                        help="observations `wtune submit` fetches, e.g. era5,stage4; 'none' clears")
+    p_set.add_argument("--post-focus", default=None, metavar="LAT0,LAT1,LON0,LON1",
+                       help="study area the point figures and peak time look at (post.focus: "
+                            "lat_min,lat_max,lon_min,lon_max); 'none' clears")
+    p_set.add_argument("--cross-section", action="append", default=None,
+                       metavar="KIND=LAT0,LON0,LAT1,LON1",
+                       help="fixed line, KIND terrain or moisture (cross-section figures) or "
+                            "hovmoller (precip_hovmoller); KIND=none clears; repeatable")
+    p_set.add_argument("--post-times", default=None, metavar="T1,T2,...",
+                       help="valid times (UTC, YYYY-MM-DDTHH or YYYY-MM-DDTHH:MM) the recipe "
+                            "draws its time series at (post.times); beats --every, loses to "
+                            "`wtune post recipe --times`; 'none' clears")
+    p_set.add_argument("--post-map-domains", default=None, metavar="d01,d03|all",
+                       help="domains whose terrain the domain map shades, plus one zoomed "
+                            "terrain map per listed nest (post.map_domains); default d01 only; "
+                            "'none' clears")
+    p_set.add_argument("--post-figures-off", default=None, metavar="ID,ID",
+                       help="catalog figure ids the recipe leaves out of the output "
+                            "(post.figures_off); 'none' clears")
+    p_set.add_argument("--post-figures-on", default=None, metavar="ID,ID",
+                       help="catalog figure ids to force on (post.figures_on; validated and "
+                            "noted, no figure is off by default yet); 'none' clears")
+    p_set.add_argument("--post-stations", default=None, metavar="ID,ID",
+                       help="station ids for `wtune post stations` (post.stations; letters and "
+                            "digits); 'none' clears")
+    p_set.add_argument("--post-station-vars", default=None, metavar="VAR,VAR",
+                       help="station variables, from %s (post.station_vars); 'none' clears"
+                            % ",".join(STATION_VARS))
+    p_set.add_argument("--post-station-method", default=None, metavar="nearest|bilinear",
+                       help="model-to-station interpolation (post.station_method)")
+    p_set.add_argument("--post-calm-kt", default=None, metavar="KT",
+                       help="wind speed in knots below which the direction is calm "
+                            "(post.calm_kt)")
+    p_set.add_argument("--post-overlay", default=None, metavar="wind10",
+                       help="field drawn over the zoomed domain maps and the time-series t2 and "
+                            "wspd10 maps (post.map_overlay): wind10 = 10 m wind barbs; "
+                            "other figures are unaffected; 'none' clears")
+    p_set.add_argument("--agents-md", action="store_true",
+                       help="(re)write <project>/AGENTS.md, the pointer to WTune's agent "
+                            "instructions (projects made before it existed)")
     p_set.add_argument("--register-case", action="store_true",
                        help="register case/ in <project>/cases.json for `wtune tune` "
                             "(projects made before this existed)")
@@ -861,11 +1152,19 @@ def main(argv=None):
                 raise ProjectError("no project found (--project, $WTUNE_PROJECT, or a "
                                    "project.yaml above the current directory)")
             full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
+            if args.agents_md:
+                print(write_agents_pointer(project_dir))
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
             machine = _machine_flags(args)
-            if any(v is not None for v in defaults) or args.register_case or machine:
+            post_options = post_option_values(args)
+            if (any(v is not None for v in defaults) or args.register_case or machine
+                    or args.post_focus is not None or args.cross_section
+                    or any(v is not None for v in post_options.values())):
                 doc = set_project_defaults(project_dir, *defaults, machine=machine,
-                                           register_case=args.register_case, argv=full_argv)
+                                           register_case=args.register_case, argv=full_argv,
+                                           post_focus=args.post_focus,
+                                           cross_sections=args.cross_section,
+                                           post_options=post_options)
                 if machine:
                     print(machine_line(doc))
                 post = project_post_defaults(doc)
@@ -873,15 +1172,22 @@ def main(argv=None):
                       % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
                          ",".join(project_exclude_nodes(doc)) or "-", post["types"] or "auto",
                          post["every"] or "-"))
-                if not (args.storm or args.hurdat2):
+                shown = ["%s=%s" % (k, v) for k, v in post.items()
+                         if k not in ("types", "every", "fetch") and v not in (None, [], {})]
+                if shown:
+                    print("post drawing options: " + "; ".join(shown))
+                if not (args.storm or args.hurdat2 or args.bdeck):
                     return 0
+            if args.agents_md and not (args.storm or args.hurdat2 or args.bdeck):
+                return 0
             block = set_project(project_dir, storm=args.storm, hurdat2=args.hurdat2,
-                                argv=full_argv)
+                                argv=full_argv, bdeck=args.bdeck)
         except ProjectError as e:
             print("error: %s" % e, file=sys.stderr)
             return 1
-        print("%s: storm id=%s hurdat2=%s" % (os.path.join(project_dir, PROJECT_YAML),
-                                              block.get("id"), block.get("hurdat2")))
+        print("%s: storm id=%s hurdat2=%s bdeck=%s" % (os.path.join(project_dir, PROJECT_YAML),
+                                              block.get("id"), block.get("hurdat2"),
+                                              block.get("bdeck")))
         return 0
 
     if args.project_command == "info":

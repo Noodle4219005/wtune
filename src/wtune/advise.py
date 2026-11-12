@@ -160,6 +160,17 @@ def _project_storm_defaults(storm, hurdat2, project=None):
     return storm or p_storm, hurdat2 or _expand(p_hurdat)
 
 
+def _project_bdeck_default(project=None):
+    """The project's storm.bdeck (`wtune project set --bdeck`, a storm outside HURDAT2), else None:
+    without it tune saw haitang2017 (JMA track only) as common/convection, never tc."""
+    import wtune.project
+    try:
+        pdir = wtune.project.find_project(explicit=project)
+    except wtune.project.ProjectError:
+        return None
+    return _expand(wtune.project.project_bdeck(wtune.project.load_project(pdir))) if pdir else None
+
+
 def build_case(arg, site=None, needs=(), hurdat2=None, storm=None, bdeck=None, post_tc_dir=None,
                project=None):
     """`arg` = a directory (case prep dir, run dir, or a wtune project) or a registry case id.
@@ -198,6 +209,7 @@ def build_case(arg, site=None, needs=(), hurdat2=None, storm=None, bdeck=None, p
         raise AdviseError("namelist %s does not exist" % namelist)
     # a directory without a namelist is still advisable: detectors that need it are unavailable
     hurdat2 = hurdat2 or os.environ.get("WTUNE_HURDAT2") or None
+    bdeck = bdeck or _project_bdeck_default(project)
     first_state = _find_first_state(run_dir or case_dir) or _find_first_state(case_dir)
     return AdviceCase(name, namelist, first_state=first_state, case_dir=case_dir, run_dir=run_dir,
                       needs=needs, hurdat2=hurdat2, storm=storm, bdeck=bdeck, registry=registry,

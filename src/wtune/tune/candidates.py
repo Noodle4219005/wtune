@@ -12,6 +12,7 @@ import wtune.config
 import wtune.extensions
 from ._deps import campaign_configs, decomp_space, sweep
 from .common import _cluster_rank, _log_key, _notes_kv, parse_run_id
+from . import shortlist
 from .context import Ctx, cores_used
 
 FULL_SPACE_CONFIGS_PER_JOB = 24      # configs in one full-space job (~1 h at 20 steps)
@@ -23,6 +24,7 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
     no-op without --config). The ANCHOR is exempt from the search restrictions only; dropped
     candidates are printed."""
     out = []
+    chem_dropped = []
     omp_cap = getattr(ctx, "omp_cap", None)
     for c in configs:
         exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
@@ -31,6 +33,8 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             why = wtune.extensions.chem_j_patch_reason(chem_e_sn, int(c["ny"]), c.get("nx"))
             if why:
                 print("config: %s %s" % (c.get("id"), why))
+                if not exempt:
+                    chem_dropped.append(c)
                 continue
         if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only build
             if exempt:
@@ -42,14 +46,23 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             out.append(c)
         elif exempt:
             print("config: ANCHOR excluded by an `exclude` rule")
+    if chem_dropped and not out:
+        # the guard is PROVISIONAL (one case): when it leaves nothing to measure, keep the layout
+        # with the widest j-patch (smallest ny) instead of an empty search, and say so
+        best = min(chem_dropped, key=lambda c: int(c["ny"]))
+        print("config: every candidate is below the WRF-Chem j-patch guard; keeping %s (%sx%s, the "
+              "widest j-patch) -- it may hang at the first history write" % (
+                  best.get("id"), best.get("nx"), best.get("ny")))
+        out.extend(_apply_search_filter(dataclasses.replace(ctx, chem_e_sn=None), [best]))
     return out
 
 
 def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
                                 seed: int) -> list[dict]:
     """Up to `k` not-yet-measured decomp_space candidates (filtered BEFORE sampling, identity =
-    scc_sweep._identity): round0's top-up and the adaptive fallback once the proposer is
-    exhausted. [] when the pool is exhausted."""
+    scc_sweep._identity): the proxy's wider round0 pool (proxy_stage.select), round0's top-up
+    when the proxy did not run, and the adaptive fallback once the proposer is exhausted. []
+    when the pool is exhausted."""
     total_cores = ctx.nodes * cores_used(ctx)
     candidates, _axis = decomp_space.enumerate_space(ctx.case_json, total_cores, ctx.nodes,
                                                        ctx.hardware_id)
@@ -58,8 +71,19 @@ def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
     fresh = [c for c in candidates if sweep._identity(c) not in seen]
     if not fresh or k <= 0:
         return []
-    chosen, _coverage = decomp_space.sample_design(fresh, min(k, len(fresh)), seed,
-                                                     must_include=None)
+    k = min(k, len(fresh))
+    model = shortlist.load(ctx.hardware_id)
+    ranked = shortlist.rank(model, fresh, ctx.case_json.get("e_vert", 1))[:(k + 1) // 2] if model else []
+    if ranked:       # the machine's ranker picks the first half, the design sample the rest
+        taken = {id(c) for c in ranked}
+        rest = [c for c in fresh if id(c) not in taken]
+        more = decomp_space.sample_design(rest, k - len(ranked), seed, must_include=None)[0] \
+            if k > len(ranked) and rest else []
+        chosen = ranked + list(more)
+        print("config: %d of %d new layouts are the %s ranker's first picks"
+              % (len(ranked), len(chosen), ctx.hardware_id))
+    else:
+        chosen, _coverage = decomp_space.sample_design(fresh, k, seed, must_include=None)
     out = decomp_space.to_campaign_configs(chosen, prefix="D")
     # ids continue after the D ids already used in this tune: a restart at D0001 would overwrite
     # an earlier round's measurement of a different layout
@@ -77,6 +101,12 @@ def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
     by_cid: dict = {}
     dirty: dict = {}
     for r in rows:
+        notes = r.get("notes") or ""
+        if "reason=low_disk" in notes:
+            # the runner's disk guard stopped the job before it ran: not a layout's failure, and
+            # every probe after it would stop the same way (f1-arm conus25: 5 N dropped silently)
+            raise SystemExit("ERROR: job %s stopped by the disk guard (%s) -- free space on the "
+                               "run filesystem, then tune again" % (r.get("job_id") or "?", notes.strip()))
         parsed = parse_run_id(r.get("run_id"))
         if not parsed:
             continue

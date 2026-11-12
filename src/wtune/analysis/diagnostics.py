@@ -24,17 +24,9 @@ Grid separability (mandatory correctness check, never assumed):
   takes the 1-D shortcut when the deviation is below SEPARABLE_TOL_DEG (1e-4 deg, ~11 m).
 
   For a non-separable grid this module writes the fields flattened onto an unstructured
-  `ncol` dimension (1-D lat(ncol), lon(ncol), fields(time, ncol)), which is what
-  analysis.tc_track.detect_and_stitch feeds to TempestExtremes' GenerateConnectivityFile
-  to build a Delaunay-type point-cloud connectivity file, then to DetectNodes via
-  --in_connect. This was verified empirically against tempest-extremes 2.4.2
-  (conda-forge nompi build 103): GenerateConnectivityFile builds valid connectivity from
-  --in_data + --latname/--lonname alone (curvilinear or scattered points, no separate
-  mesh file needed), and DetectNodes/StitchNodes correctly track a moving feature through
-  it -- see analysis/tc_track.py's module docstring for the exact commands and the
-  synthetic-grid test that exercises this path (test_analysis_tc_track.py). If
-  GenerateConnectivityFile itself fails for a given file, analysis.tc_track raises
-  NotImplementedError naming the projection rather than mis-gridding silently.
+  `ncol` dimension (1-D lat(ncol), lon(ncol), fields(time, ncol)) with `ny`/`nx`
+  attributes; analysis.tc_track.write_grid_connectivity builds the TempestExtremes
+  connectivity file from them (see analysis/tc_track.py's module docstring).
 """
 from __future__ import annotations
 

@@ -13,7 +13,6 @@ GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       "fixtures", "golden", "config", "resolve_config.json")
 REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
 
-BAD_NUMBERS = [0, -1, True, "x", None, 1.5, 2]
 
 CASES = {
     "defaults": {},

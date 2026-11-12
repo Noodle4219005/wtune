@@ -85,10 +85,13 @@ def rebuilt_case_id(case: str, index: int) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", case) + "p%d" % index
 
 
+REBUILT_MIN_STEPS = 40   # haitang2017: a 40-step window per start point, 10 steps missed 29 %
+
+
 def rebuilt_steps(stepra: int) -> int:
-    """Candidate STEPS at a rebuilt point: max(30, 2*stepra) + 2 (two radiation steps, the
-    dropped first step, one spare)."""
-    return max(30, 2 * int(stepra)) + 2
+    """Candidate STEPS at a rebuilt point: max(REBUILT_MIN_STEPS, 2*stepra) + 2 (two radiation
+    steps, the dropped first step, one spare)."""
+    return max(REBUILT_MIN_STEPS, 2 * int(stepra)) + 2
 
 
 def rebuilt_measure_steps(steps: int, dt: float) -> int:
@@ -459,7 +462,7 @@ def predicted_spinup_min(dt: float, floor_min: int = PREDICTED_SPINUP_MIN,
     for m in range(int(floor_min), int(max_min) + 1):
         if abs((m * 60.0) / float(dt) - round((m * 60.0) / float(dt))) < 1e-9:
             return m
-    raise SystemExit("--rank-by predicted: no whole-minute spin-up in [%d, %d] min is a multiple "
+    raise SystemExit("rebuilt points: no whole-minute spin-up in [%d, %d] min is a multiple "
                      "of time_step=%gs -- the shared restart would not fall on a time step"
                      % (floor_min, max_min, dt))
 

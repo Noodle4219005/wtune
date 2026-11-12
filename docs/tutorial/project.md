@@ -171,7 +171,7 @@ machine:
   wrf_tree: ~/wrf/WRF      # WRF 的根目錄，底下有 main/wrf.exe
   geog: /data/WPS_GEOG     # WPS 的靜態地理資料
   max_hours: 8             # partition 允許的最長工作時數，內建 0（不設上限）
-  max_omp: 1               # 每個 rank 最多幾個執行緒；WRF 沒有 OpenMP 時設 1，內建 0（不限）
+  max_omp: 0               # 每個 rank 最多幾個執行緒，內建 0（不限）；dmpar 的 wrf.exe 會自動限 1
   node_preflight: false    # 調校前不要對每個節點各送一個探測工作，內建 true
   node_memory_gib: 218     # 一個計算節點的記憶體；內建 0（不知道，不檢查）
   copy_probe_inputs: false # 探測直接讀共用的 BP 輸入快取，不各自複製；內建 true
@@ -195,7 +195,7 @@ machine:
 | `wrf_tree` | 等同環境變數 `WRF_TREE` |
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 | `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
-| `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
+| `max_omp` | 每個 rank 的執行緒上限。WRF 是 dmpar（沒有 OpenMP）時不用設：tune 從 `wrf.exe` 看出沒有 OpenMP 平行區，就從節點掃描的基準組態開始只用單執行緒。要強制更低的上限時才設 |
 | `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕；被拒絕或 30 秒內沒拿到節點的探測，節點會保留、標成「沒探測」，不會被排除。這種叢集上檢查幫助不大，又要排隊，可以設成 `false`（`--node-preflight off`） |
 | `node_memory_gib` | 調校前先估每個配置每節點要多少記憶體，放不下的不送；第一個成功探測的 MaxRSS 會校正後面的估計。用 `scontrol show node <節點> \| grep RealMemory`（MB）換算 |
 | `copy_probe_inputs` | 內建每個探測作業各自複製一份 BP 輸入，避開 scc NFS 多人同時開檔卡住的問題。沒有 reflink 時是整份複製，一波幾個作業就是好幾份；在有配額的檔案系統（例如 f1-arm 的 100 G home2）設成 `false`。副本在作業結束後一律刪除 |
@@ -310,7 +310,7 @@ search:
   omp: [1, 2]
 ```
 
-`search` 的限制不會套到節點掃描的基準組態。整台機器的 WRF 都沒有 OpenMP 時，用 `machine` 的 `max_omp: 1`。
+`search` 的限制不會套到節點掃描的基準組態。要連基準組態一起限制執行緒數，用 `machine` 的 `max_omp`；dmpar 的 `wrf.exe` 會自動限 1。
 
 ## manifest.jsonl
 

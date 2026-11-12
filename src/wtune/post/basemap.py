@@ -27,6 +27,7 @@ LAYERS = (
     ("cultural", "admin_0_boundary_lines_land", "country borders", "0.2", 0.6),
     ("cultural", "admin_1_states_provinces_lakes", "state/province borders", "0.35", 0.4),
 )
+MUTED = "0.6"                # every layer's colour with muted=True
 FINE_SPAN_DEG = 8.0          # use 10 m below this domain span when cached
 TERRAIN_STEPS_M = (50, 100, 200, 250, 500, 1000, 2000)
 TERRAIN_MAX_LINES = 12
@@ -85,9 +86,32 @@ def layer_segments(category, name, resolution, bbox):
     path = shapefile_path(category, name, resolution)
     if path is None:
         return None
+    import numpy as np
     lon0, lon1, lat0, lat1 = bbox
-    return [s[4] for s in _all_segments(path)
-            if s[2] >= lon0 and s[0] <= lon1 and s[3] >= lat0 and s[1] <= lat1]
+    out = []
+    # a box past 180E (continuous_lons of a domain across it: 165..190) also takes the
+    # segments 360 deg away, shifted onto it
+    for shift in [0.0] + [360.0] * (lon1 > 180.0) + [-360.0] * (lon0 < -180.0):
+        a0, a1 = lon0 - shift, lon1 - shift
+        for s in _all_segments(path):
+            if s[2] >= a0 and s[0] <= a1 and s[3] >= lat0 and s[1] <= lat1:
+                out.append(s[4] + np.array([shift, 0.0]) if shift else s[4])
+    return out
+
+
+def centred_plate_carree(ccrs, lon0, lon1):
+    """(PlateCarree centred on lon0..lon1, its central longitude). With central_longitude 0 a
+    box across 180E (170..190) is two boxes at the map's ends."""
+    c = ((lon0 + lon1) / 2.0 + 180.0) % 360.0 - 180.0
+    return ccrs.PlateCarree(central_longitude=c), c
+
+
+def set_lonlat_extent(ax, extent, c):
+    """set_extent of (lon0, lon1, lat0, lat1), lon0..lon1 continuous (may pass 180), on an axes
+    from centred_plate_carree(..., c): in the axes' own x (lon - c), so nothing is cut at 180."""
+    lon0, lon1, lat0, lat1 = extent
+    x0 = (lon0 - c + 180.0) % 360.0 - 180.0
+    ax.set_extent([x0, x0 + (lon1 - lon0), lat0, lat1], crs=ax.projection)
 
 
 def terrain_interval(hgt_max, hgt_min=0.0):
@@ -184,13 +208,14 @@ def caption_rect(fig):
 
 
 def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, labels=True,
-                 nest_rings=None, terrain=True, caption=True):
+                 nest_rings=None, terrain=True, caption=True, muted=False):
     """Draw the base layers on `ax`. ccrs_mod: cartopy.crs module (None = plain lon/lat axes).
     ds: open wrfout Dataset of THIS domain (gives XLAT/XLONG/HGT/LANDMASK and the nest rings);
     alternatively pass lats/lons (+ hgt) arrays. nest_rings: explicit [(dom, lons, lats)] (None =
     derive from ds; [] = none). terrain=False skips the HGT contours (the field already IS
-    terrain). Returns dict(layers=[labels drawn], resolution, terrain_interval_m, gridliner,
-    caption)."""
+    terrain). muted: grey coastlines and borders, for a map whose own black lines (isobars)
+    must not be mistaken for them. Returns dict(layers=[labels drawn], resolution,
+    terrain_interval_m, gridliner, caption)."""
     import numpy as np
     from matplotlib.collections import LineCollection
     if ds is not None:
@@ -229,16 +254,20 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
         if segs is None:
             continue
         if segs:
-            ax.add_collection(LineCollection(segs, colors=color, linewidths=lw, zorder=3,
-                                             **transform_kw), autolim=False)
+            ax.add_collection(LineCollection(segs, colors=MUTED if muted else color,
+                                             linewidths=lw, zorder=3, **transform_kw),
+                              autolim=False)
         drawn.append(label)
         used_res = used_res or res
     landmask_fallback = False
     if "coastline" not in drawn and ds is not None and "LANDMASK" in ds.variables \
             and lats is not None:
-        ax.contour(lons, lats, np.asarray(ds.variables["LANDMASK"][0]), levels=[0.5],
-                   colors="k", linewidths=0.6, zorder=3, **transform_kw)
-        landmask_fallback = True
+        landmask = np.asarray(ds.variables["LANDMASK"][0])
+        # lats/lons may be a cropped window of the file's grid; the mask is the whole grid
+        if landmask.shape == np.shape(lats) == np.shape(lons):
+            ax.contour(lons, lats, landmask, levels=[0.5],
+                       colors=MUTED if muted else "k", linewidths=0.6, zorder=3, **transform_kw)
+            landmask_fallback = True
 
     interval = None
     if terrain and hgt is not None and lats is not None:
@@ -260,6 +289,11 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
         ax.plot(ring_lon, ring_lat, linestyle="--", color="k", linewidth=1.1, zorder=4,
                 **transform_kw)
     gl = _gridlines(ax, ccrs_mod) if (ccrs_mod is not None and labels) else None
+    if gl is not None and lats is not None and np.isfinite(lats).any():
+        lat_span = float(np.nanmax(lats) - np.nanmin(lats))
+        lon_span = float(np.nanmax(lons) - np.nanmin(lons))
+        if min(lat_span, lon_span) < SMALL_DOMAIN_DEG:
+            small_domain_ticks(gl)
     if ccrs_mod is None:
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
@@ -304,12 +338,59 @@ def interior_mask(shape, bdy_width=0, fill=None):
     return m
 
 
-def masked_barbs(ax, lons, lats, u, v, stride, mask=None, **kw):
-    """ax.barbs on every `stride`-th point, but ONLY where `mask` (plotted interior), u and v
-    are valid -- no barb is ever drawn outside the filled interior. Returns the Barbs or None
-    when nothing is left."""
+SMALL_DOMAIN_DEG = 8.0      # a map whose shorter side spans less than this gets MaxNLocator ticks
+
+
+def small_domain_ticks(gl):
+    """3-5 gridlines per axis whatever the span: MaxNLocator on 1/2/2.5/5 x 10^n degrees, and
+    explicit lat/lon formatters (119.5W, 34.5N style degree labels). The fixed 2-degree step of
+    gridline_step gave a 1.2 x 1.5 degree nest (Santa Barbara d03) one meridian and one parallel."""
+    import matplotlib.ticker as mticker
+    from cartopy.mpl.ticker import LatitudeFormatter, LongitudeFormatter
+    gl.xlocator = mticker.MaxNLocator(nbins=5, min_n_ticks=3, steps=[1, 2, 2.5, 5, 10])
+    gl.ylocator = mticker.MaxNLocator(nbins=5, min_n_ticks=3, steps=[1, 2, 2.5, 5, 10])
+    gl.xformatter = LongitudeFormatter()
+    gl.yformatter = LatitudeFormatter()
+
+
+def gridline_step(gl, lat_span, lon_span=None):
+    """Lat/lon gridlines every 2, 5 or 10 degrees by the map's latitude span: cartopy's own
+    choice on a Lambert map labelled one meridian (120E) on haitang2017's d01. A map whose
+    shorter side (lat_span, lon_span in degrees) is under SMALL_DOMAIN_DEG gets
+    small_domain_ticks instead."""
+    import matplotlib.ticker as mticker
+    if gl is None:
+        return
+    if min(lat_span, lon_span if lon_span else lat_span) < SMALL_DOMAIN_DEG:
+        small_domain_ticks(gl)
+        return
+    step = 2 if lat_span < 12 else 5 if lat_span < 30 else 10
+    gl.xlocator = mticker.FixedLocator(range(-180, 181, step))
+    gl.ylocator = mticker.FixedLocator(range(-90, 91, step))
+
+
+BARBS_ACROSS = 15           # barbs along a map's shorter side
+
+
+def barb_stride(shape, across=BARBS_ACROSS, minimum=4) -> int:
+    """Grid stride giving about `across` barbs along the shorter side (haitang2017 d03's 25,
+    with a second set on the same points, read as a solid fill)."""
+    return max(minimum, min(shape) // across)
+
+
+def above_ground(ds, level_hpa, timeidx=0):
+    """True where the surface pressure is above level_hpa: wind interpolated to that level is
+    not underground (850/700 hPa barbs drawn over the Central Mountain Range)."""
     import numpy as np
-    s = slice(None, None, stride)
+    return np.asarray(ds.variables["PSFC"][timeidx], dtype="f8") / 100.0 > level_hpa
+
+
+def masked_barbs(ax, lons, lats, u, v, stride, mask=None, offset=0, **kw):
+    """ax.barbs on every `stride`-th point (from `offset`, to interleave a second set), but
+    ONLY where `mask` (plotted interior), u and v are valid -- no barb is ever drawn outside
+    the filled interior. Returns the Barbs or None when nothing is left."""
+    import numpy as np
+    s = slice(offset, None, stride)
     lo, la = np.asarray(lons)[s, s], np.asarray(lats)[s, s]
     uu, vv = np.asarray(u, dtype="f8")[s, s], np.asarray(v, dtype="f8")[s, s]
     # wrf.interplevel marks below-ground points with a ~9.97e36 fill value, not NaN

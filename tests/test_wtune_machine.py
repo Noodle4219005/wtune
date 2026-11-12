@@ -8,9 +8,7 @@ import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/c
 import wtune.config
 import wtune.machine
 import wtune.nodes
-from wtune import predict
 from wtune.predictor import decomp_space, features
-from wtune.run import layout, sbatch
 from wtune.tools import scc_sweep
 
 
@@ -26,25 +24,9 @@ def scc(monkeypatch):
         _unset(monkeypatch, name)
 
 
-@pytest.fixture
-def other_machine(scc, monkeypatch):
-    for name, value in (("WTUNE_CORES_PER_NODE", "64"), ("WTUNE_MAX_NODES", "20"),
-                        ("WTUNE_PARTITION", "batch"), ("WTUNE_LOGIN_NODES", ""),
-                        ("WTUNE_ACCOUNT", "proj42")):
-        monkeypatch.setenv(name, value)
-
-
 def _machine():
     m = wtune.machine
     return m.cores_per_node(), m.max_nodes(), m.partition(), m.login_nodes()
-
-
-def test_built_in_values_are_scc(scc):
-    assert _machine() == (72, 13, "compute", ["head"])
-
-
-def test_environment_replaces_them(other_machine):
-    assert _machine() == (64, 20, "batch", [])
 
 
 @pytest.mark.parametrize("bad", ["0", "-4", "many", "7.5"])
@@ -52,43 +34,6 @@ def test_a_bad_count_is_refused(scc, monkeypatch, bad):
     monkeypatch.setenv("WTUNE_CORES_PER_NODE", bad)
     with pytest.raises(wtune.machine.MachineError, match="WTUNE_CORES_PER_NODE"):
         wtune.machine.cores_per_node()
-
-
-def test_segment_job_asks_for_that_machine(other_machine):
-    text = sbatch.render_segment_sbatch("/seg", 0, layout.make_config(8, 16, 1, 1, nodes=2),
-                                        "01:00:00", "job")
-    assert ("#SBATCH -p batch -N 2 --exclusive --ntasks-per-node=64 --time=01:00:00 "
-            "--account=proj42\n") in text
-    assert "--exclude" not in text
-
-
-def test_segment_job_on_scc_is_unchanged(scc):
-    text = sbatch.render_segment_sbatch("/seg", 0, layout.make_config(12, 12, 1, 1, nodes=2),
-                                        "01:00:00", "job")
-    assert ("#SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:00:00 "
-            "--exclude=head\n") in text
-    assert "--account" not in text
-
-
-def test_layout_is_checked_against_the_node_size(other_machine):
-    layout.make_config(8, 8, 1, 1, nodes=1)
-    with pytest.raises(layout.RunError, match=r"1 node\(s\) x 64 cores"):
-        layout.make_config(5, 13, 1, 1, nodes=1)
-
-
-def test_probe_job_asks_for_that_machine(other_machine):
-    assert scc_sweep.exclude_arg() == ""
-    cmd = scc_sweep.build_sbatch_command("c", 2, wtune.machine.cores_per_node(), "00:10:00",
-                                         600, 1, 20, "/c.json", "/out")
-    assert "sbatch -p batch -N 2 --ntasks-per-node=64 --exclusive --account=proj42 " in cmd
-    assert "--exclude" not in cmd
-
-
-def test_config_node_cap_follows_the_machine(other_machine):
-    cfg, errors = wtune.config.resolve_config({})
-    assert not errors and cfg["budget"]["max_nodes"] == 20
-    cfg, errors = wtune.config.resolve_config({"budget": {"max_nodes": 6}})
-    assert not errors and cfg["budget"]["max_nodes"] == 6
 
 
 CASE = {"e_we": [150], "e_sn": [130], "max_dom": 1}
@@ -116,39 +61,6 @@ def test_settings_that_contradict_a_known_machine_are_refused(scc, monkeypatch):
     monkeypatch.setenv("WTUNE_NUMA_PER_NODE", "3")
     with pytest.raises(ValueError, match="not a multiple of numa_per_node=3"):
         features.hardware("odd")
-
-
-def test_calibration_file_follows_the_machine(scc, monkeypatch, tmp_path):
-    assert predict.calibration_path() == str(predict.DEFAULT_CALIBRATION)
-    mine = tmp_path / "newbox.json"
-    mine.write_text('{"site": "newbox", "cores_per_node": 144}')
-    monkeypatch.setenv("WTUNE_CALIBRATION", str(mine))
-    assert predict.calibration_path() == str(mine)
-    assert predict.cores_per_node(predict.load_calibration(predict.calibration_path())) == 144
-
-
-def test_jobs_name_the_site_and_source_the_machine_environment(scc, monkeypatch):
-    monkeypatch.setenv("WTUNE_SITE", "mysite")
-    monkeypatch.setenv("WTUNE_ENV_SOURCE", "/opt/env.sh")
-    text = sbatch.render_segment_sbatch("/seg", 0, layout.make_config(12, 12, 1, 1, nodes=2),
-                                        "01:00:00", "job")
-    assert "\nSITE=mysite\n" in text and '\nsource "/opt/env.sh"\n' in text
-    cmd = scc_sweep.build_sbatch_command("c", 2, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
-    assert cmd.startswith("source /opt/env.sh; sbatch ") and "ALL,SITE=mysite," in cmd
-
-
-def test_user_file_sits_between_the_built_in_values_and_the_project(scc, monkeypatch, tmp_path):
-    path = tmp_path / "cfg" / "machine.yaml"
-    monkeypatch.setenv("WTUNE_MACHINE_FILE", str(path))
-    assert wtune.machine.load_user() == {}
-    wtune.machine.save_user(dict(partition="mine", max_nodes=4))
-    assert wtune.machine.load_user() == dict(partition="mine", max_nodes=4)
-    wtune.machine.export(dict(partition="project"))     # the dispatcher exports the project first
-    wtune.machine.export(wtune.machine.load_user())
-    assert (wtune.machine.partition(), wtune.machine.max_nodes()) == ("project", 4)
-    path.write_text("cores: 9\n")
-    with pytest.raises(wtune.machine.MachineError, match="unknown key"):
-        wtune.machine.load_user()
 
 
 def test_paths_of_the_machine(scc, monkeypatch):
@@ -233,6 +145,27 @@ def test_a_refused_partition_moves_the_job_to_the_next(scc, monkeypatch):
     assert seen[-1] == "sbatch -p large /x/nc2bp.sbatch"
 
 
+def test_a_job_pending_on_a_size_limit_moves_to_the_next_partition(scc):
+    # f1-arm: arm144 takes 2 x 72 tasks --exclusive (288 CPUs) and leaves it pending for ever
+    wtune.machine.export(dict(partition="arm144,arm576,arm1440"))
+    ids = iter(["11", "12"])
+    submitted, cancelled = [], []
+
+    def sbatch_runner(cmd):
+        submitted.append(cmd.split()[2])
+        return "Submitted batch job %s\n" % next(ids)
+
+    reasons = {"11": "QOSMaxCpuPerJobLimit", "12": "Priority"}
+    assert scc_sweep.submit_job("sbatch /x.sbatch", sbatch_runner,
+                                pending_reason=reasons.get, cancel=cancelled.append) == "12"
+    assert submitted == ["arm144", "arm576"] and cancelled == ["11"]
+
+    with pytest.raises(RuntimeError, match="arm1440: job 3 pending on PartitionNodeLimit"):
+        scc_sweep.submit_job("sbatch /x.sbatch", lambda c: "Submitted batch job 3\n",
+                             pending_reason=lambda j: "PartitionNodeLimit", cancel=cancelled.append)
+    assert cancelled == ["11", "3", "3", "3"]
+
+
 def test_every_partition_refusing_is_reported(scc):
     wtune.machine.export(dict(partition="small,mid"))
 
@@ -276,3 +209,69 @@ def test_probe_input_copies_can_be_turned_off(scc, monkeypatch):
     with pytest.raises(wtune.machine.MachineError, match="true or false"):
         wtune.machine.check({"copy_probe_inputs": "no"})
 
+
+def test_a_node_count_no_partition_takes_is_skipped_not_fatal(monkeypatch):
+    import dataclasses
+    from wtune.tune import node_search as ns
+
+    @dataclasses.dataclass
+    class C:
+        nodes: int = 1
+        steps: int = 10
+        budget_s: float = 1800.0
+
+        def elapsed(self):
+            return 0.0
+
+    def submit(cn, configs, **kw):
+        if cn.nodes == 2:
+            raise scc_sweep.NoPartitionError("no partition took the job -- arm576: refused")
+        return "5%d" % cn.nodes, "/c.json", {}
+
+    monkeypatch.setattr(ns, "submit_configs_job", submit)
+    monkeypatch.setattr(ns, "_sweep_steps", lambda ctx, s: 10)
+    monkeypatch.setattr(ns, "_job_time_est", lambda *a: {"total_run_s": 60})
+    monkeypatch.setattr(ns, "_cold_budget_s_per_step", lambda *a: (1.0, "test"))
+    monkeypatch.setattr(ns._jobs, "wait_for_jobs", lambda ctx, ids, label: {})
+    monkeypatch.setattr(ns, "_anchor_results", lambda ctx, items, jobs, states, skipped: dict(jobs))
+    anchor = dict(ranks=72, omp=1, nx=8, ny=9)
+    items = [dict(nodes=n, key=n, tag={"nodes": n}, suffix="nodes-n%d" % n, anchor=anchor)
+             for n in (1, 2, 4)]
+    skipped, jobs = [], {}
+    assert ns._anchor_wave(C(), items, lambda n: (1.0, "test"), skipped, 1, jobs) == {1: "51", 4: "54"}
+    assert skipped == [{"nodes": 2, "reason": "no partition took the job -- arm576: refused"}]
+
+
+def test_hardware_cores_per_node_makes_jobs_request_the_billed_cpus(scc, tmp_path):
+    # f1-arm with 72 of 144 cores used: N x 72 tasks --exclusive is billed N x 144 CPUs
+    assert wtune.machine.cpus_per_task_arg(72) == ""          # scc: hardware = cores_per_node
+    wtune.machine.export(wtune.machine.check({"cores_per_node": 72,
+                                              "hardware_cores_per_node": 144}))
+    assert wtune.machine.hardware_cores_per_node() == 144
+    assert [wtune.machine.cpus_per_task_arg(t) for t in (72, 70, 48, 36, 100, 144)] == [
+        "--cpus-per-task=2", "--cpus-per-task=2", "--cpus-per-task=3", "--cpus-per-task=4", "", ""]
+    cmd = scc_sweep.build_sbatch_command("c", 7, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    assert " -N 7 --ntasks-per-node=72 --cpus-per-task=2 --exclusive " in cmd
+    from wtune.run import sbatch as run_sbatch
+    head = run_sbatch._header_lines(str(tmp_path), 2, "01:00:00", "seg", "/env.sh", str(tmp_path))
+    assert "-N 2 --exclusive --ntasks-per-node=72 --cpus-per-task=2 --time=01:00:00" in head[2]
+    with pytest.raises(wtune.machine.MachineError, match="number of cores"):
+        wtune.machine.check({"hardware_cores_per_node": -1})
+
+
+def test_exclusive_off_jobs_hold_only_their_tasks_cores_on_one_socket(scc, tmp_path):
+    # f1-arm 2026-11-09: no idle node, so a whole-node tune waited 12 h; shared, each job takes
+    # one Grace (72 of 144 cores) and is billed for those
+    wtune.machine.export(wtune.machine.check({"cores_per_node": 72, "hardware_cores_per_node": 144,
+                                              "numa_per_node": 1, "exclusive": False}))
+    assert not wtune.machine.exclusive() and wtune.machine.cpus_per_task_arg(72) == ""
+    cmd = scc_sweep.build_sbatch_command("c", 2, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    from wtune import proxy
+    from wtune.run import sbatch as run_sbatch
+    pool = proxy.render_sbatch(str(tmp_path / "q"), "python", "/camp", "00:16:00", 4, mode="_pool")
+    head = run_sbatch._header_lines(str(tmp_path), 2, "01:00:00", "seg", "/env.sh", str(tmp_path))[2]
+    for line in (cmd, pool, head):
+        assert "--exclusive" not in line and "--cpus-per-task" not in line
+        assert "--ntasks-per-socket=72 -m block:block" in line
+    with pytest.raises(wtune.machine.MachineError, match="true or false"):
+        wtune.machine.check({"exclusive": "no"})

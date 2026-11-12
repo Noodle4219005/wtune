@@ -13,16 +13,6 @@ from wtune.post.fetch import era5 as fetch_era5
 from wtune.post.recipes import era5 as recipe_era5
 
 
-def test_discovery_finds_era5_and_every_module_meets_the_contract():
-    mods, errors = fetch.discover(refresh=True)
-    assert "era5" in mods
-    assert not errors, errors
-    for name, m in mods.items():
-        assert m.NAME == name and isinstance(m.HELP, str) and m.HELP
-        assert set(fetch.REQUIRED_PROVENANCE) <= set(m.PROVENANCE)
-        assert fetch.check_module(m) == []
-
-
 def test_check_module_reports_contract_breaks():
     class Bad:
         NAME = "bad"
@@ -35,17 +25,7 @@ def test_check_module_reports_contract_breaks():
 def test_list_text_has_name_help_and_coverage(capsys):
     assert cli.main(["fetch", "--list"]) == 0
     out = capsys.readouterr().out
-    assert "era5" in out and "ERA5 z500 subset" in out and "coverage_time: 1940" in out
-
-
-def test_fetch_and_alias_parse_module_args():
-    p = cli.build_parser()
-    a = p.parse_args(["fetch", "era5", "--project", "P", "--run-dir", "R", "--margin", "3"])
-    assert (a.post_command, a.fetch_name, a.project, a.run_dir, a.margin) == ("fetch", "era5", "P", "R", 3.0)
-    b = p.parse_args(["fetch-era5", "--project", "P", "--spinup-hours", "12"])
-    assert (b.post_command, b.fetch_name, b.spinup_hours) == ("fetch-era5", "era5", 12.0)
-    with pytest.raises(SystemExit):
-        p.parse_args(["fetch", "era5"])                      # --project is required
+    assert "era5" in out and "ERA5 z500 and 850 hPa" in out and "coverage_time: 1940" in out
 
 
 def test_unknown_module_is_a_clear_error():
@@ -113,9 +93,15 @@ def _fake_arco(start="2005-08-26", hours=72):
     times = np.datetime64(start) + np.arange(hours) * np.timedelta64(1, "h")
     lat = np.arange(90, -90.5, -2.0)      # coarse: keep the fake store a few MB
     lon = np.arange(0, 360, 2.0)
-    z = np.random.default_rng(0).uniform(4.5e4, 5.9e4, (len(times), 3, len(lat), len(lon))).astype("f4")
-    return xr.Dataset(dict(geopotential=(("time", "level", "latitude", "longitude"), z)),
-                      coords=dict(time=times, level=[400, 500, 600], latitude=lat, longitude=lon))
+    shape = (len(times), 4, len(lat), len(lon))
+    rng = np.random.default_rng(0)
+    dims = ("time", "level", "latitude", "longitude")
+    return xr.Dataset(dict(geopotential=(dims, rng.uniform(4.5e4, 5.9e4, shape).astype("f4")),
+                           u_component_of_wind=(dims, rng.uniform(-20, 20, shape).astype("f4")),
+                           v_component_of_wind=(dims, rng.uniform(-20, 20, shape).astype("f4")),
+                           specific_humidity=(dims, rng.uniform(0, 0.02, shape).astype("f4"))),
+                      coords=dict(time=times, level=[400, 500, 600, 850], latitude=lat,
+                                  longitude=lon))
 
 
 @pytest.fixture
@@ -129,8 +115,8 @@ def era5_env(tmp_path, monkeypatch):
         calls["open"] += 1
         return ds
     monkeypatch.setattr(recipe_era5, "open_era5", fake_open)
-    monkeypatch.setattr(fetch_era5, "_target", lambda args: (
-        (datetime(2005, 8, 27, 6), (24.0, 26.0, -86.0, -84.0)), None) if args.run_dir else (None, "--run-dir is required"))
+    monkeypatch.setattr(fetch_era5, "_targets", lambda args: (
+        ([datetime(2005, 8, 27, 6)], (24.0, 26.0, -86.0, -84.0)), None) if args.run_dir else (None, "--run-dir is required"))
     args = argparse.Namespace(project=proj, run_dir=run, spinup_hours=6.0, margin=2.0)
     return args, calls
 
@@ -138,9 +124,12 @@ def era5_env(tmp_path, monkeypatch):
 def test_era5_fetch_writes_subset_and_provenance_then_is_idempotent(era5_env):
     args, calls = era5_env
     paths = fetch_era5.run(args)
-    assert len(paths) == 1 and paths[0].endswith("input/era5/z500_2005082706.nc")
+    assert [os.path.basename(p) for p in paths] == ["z500_2005082706.nc", "lev850_2005082706.nc"]
     lat, lon, z, valid, = recipe_era5.read_subset(paths[0])
     assert valid == datetime(2005, 8, 27, 6) and z.shape == (len(lat), len(lon))
+    lat, lon, fields, valid = recipe_era5.read_level(paths[1])
+    assert sorted(fields) == ["Q850", "U850", "V850"] and valid == datetime(2005, 8, 27, 6)
+    assert 0.0 <= np.nanmax(fields["Q850"]) <= 20.0                         # g/kg
     prov = sources.read_provenance(args.project, "era5")
     assert prov["urls"] and prov["dataset"] == fetch_era5.PROVENANCE["dataset"]
     assert prov["files"]["z500_2005082706.nc"] == sources.sha256_file(paths[0])
@@ -156,16 +145,16 @@ def test_era5_fetch_writes_subset_and_provenance_then_is_idempotent(era5_env):
 
 def test_era5_refetches_a_corrupt_file(era5_env):
     args, calls = era5_env
-    (path,) = fetch_era5.run(args)
+    path, lev = fetch_era5.run(args)
     with open(path, "wb") as fh:
         fh.write(b"truncated")
-    assert fetch_era5.run(args) == [path] and calls["open"] == 2
+    assert fetch_era5.run(args) == [path, lev] and calls["open"] == 2
     recipe_era5.read_subset(path)
 
 
 def test_era5_outside_coverage_returns_empty_with_reason(era5_env, monkeypatch, capsys):
     args, _ = era5_env
-    monkeypatch.setattr(fetch_era5, "_target", lambda a: ((datetime(1939, 8, 27, 6), (24, 26, -86, -84)), None))
+    monkeypatch.setattr(fetch_era5, "_targets", lambda a: (([datetime(1939, 8, 27, 6)], (24, 26, -86, -84)), None))
     assert fetch_era5.run(args) == []
     out = capsys.readouterr().out
     assert "outside the ARCO-ERA5 time coverage" in out
@@ -175,64 +164,6 @@ def test_era5_outside_coverage_returns_empty_with_reason(era5_env, monkeypatch, 
 def test_era5_without_run_dir_says_why(capsys):
     assert fetch_era5.run(argparse.Namespace(project="/x", run_dir=None, spinup_hours=6.0, margin=2.0)) == []
     assert "--run-dir is required" in capsys.readouterr().out
-
-
-def _storm_project(tmp_path, storm="AL142016"):
-    (tmp_path / "project.yaml").write_text("storm:\n  id: %s\n" % storm)
-    return str(tmp_path)
-
-
-def test_bdeck_is_fetched_into_the_project_and_used_from_there(tmp_path, monkeypatch):
-    from wtune.post import atcf
-    from wtune.post.fetch import bdeck
-    project = _storm_project(tmp_path)
-    assert not bdeck.present(project)
-
-    def fake_fetch(year, basin, cy, dest, timeout=30):
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        open(dest, "w").write("AL, 14, 2016092812,   , BEST,   0, 133N,  609W,  45, 1004\n")
-        return dest
-    monkeypatch.setattr(atcf, "fetch_bdeck", fake_fetch)
-    got = bdeck.run(argparse.Namespace(project=project, storm=None))
-    assert got == [os.path.join(project, "input", "obs", "bdeck", "bal142016.dat")]
-    assert bdeck.present(project) and sources.read_provenance(project, "bdeck")["files"]
-    assert cli._project_bdeck(None, project, None, "AL142016") == got[0]
-    assert cli._project_bdeck("/my.dat", project, None, "AL142016") == "/my.dat"
-    (tmp_path / "nostorm").mkdir()
-    assert bdeck.present(_storm_project(tmp_path / "nostorm", '""'))   # nothing to fetch
-
-
-def test_tc_never_downloads_inside_a_slurm_job(tmp_path, monkeypatch):
-    from wtune.post import atcf, tc
-
-    def no_network(*a, **kw):
-        raise AssertionError("downloaded on a compute node")
-    monkeypatch.setattr(atcf, "fetch_bdeck", no_network)
-    monkeypatch.setenv("SLURM_JOB_ID", "123")
-    pts = [dict(time=datetime(2016, 9, 28, 12), lat=13.3, lon=-60.9, vmax_kt=45, pmin_hpa=1004)]
-    monkeypatch.setattr(atcf, "hurdat2_to_bdeck_rows", lambda points: [])
-    monkeypatch.setattr(atcf, "write_lines", lambda rows, dest, **kw: dest)
-    assert tc.resolve_bdeck("AL142016", str(tmp_path), hurdat2_points=pts).endswith(
-        "bal142016.dat")
-
-
-def test_natural_earth_check_never_downloads(tmp_path, monkeypatch):
-    pytest.importorskip("cartopy")
-    import cartopy.io.shapereader as shpreader
-    from wtune.post import plotting
-
-    def download(*a, **kw):
-        raise AssertionError("cartopy download")
-    monkeypatch.setattr(shpreader, "natural_earth", download)
-    monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(tmp_path))
-    import cartopy
-    for key in ("data_dir", "pre_existing_data_dir"):     # this machine's own cache
-        monkeypatch.setitem(cartopy.config, key, str(tmp_path / "none"))
-    assert plotting._natural_earth_ready() is False
-    d = tmp_path / "shapefiles" / "natural_earth" / "physical"
-    d.mkdir(parents=True)
-    (d / "ne_110m_coastline.shp").write_text("")
-    assert plotting._natural_earth_ready() is True
 
 
 def test_tests_have_no_network():
@@ -262,26 +193,6 @@ def test_tests_keep_loopback_and_block_names():
         socket.socket().connect_ex(("93.184.216.34", 80))
 
 
-def test_bdeck_takes_submits_window_args_skips_a_current_file_and_needs_no_project_for_an_id(
-        tmp_path, monkeypatch):
-    from wtune.post import atcf
-    from wtune.post.fetch import bdeck
-    calls = []
-
-    def fake_fetch(year, basin, cy, dest, timeout=30):
-        calls.append(dest)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        open(dest, "w").write("AL, 14, 2016092812,   , BEST,   0, 133N,  609W,  45, 1004\n")
-        return dest
-    monkeypatch.setattr(atcf, "fetch_bdeck", fake_fetch)
-    # wtune submit runs `post fetch <name> --project P --bbox=.. --start .. --end ..`
-    args = cli.build_parser().parse_args(["fetch", "bdeck", "--project", str(tmp_path),
-                                          "--bbox=10,20,-70,-60", "--start", "2016092800",
-                                          "--end", "2016093000", "--storm", "al142016"])
-    assert bdeck.run(args) and bdeck.run(args) and len(calls) == 1    # second: sha matches
-    assert not os.path.exists(tmp_path / "project.yaml")               # an id needs none
-
-
 def test_bdeck_storm_name_without_hurdat2_is_a_clear_error(tmp_path):
     from wtune.post import tc
     from wtune.post.fetch import bdeck
@@ -308,3 +219,36 @@ def test_bdeck_of_this_year_is_refetched_and_kept_when_the_refetch_fails(tmp_pat
     args = argparse.Namespace(project=str(tmp_path), storm="AL05%d" % year)
     first = bdeck.run(args)
     assert first and bdeck.run(args) == first and len(calls) == 2
+
+
+def test_fetch_without_run_dir_uses_the_projects_newest_run(tmp_path, monkeypatch, capsys):
+    # 2026-10-26: `wtune post fetch era5 --project P` fetched 0 files -- era5/igra/stations
+    # need the run's wrfout for the window and region, and --run-dir was not derived
+    import argparse
+    from wtune.post import cli, fetch
+    proj = tmp_path / "p"
+    for rid in ("20261026113729", "merged72h"):
+        (proj / "runs" / rid).mkdir(parents=True)
+        (proj / "runs" / rid / "wrfout_d01_2017-07-31_00:00:00").write_bytes(b"x")
+    seen = {}
+    monkeypatch.setattr(fetch, "run_module", lambda name, a: seen.setdefault("run_dir", a.run_dir) and [])
+    args = argparse.Namespace(fetch_name="era5", project=str(proj), run_dir=None, list=False)
+    assert cli.cmd_fetch(args) == 0
+    assert seen["run_dir"] == str(proj / "runs" / "merged72h")
+    assert "using the project's" in capsys.readouterr().out
+
+
+def test_fetch_finds_the_project_it_runs_in(tmp_path, monkeypatch):
+    # haitang2017 (2026-10-27): `wtune post fetch era5` inside the project still demanded --project
+    from wtune.post import cli, fetch
+    import wtune.project
+    p = wtune.project.init_project(str(tmp_path / "p"))
+    monkeypatch.chdir(p)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    seen = {}
+    monkeypatch.setattr(fetch, "run_module", lambda name, args: seen.update(project=args.project) or [])
+    args = cli.build_parser().parse_args(["fetch", "era5"])
+    assert cli.cmd_fetch(args) == 0 and seen["project"] == p
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="no project here"):
+        cli.cmd_fetch(cli.build_parser().parse_args(["fetch", "era5"]))

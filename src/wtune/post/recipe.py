@@ -100,17 +100,19 @@ def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bd
     return out
 
 
-def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours):
+def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours,
+                        focus_box=None, map_time=None):
     from wtune.post.recipes import convection
     conv_out = os.path.join(out_dir, "convection")
     os.makedirs(conv_out, exist_ok=True)
-    out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours)
+    out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours,
+                             focus_box=focus_box, map_time=map_time)
     # the 3-D render is the cloud set's (d01 + finest nest), not repeated here
     return out
 
 
 def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None,
-                          times=None, use_track=True):
+                          times=None, use_track=True, spinup_hours=0):
     """post/recipes/tc_structure.py on run_dirs[0]: centres from the track post/tc.py just
     wrote (tc/track_domains_<label>.csv) when use_track, else its own smoothed-SLP minimum."""
     from wtune.post.recipes import tc_structure
@@ -118,13 +120,16 @@ def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, e
     return tc_structure.figures(run_dirs[0], labels[0], os.path.join(out_dir, "tc_structure"),
                                 case_info,
                                 track_csv=track_csv if use_track and os.path.exists(track_csv)
-                                else None, every=every, times=times, paraview=paraview)
+                                else None, every=every, times=times, paraview=paraview,
+                                spinup_hours=spinup_hours)
 
 
-def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None):
+def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None,
+                   map_time=None, focus_box=None):
     from wtune.post.recipes import cloud
     return cloud.figures(run_dirs, labels, os.path.join(out_dir, "cloud"), case_info,
-                         every=every, times=times, paraview=paraview)
+                         every=every, times=times, paraview=paraview, map_time=map_time,
+                         focus_box=focus_box)
 
 
 TYPE_DISPATCH = {
@@ -137,7 +142,7 @@ TYPE_DISPATCH = {
 def _simple_dispatch(module_name, out_subdir):
     def run(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
            tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None,
-           spinup_days=None, **_ignored):
+           spinup_days=None, focus_box=None, map_time=None, **_ignored):
         import inspect
         mod = __import__("wtune.post.recipes.%s" % module_name, fromlist=["figures"])
         sub_out = os.path.join(out_dir, out_subdir)
@@ -158,6 +163,12 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["project_dir"] = project_dir
         if "spinup_days" in params and spinup_days is not None:
             kwargs["spinup_days"] = spinup_days
+        if "focus_box" in params:
+            kwargs["focus_box"] = focus_box
+        if "map_time" in params:
+            kwargs["map_time"] = map_time
+        if "hovmoller_line" in params:
+            kwargs["hovmoller_line"] = _ignored.get("hovmoller_line")
         return guarded(module_name, mod.figures, run_dirs, labels, sub_out, case_info, **kwargs)
     return run
 
@@ -180,6 +191,166 @@ def guarded(name, fn, *args, **kwargs) -> list:
 for _name in ("precip", "synoptic", "pbl", "chem", "climate", "ensemble", "terrain", "moisture"):
     TYPE_DISPATCH[_name] = _simple_dispatch(_name, _name)
 del _name
+
+
+def _map_time(run_dir, case_info, spinup_hours, focus_box, post_times=None, notes=None):
+    """Valid time of the one-time maps (WRF time string), or None (each figure set's last frame).
+    1. the first post.times entry (post_times, ISO), snapped to the nearest wrfout frame of the
+       finest domain; one outside the run's range is a note and falls through to 2.;
+    2. the rain peak on the finest domain (post/focus.py) when it is at least
+       focus.MIN_PEAK_RATE_MM_H (0.1 mm/h);
+    3. None: no post-spin-up rain (or no frame), the last frame.
+    Why the peak was not used is appended to notes (a list) as a note() entry and printed."""
+    from wtune.post import focus as focus_mod
+    from wtune.post.focus import frame_at
+    domain = case_info["domains"][-1]["domain"] if case_info.get("domains") else 1
+
+    def say(text, level="info"):
+        print("post recipe: " + text)
+        if notes is not None:
+            notes.append(note("one_time_maps", text, level=level))
+
+    if post_times:
+        try:
+            t = resolve_project_times(run_dir, post_times[:1], domain=domain)[0]
+            from wtune.post.extract import list_frames
+            t = frame_at(list_frames(run_dir, domain=domain), t)[0]       # nearest wrfout frame
+            print("post recipe: one-time maps at post.times %s (d%02d frame %s)"
+                  % (post_times[0], domain, t))
+            return t
+        except ValueError as e:
+            say("%s; one-time maps fall back to the rain peak" % e, level="warning")
+    try:
+        f = focus_mod.rain_focus(run_dir, domain, spinup_hours, box=focus_box)
+    except Exception as e:                                  # noqa: BLE001
+        print("post recipe: no rain peak on d%02d (%s: %s); one-time maps at the last frame"
+              % (domain, type(e).__name__, e))
+        return None
+    if not f:
+        return None
+    if f["peak_rate_mm_h"] < focus_mod.MIN_PEAK_RATE_MM_H:
+        say("one-time maps use the last frame, not the rain peak: d%02d peak rain %.4f mm/h at %s "
+            "is below %g mm/h; set --post-times to choose the time"
+            % (domain, f["peak_rate_mm_h"], f["peak_time"], focus_mod.MIN_PEAK_RATE_MM_H))
+        return None
+    print("post recipe: one-time maps at the d%02d rain peak %s (%s)"
+          % (domain, f["peak_time"], f["rule"]))
+    return f["peak_time"]
+
+
+def resolve_project_times(run_dir, iso_times, domain=1):
+    """post.times (ISO UTC strings) -> WRF time strings for `--times`, each snapped to the nearest
+    wrfout frame of `domain`. ValueError naming the available range when a time lies outside it
+    or the run has no frames."""
+    from datetime import datetime
+    from wtune.post.extract import list_frames
+    from wtune.post.timeseries import WRF_TIME_FMT
+    import wtune.project
+    frames = [t for t, _p in list_frames(run_dir, domain=domain)]
+    if not frames:
+        raise ValueError("post.times: no wrfout_d%02d_* frames under %s" % (domain, run_dir))
+    t0 = datetime.strptime(frames[0], WRF_TIME_FMT)
+    t1 = datetime.strptime(frames[-1], WRF_TIME_FMT)
+    out = []
+    for text in iso_times:
+        want = wtune.project.parse_iso_time(text, "post.times")
+        if not t0 <= want <= t1:
+            raise ValueError(
+                "post.times: %s is outside the wrfout d%02d range %s .. %s (%d frames); change "
+                "it with `wtune project set --post-times ...`"
+                % (text, domain, t0.strftime("%Y-%m-%dT%H:%M"), t1.strftime("%Y-%m-%dT%H:%M"),
+                   len(frames)))
+        out.append(want.strftime(WRF_TIME_FMT))
+    return out
+
+
+def _project_post(project_dir):
+    """project.yaml's post defaults for a recipe run, {} (all-off) without a readable project."""
+    if not project_dir or not os.path.isfile(os.path.join(project_dir, "project.yaml")):
+        return {}
+    import wtune.project
+    try:
+        return wtune.project.project_post_defaults(wtune.project.load_project(project_dir))
+    except wtune.project.ProjectError:
+        return {}
+
+
+def apply_figure_switches(out_dir, figures, figures_off, figures_on):
+    """(figures without the ids in figures_off, [note]): the excluded figures' files under
+    out_dir are deleted. figures_on can force nothing yet -- no figure is off by default -- and
+    that is said in a note, not faked."""
+    notes = []
+    off = set(figures_off or [])
+    kept = []
+    root = os.path.abspath(out_dir) + os.sep
+    for f in figures:
+        if f.get("id") not in off:
+            kept.append(f)
+            continue
+        path = f.get("path")
+        if path and os.path.abspath(path).startswith(root) and os.path.isfile(path):
+            os.remove(path)
+    gone = off - {f.get("id") for f in figures}
+    if off and gone:
+        notes.append(note("figures_off", "post.figures_off lists %s, which this run did not "
+                          "produce" % ", ".join(sorted(gone)), level="info"))
+    if figures_on:
+        notes.append(note("figures_on", "post.figures_on = %s is recorded; every catalog figure "
+                          "is already drawn by default, so nothing was forced"
+                          % ", ".join(figures_on), level="info"))
+    return kept, notes
+
+
+def _overlay_time(run_dir, post_cfg, map_time):
+    """WRF time string the zoomed-map wind overlay is drawn at: the first post.times entry
+    (snapped to a frame), else the one-time-map time, else None (the last frame)."""
+    if post_cfg.get("times"):
+        try:
+            return resolve_project_times(run_dir, post_cfg["times"][:1])[0]
+        except ValueError:
+            return map_time
+    return map_time
+
+
+def _station_comparison(run_dir, label, out_dir, project_dir, post_cfg):
+    """([station_series figures], [note dicts]): `wtune post stations` run as part of the recipe
+    when project.yaml has post.stations. Uses the first stations dataset under input/obs/ that
+    passes obs-check, post.station_vars (default all), post.station_method (default nearest) and
+    post.calm_kt (default 3.0), and writes station_series.csv, station_stats.csv and stations/
+    under out_dir. Without post.stations: nothing. Without a usable dataset, or when the
+    comparison cannot run: one note, never a failed recipe."""
+    stations = post_cfg.get("stations") or []
+    if not stations:
+        return [], []
+
+    def info(text, level="info"):
+        text = "post.stations: " + text
+        print("post recipe: " + text)
+        return [], [dict(source="stations", level=level, text=text)]
+    from wtune.post import agent_obs, station_compare
+    usable, bad = agent_obs.usable(project_dir, "stations") if project_dir else ([], [])
+    if not usable:
+        return info("no stations dataset under input/obs/ that passes obs-check%s; the station "
+                    "comparison was not run (`wtune event obs-convert asos`, then `wtune post "
+                    "stations`)" % "".join(" (%s: %s)" % b for b in bad))
+    name, ds_dir, _prov = usable[0]
+    try:
+        res = station_compare.compare(
+            run_dir, ds_dir, stations, post_cfg.get("station_vars") or ["all"],
+            method=post_cfg.get("station_method") or "nearest",
+            calm_kt=post_cfg.get("calm_kt") or 3.0, out_dir=out_dir)
+    except station_compare.StationError as e:
+        return info("station comparison against %s not run: %s" % (name, e), level="warning")
+    print("post recipe: station comparison against %s: %d figure(s)" % (name, len(res["figures"])))
+    figs = [fig(station_compare.FIGURE_ID, p, label) for p in res["figures"]]
+    out_notes = [dict(source="stations",
+                      level="warning" if t.startswith("gust sampling bias") else "info", text=t)
+                 for t in res["notes"]]
+    if len(usable) > 1:
+        out_notes.append(dict(source="stations", level="info", text="compared against %s; the "
+                              "other stations dataset(s) were not used: %s"
+                              % (name, ", ".join(u[0] for u in usable[1:]))))
+    return figs, out_notes
 
 
 def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
@@ -207,6 +378,9 @@ def run_recipe(run_dirs, out_dir, **kwargs) -> dict:
     then _run_recipe. A run whose BP history cannot be converted (adios2 missing) gives a report
     with one missing entry naming the fix; single files that failed become notes."""
     from wtune.post import extract
+    # absolute from here on: every recipe module joins its figure paths onto out_dir, and a
+    # cwd-relative out_dir leaked "post/x/fig.png" into figures.json (check resolves against it)
+    out_dir = os.path.abspath(out_dir)
     labels = kwargs.get("labels") or [("run%d" % i) for i in range(len(run_dirs))]
     with extract.nc_cache(base=kwargs.get("project_dir") or out_dir):
         gaps, bp_notes = [], []
@@ -220,6 +394,8 @@ def run_recipe(run_dirs, out_dir, **kwargs) -> dict:
             for bp, err in prep["failed"]:
                 bp_notes.append(note("history", "%s: %s not converted to netCDF, its frames "
                                      "are left out: %s" % (label, bp, err)))
+            for path, why in prep.get("bad", []):
+                bp_notes.append(note("history", "%s: %s left out (%s)" % (label, path, why)))
         if gaps:
             os.makedirs(out_dir, exist_ok=True)
             from wtune.post.report import build_recipe_report
@@ -256,6 +432,8 @@ class _RecipeRun:
     spinup_days: float | None = None
     track_smooth_km: float | None = None
     tc_centre: tuple | None = None
+    focus_box: list | None = None
+    map_time: str | None = None
 
 
 def _args4(r: _RecipeRun) -> tuple:
@@ -263,51 +441,59 @@ def _args4(r: _RecipeRun) -> tuple:
 
 
 def _run_tc(handler, r: _RecipeRun) -> list:
-    has_track = bool(r.hurdat2_path and r.storm_id)
+    has_track = bool(r.storm_id and (r.hurdat2_path or r.bdeck_path))
     out = []
     if not has_track:
-        out.append(missing("tc_figure", "HURDAT2/--storm",
-                           "tc was detected but --hurdat2/--storm is required "
+        out.append(missing("tc_figure", "HURDAT2 or b-deck, and --storm",
+                           "tc was detected but --storm with --hurdat2 or --bdeck is required "
                            "to build the a-deck/b-deck comparison"))
     else:
         out += guarded("tc", handler, *_args4(r), r.hurdat2_path, r.storm_id, r.bdeck_path,
                        r.ebtrk_path, r.paraview, r.spinup_hours,
                        track_smooth_km=r.track_smooth_km)
     out += guarded("tc_structure", _tc_structure_figures, *_args4(r), paraview=r.paraview,
-                   every=r.every, times=r.times, use_track=has_track)
+                   every=r.every, times=r.times, use_track=has_track,
+                   spinup_hours=r.spinup_hours)
     return out
 
 
 def _run_cloud(handler, r: _RecipeRun) -> list:
     return guarded("cloud", handler, *_args4(r), paraview=r.paraview, every=r.every,
-                   times=r.times)
+                   times=r.times, map_time=r.map_time, focus_box=r.focus_box)
 
 
 def _run_convection(handler, r: _RecipeRun) -> list:
-    return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours)
+    return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours,
+                   focus_box=r.focus_box, map_time=r.map_time)
 
 
 def _run_terrain(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("terrain"),
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir)
+                   project_dir=r.project_dir, map_time=r.map_time, focus_box=r.focus_box)
 
 
 def _run_moisture(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("moisture"), tc_centre=r.tc_centre,
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir)
+                   project_dir=r.project_dir, focus_box=r.focus_box, map_time=r.map_time)
 
 
 def _run_simple(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
-                   spinup_days=r.spinup_days)
+                   spinup_days=r.spinup_days, map_time=r.map_time, focus_box=r.focus_box)
+
+
+def _run_precip(handler, r: _RecipeRun) -> list:
+    return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
+                   spinup_days=r.spinup_days, map_time=r.map_time, focus_box=r.focus_box,
+                   hovmoller_line=r.cross_sections.get("hovmoller"))
 
 
 _TYPE_RUNNERS = {"tc": _run_tc, "cloud": _run_cloud, "convection": _run_convection,
-                 "terrain": _run_terrain, "moisture": _run_moisture}
+                 "terrain": _run_terrain, "moisture": _run_moisture, "precip": _run_precip}
 
 
 def _fail_soft(name, fn, *args, **kwargs) -> list:
@@ -394,13 +580,14 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
                 labels=None, paraview=True, decomposition_only=False, title=None,
                 every=None, times=None, cross_sections=None, animate=False,
                 xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
-                track_smooth_km=None, pre_notes=None) -> dict:
+                track_smooth_km=None, pre_notes=None, focus_box=None) -> dict:
     """The `wtune post recipe` pipeline: detect types, run each type's figure set, add the CF/VAPOR
     data products and (with every/times) the time series, split notes from figures, build the HTML
     report. Returns {out_dir, case_info, figures, notes, report_path, advice}. Option meanings:
     docs/ post section (decisions 0057/0058); None keeps each recipe module's own default."""
     from wtune.post.recipes import common as common_mod
 
+    out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
     if len(labels) != len(run_dirs):
@@ -418,32 +605,79 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         except Exception:
             tc_centre = None
 
+    post_cfg = _project_post(project_dir)
+    map_notes = []
     run = _RecipeRun(
         run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours,
         hurdat2_path=hurdat2_path, storm_id=storm_id, bdeck_path=bdeck_path,
         ebtrk_path=ebtrk_path, paraview=paraview, every=every, times=times,
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
-        track_smooth_km=track_smooth_km, tc_centre=tc_centre)
+        track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box,
+        map_time=_map_time(run_dirs[0], case_info, spinup_hours, focus_box,
+                           post_times=post_cfg.get("times"), notes=map_notes))
+    common_kwargs = dict(decomposition_only=decomposition_only)
+    if post_cfg.get("map_domains"):
+        common_kwargs.update(map_domains=post_cfg["map_domains"],
+                             overlay=post_cfg.get("map_overlay") or [],
+                             overlay_time=_overlay_time(run_dirs[0], post_cfg, run.map_time))
     tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
-                                     case_info), dict(decomposition_only=decomposition_only)),
+                                     case_info), common_kwargs),
              ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
               {})]
     tasks += _type_tasks(types, run)
+    if "pbl" not in types:              # the pbl set draws its own radiosonde comparison
+        from wtune.post.recipes import pbl as pbl_mod
+        tasks.append(("soundings", _fail_soft,
+                      ("common_sounding", pbl_mod.sounding_figures, run_dirs, labels,
+                       os.path.join(out_dir, "soundings"), case_info),
+                      dict(project_dir=project_dir, map_time=run.map_time)))
     if every or times:
         tasks.append(("timeseries", _fail_soft,
                       ("timeseries", guarded, "timeseries", _time_series_figures, run_dirs,
-                       labels, out_dir, case_info, every, times), dict(animate=animate)))
+                       labels, out_dir, case_info, every, times),
+                      dict(animate=animate, overlay=post_cfg.get("map_overlay") or [])))
     # note() entries from run_recipe's BP conversion first
-    all_figures = list(pre_notes or []) + _in_parallel(tasks)
+    all_figures = list(pre_notes or []) + map_notes + _in_parallel(tasks)
 
     notes, all_figures = _split_notes(all_figures)
+    if post_cfg.get("figures_off") or post_cfg.get("figures_on"):
+        all_figures, switch_notes = apply_figure_switches(
+            out_dir, all_figures, post_cfg.get("figures_off"), post_cfg.get("figures_on"))
+        notes += [{k: n[k] for k in ("source", "level", "text")} for n in switch_notes]
+    station_figs, station_notes = _station_comparison(run_dirs[0], labels[0], out_dir, project_dir,
+                                                      post_cfg)
+    all_figures += station_figs
+    notes += station_notes
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)
+    write_index(out_dir, run_dirs, labels, case_info, all_figures, notes)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
                 report_path=report_path, advice=advice,
                 figures_dir=figures_folder(out_dir, all_figures))
+
+
+INDEX_FILE = "figures.json"
+INDEX_SCHEMA = "wtune-post-figures/1"
+
+
+def write_index(out_dir, run_dirs, labels, case_info, figures, notes, kind="recipe") -> str:
+    """out_dir/figures.json: what the recipe (kind "recipe") or `wtune post preview` (kind
+    "preview") drew and could not draw, with paths relative to out_dir -- the machine-readable
+    half of report.html that `wtune post brief` and `wtune post check` read (decision 0078)."""
+    def rel(entry):
+        e = dict(entry)
+        if e.get("path"):               # a relative path is relative to the cwd, as out_dir is
+            e["path"] = os.path.relpath(os.path.abspath(e["path"]), os.path.abspath(out_dir))
+        return e
+    doc = dict(schema=INDEX_SCHEMA, kind=kind, runs=[dict(label=lb, path=os.path.abspath(d))
+                                          for d, lb in zip(run_dirs, labels)],
+               case_info=case_info, figures=[rel(f) for f in figures], notes=notes)
+    path = os.path.join(out_dir, INDEX_FILE)
+    with open(path, "w") as fh:
+        json.dump(doc, fh, indent=1, ensure_ascii=False, default=str)
+    return path
 
 
 def figures_folder(out_dir, figures) -> str:
@@ -503,7 +737,8 @@ def _cf3d_data(run_dir, run_label, out_dir, case_info, every, times):
                         times=times)
 
 
-def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):
+def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False,
+                         overlay=None):
     from wtune.post import timeseries
     from wtune.post.changemap import figures_for_change_maps
 
@@ -514,7 +749,7 @@ def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, ani
 
     include_mcape = "convection" in case_info["types"]
     out = timeseries.figures_for_time_series(run_dir, run_label, domain, ts_out, every=every,
-                                             times=times, include_mcape=include_mcape)
+                                             times=times, include_mcape=include_mcape, overlay=overlay)
 
     ok_figs = [f for f in out if not f.get("missing")]
     selected_times = sorted({f["valid_time"] for f in ok_figs})

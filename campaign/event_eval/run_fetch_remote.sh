@@ -47,7 +47,7 @@ $desc
 Follow the wtune-event skill, Part 2: find the data at the official source, download it, write project/input/obs/<folder>/convert.py, convert to the standard format of the kind, write provenance.json, and make \`wtune event obs-check project/input/obs/<folder>\` pass. Cover exactly the region and times above. Do not ask questions; if something blocks you, write it in REPORT.md. End with a short report."
   start=$(date +%s)
   ( cd "$d" && TMPDIR="$d/tmp" timeout 1800 "$base/pi/node_modules/.bin/pi" -p --no-session \
-      --no-context-files --no-skills --skill "$base/wtune/.claude/skills/wtune-event" \
+      --no-context-files --no-skills --skill "$base/wtune/skills/wtune-event" \
       --model "$model" --thinking "$thinking" --tools read,bash,edit,write --mode json \
       "$prompt" > events.jsonl 2> stderr.txt )
   rc=$?

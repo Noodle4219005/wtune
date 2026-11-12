@@ -314,17 +314,20 @@ link_wrf_inputs() {
 check_disk_guard () {
   local ctx="$1" q_text free_gib
   [ -n "${QUOTA_FS:-}" ] || return 0      # the site has no per-user GPFS quota
-  if ! q_text=$(mmlsquota -u "$USER" "$QUOTA_FS" 2>&1); then
+  # the filesystem this run writes on (f1-arm: a project on work2 under QUOTA_FS=home2)
+  local fs; fs=$(findmnt -no SOURCE,FSTYPE -T . 2>/dev/null | awk '$2 == "gpfs" {print $1}')
+  fs=${fs:-$QUOTA_FS}
+  if ! q_text=$(mmlsquota -u "$USER" "$fs" 2>&1); then
     echo "WARNING: mmlsquota unavailable ($q_text) -- skipping disk guard for $ctx" >&2
     return 0
   fi
-  free_gib=$(printf '%s\n' "$q_text" | "$PYBIN" "$CAMPAIGN/configs.py" quota-free-gib)
+  free_gib=$(printf '%s\n' "$q_text" | "$PYBIN" "$CAMPAIGN/configs.py" quota-free-gib --filesystem "$fs")
   if [ -z "$free_gib" ] || [ "$free_gib" = "NA" ]; then
     echo "WARNING: could not parse mmlsquota output -- skipping disk guard for $ctx" >&2
     return 0
   fi
   if awk -v f="$free_gib" -v m="$MIN_FREE_GIB" 'BEGIN { exit !(f < m) }'; then
-    echo "ABORT: $QUOTA_FS free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
+    echo "ABORT: $fs free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
     RUN_ID="${CASE}_${ctx}_${J}" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
       HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx} $NODE_DIRTY_NOTE" \
       python3 - "$LEDGER" <<'PY'
@@ -366,8 +369,10 @@ link_thompson_tables () {
 # Only rank 0's rsl files are read and kept, so the other ranks write to /dev/null: on a GPFS with
 # 16 MiB blocks every open rsl file holds a whole block (f1-arm, isc21 at 8 nodes: 2304 files,
 # 36 GiB of quota while running).
+# WTUNE_KEEP_ALL_RSL=1 keeps every rank's files, to read a crashed rank's traceback.
 rsl_rank0_only () {
   local r n
+  [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ] && return 0
   for ((r = 1; r < $1; r++)); do
     printf -v n '%04d' "$r"
     ln -sf /dev/null "rsl.out.$n"
@@ -1011,6 +1016,12 @@ for cid in "${ORDER[@]}"; do
 
   configure_omp_env "$omp" "$blocktime"
 
+  # A rank killed by SIGSEGV is retried once: f1-arm's Open MPI 5.0.10 crashes intermittently
+  # in ob1's large-message path over btl/sm (MPI_Alltoallv -> mca_btl_sm_poll_handle_frag ->
+  # mca_pml_ob1_send_request_schedule_once, haitang2017 2026-10-27), so the same configuration
+  # on the same inputs runs on a second try. Without the retry a node sweep lost every
+  # anchor and tune fell back to the uncalibrated proxy.
+  for ATTEMPT in 1 2; do
   T0=$(date +%s.%N)
   site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
   # background + explicit wait -- see the physics loop's own copy above (and the node-hygiene
@@ -1020,6 +1031,15 @@ for cid in "${ORDER[@]}"; do
   WRF_PID=$!
   wait "$WRF_PID"
   RC=$?
+  if [ "$ATTEMPT" = 1 ] && { [ "$RC" = 139 ] || grep -qa "exited on signal 11" wrf.out; }; then
+    echo "RETRY cfg=$cid rep=$rep rc=$RC: a rank died on signal 11; running it once more"
+    mv wrf.out wrf.out.attempt1
+    if [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ]; then mkdir -p attempt1 && mv rsl.* attempt1/; fi
+    rm -rf wrfout_d* wrfrst_d* rsl.out.0000 rsl.error.0000
+    continue
+  fi
+  break
+  done
   # see the physics loop's own copy above: RC>128 here is a narrow-race safety net only, since
   # node_hygiene_trap already wrote the interrupted row and exited before this line otherwise.
   WRF_PID=""
@@ -1182,7 +1202,8 @@ with open(ledger, "a", newline="") as f:
 PY
 
   # ---- cleanup: keep rsl.out.0000, rsl.error.0000, namelist.input, steps.txt; delete everything else.
-  find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
+  [ "${WTUNE_KEEP_ALL_RSL:-0}" = 1 ] || \
+    find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
   # (window_frame keeps its converted wrfout_d01_<Times>.nc: the orchestrator reads it afterwards)
   WF_FIND_ARGS=()
   for k in "${WF_KEEP[@]}"; do WF_FIND_ARGS+=(! -name "$k"); done

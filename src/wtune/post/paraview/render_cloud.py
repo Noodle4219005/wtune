@@ -1,4 +1,7 @@
-"""post/paraview/render_cloud.py -- pvpython/pvbatch script for `wtune post recipe`'s tc/
+"""DEPRECATED (2026-10-02): nothing calls this script; post/recipes/paraview3d.py renders the
+condensate volume with render_volume.py instead.
+
+post/paraview/render_cloud.py -- pvpython/pvbatch script for `wtune post recipe`'s tc/
 convection 3-D cloud rendering (decision 0057 item 3). Reads the two NetCDF files
 post/xwrf_convert.py builds from one wrfout frame (a cloud file: QCLOUD_QICE=QCLOUD+QICE
 and Z_HEIGHT on the full 3-D grid; a terrain file: HGT on the 2-D grid), warps each onto its own

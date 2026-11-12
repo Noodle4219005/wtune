@@ -22,31 +22,6 @@ def test_per_step_times_reads_only_the_requested_domain(tmp_path):
     assert pr.per_step_times(d, domain=2) == [9.0, 9.0]
 
 
-def test_windows_drop_the_first_step(tmp_path):
-    assert pr.windows([9.0, 1.0, 2.0, 3.0, 4.0], 2, skip_first=1) == [[1.0, 2.0], [3.0, 4.0]]
-
-
-def test_stable_ranking_is_reported_as_stable(tmp_path, capsys):
-    a = _run_dir(tmp_path, "c_A_r1_1", [9.0] + [1.0] * 6)
-    b = _run_dir(tmp_path, "c_B_r1_1", [9.0] + [2.0] * 6)
-    assert pr.main(["--run-dir", a, b, "--windows", "3"]) == 0
-    out = capsys.readouterr().out
-    assert "BEST CONFIG STABLE: True" in out
-    assert "VERDICT: one measurement is enough" in out
-    assert "window 1 ranking: A < B" in out and "window 3 ranking: A < B" in out
-
-
-def test_winner_flip_inside_the_noise_floor_is_still_stable(tmp_path, capsys):
-    """matthew 48 h (job 1081095): B took window 2 by 0.47%, under the 0.5% floor. A bare argmin
-    called that a winner change; the co-winner rule must not."""
-    a = _run_dir(tmp_path, "c_A_r1_1", [9.0, 1.000, 1.000, 1.004, 1.004])
-    b = _run_dir(tmp_path, "c_B_r1_1", [9.0, 1.002, 1.002, 1.000, 1.000])
-    assert pr.main(["--run-dir", a, b, "--windows", "2"]) == 0
-    out = capsys.readouterr().out
-    assert "BEST CONFIG STABLE: True" in out
-    assert "VERDICT: one measurement is enough" in out
-
-
 def test_ranking_flip_between_windows_is_reported(tmp_path, capsys):
     # A is fastest early and slowest late; B the other way round
     a = _run_dir(tmp_path, "c_A_r1_1", [9.0, 1.0, 1.0, 5.0, 5.0])

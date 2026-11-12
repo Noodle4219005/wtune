@@ -15,6 +15,9 @@ plan`), kept in WTune's standard format so the recipes can read them like their 
                     -30), no coverage NaN
   satellite_ir:     irtb_YYYYMMDDHHMM.nc -- infrared window-channel brightness temperature
                     (~10.4-11 um), `tb(lat, lon)` in K
+  stations:         stations.csv -- id,lat,lon,elev_m,time_utc,var,value; var t2 / td2 (deg C),
+                    wspd10 / gust (m/s), wdir10 (deg, from north, clockwise), slp (hPa);
+                    compared by post/station_compare.py (`wtune post stations`)
   stations_extra:   stations_extra.csv -- id,lat,lon,elev_m,time_utc,var,value; var `gust`
                     (m/s, peak gust) or `visibility` (m)
 
@@ -27,10 +30,10 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 FORMAT = "wtune-obs/1"
-KINDS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra")
+KINDS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra", "stations")
 # snapshot grids: kind -> (file pattern, variable, units, valid range)
 SNAPSHOTS = {
     "radar": (re.compile(r"^refl_(\d{12})\.nc$"), "refl", "dBZ", (-40.0, 85.0)),
@@ -39,6 +42,10 @@ SNAPSHOTS = {
 EXTRA_FILE = "stations_extra.csv"
 EXTRA_COLS = ("id", "lat", "lon", "elev_m", "time_utc", "var", "value")
 EXTRA_VARS = {"gust": ("m/s", 0.0, 100.0), "visibility": ("m", 0.0, 100000.0)}
+STATIONS_FILE = "stations.csv"
+STATION_VARS = {"t2": ("degC", -60.0, 60.0), "td2": ("degC", -60.0, 40.0),
+                "wspd10": ("m/s", 0.0, 100.0), "wdir10": ("deg", 0.0, 360.0),
+                "gust": ("m/s", 0.0, 100.0), "slp": ("hPa", 850.0, 1100.0)}
 PROV_REQUIRED = ("dataset", "provider", "url", "license", "fetched_utc", "files")
 GRID_RE = re.compile(r"^precip_(\d{10})_(\d{2})h\.nc$")
 GAUGE_FILE = "gauges.csv"
@@ -145,14 +152,15 @@ def read_gauges(path):
     return rows
 
 
-def read_extra(path):
-    """[dict(id, lat, lon, elev_m, time, var, value)]; raises ValueError on a bad row."""
+def read_extra(path, blank_elev=0.0):
+    """[dict(id, lat, lon, elev_m, time, var, value)]; raises ValueError on a bad row. An empty
+    elev_m becomes `blank_elev`."""
     rows = []
     with open(path, newline="") as fh:
         for i, r in enumerate(csv.DictReader(fh), start=2):
             try:
                 rows.append(dict(id=r["id"].strip(), lat=float(r["lat"]), lon=float(r["lon"]),
-                                 elev_m=float(r["elev_m"]) if r["elev_m"] not in ("", None) else 0.0,
+                                 elev_m=float(r["elev_m"]) if r["elev_m"] not in ("", None) else blank_elev,
                                  time=datetime.strptime(r["time_utc"].strip(), TIME_FMT),
                                  var=r["var"].strip(), value=float(r["value"])))
             except (KeyError, TypeError, ValueError) as e:
@@ -198,6 +206,8 @@ def check(ds_dir):
         _check_snapshots(ds_dir, kind, files, err, warn)
     elif kind == "stations_extra":
         _check_extra(ds_dir, files, err, warn)
+    elif kind == "stations":
+        _check_stations(ds_dir, files, err, warn)
     return err, warn
 
 
@@ -287,6 +297,152 @@ def _check_extra(ds_dir, files, err, warn):
     if vis and max(vis) < 2000:
         warn.append("%s: largest visibility %.0f m -- check the unit (km or miles vs m)"
                     % (EXTRA_FILE, max(vis)))
+
+
+def read_stations(path):
+    """stations.csv rows, same dict layout as read_extra; an empty elev_m is None."""
+    return read_extra(path, blank_elev=None)
+
+
+def _check_stations(ds_dir, files, err, warn):
+    import numpy as np
+    p = os.path.join(ds_dir, STATIONS_FILE)
+    if not os.path.isfile(p):
+        err.append("%s: missing" % STATIONS_FILE)
+        return
+    if STATIONS_FILE not in files:
+        err.append("%s: not listed in provenance.json files" % STATIONS_FILE)
+    with open(p, newline="") as fh:
+        head = next(csv.reader(fh), [])
+    if tuple(h.strip() for h in head) != EXTRA_COLS:
+        err.append("%s: header must be %s" % (STATIONS_FILE, ",".join(EXTRA_COLS)))
+        return
+    try:
+        rows = read_stations(p)
+    except ValueError as e:
+        err.append("%s (times are '%s' UTC)" % (e, TIME_FMT.replace("%", "")))
+        return
+    if not rows:
+        err.append("%s: no rows" % STATIONS_FILE)
+    by = {}
+    for r in rows:
+        by.setdefault(r["var"], []).append(r["value"])
+    med = {v: float(np.median(x)) for v, x in by.items()}
+    # common unit mistakes, reported even when the range check below also fails
+    if med.get("t2", 0) > 60 or med.get("td2", 0) > 60:
+        warn.append("%s: median t2/td2 above 60 -- looks like degF, not degC" % STATIONS_FILE)
+    elif med.get("t2", 0) > 200:
+        warn.append("%s: median t2 %.0f -- looks like K, not degC" % (STATIONS_FILE, med["t2"]))
+    if med.get("wspd10", 0) > 40 or med.get("gust", 0) > 40:
+        warn.append("%s: median wspd10/gust above 40 -- looks like knots (or mph), not m/s"
+                    % STATIONS_FILE)
+    if "slp" in med and med["slp"] < 200:
+        warn.append("%s: median slp %.1f -- looks like kPa or inHg, not hPa" % (STATIONS_FILE, med["slp"]))
+    if "wdir10" in by and max(by["wdir10"]) <= 2 * np.pi + 1e-9 and len(by["wdir10"]) > 20:
+        warn.append("%s: wdir10 never exceeds 6.3 -- radians instead of degrees?" % STATIONS_FILE)
+    no_elev = sorted({r["id"] for r in rows if r["elev_m"] is None})
+    if no_elev:
+        warn.append("%s: no elev_m for %s -- the model-minus-station height difference cannot be "
+                    "reported" % (STATIONS_FILE, ", ".join(no_elev)))
+    t2 = {(r["id"], r["time"]): r["value"] for r in rows if r["var"] == "t2"}
+    n_inv = sum(1 for r in rows if r["var"] == "td2" and (r["id"], r["time"]) in t2
+                and r["value"] > t2[(r["id"], r["time"])] + 1.0)
+    if n_inv:
+        warn.append("%s: %d td2 value(s) exceed t2 by more than 1 degC" % (STATIONS_FILE, n_inv))
+    for r in rows:
+        where = "%s %s %s" % (r["id"], r["time"].strftime(TIME_FMT), r["var"])
+        spec = STATION_VARS.get(r["var"])
+        if spec is None:
+            err.append("%s: var must be one of %s" % (where, ", ".join(STATION_VARS)))
+        elif not spec[1] <= r["value"] <= spec[2]:
+            err.append("%s: value %g outside %g..%g %s" % (where, r["value"], spec[1], spec[2], spec[0]))
+        if not (-90 <= r["lat"] <= 90 and -180 <= r["lon"] <= 360):
+            err.append("%s: lat/lon out of range" % where)
+        if len(err) > 20:
+            err.append("... (stopped after 20 errors)")
+            return
+
+
+_MISSING = {"", "m", "null", "nan", "none"}
+_ASOS_VARS = (("tmpf", "t2"), ("dwpf", "td2"), ("sknt", "wspd10"), ("gust", "gust"),
+              ("drct", "wdir10"), ("mslp", "slp"))
+
+
+def _asos_num(text):
+    t = (text or "").strip()
+    return None if t.lower() in _MISSING else float(t)
+
+
+def from_asos(csv_path, out_dir, provenance, stations_meta=None):
+    """Iowa Environmental Mesonet ASOS CSV (station, valid UTC "YYYY-MM-DD HH:MM", tmpf, dwpf,
+    sknt, gust, drct, lat, lon (any column order; matched by name), optional mslp [hPa] and
+    elevation [m]; missing "M", empty or
+    "null") -> out_dir/stations.csv + provenance.json (kind "stations", sha256 included).
+    degF -> degC, knot -> m/s (calc.kt_to_ms). lat/lon/elev come from the CSV's own columns, else
+    from stations_meta {ID: (lat, lon, elev_m)}; a station without lat/lon raises ValueError;
+    a missing elevation leaves elev_m empty.
+    `provenance`: dict with dataset, provider, url, license (citation optional). Returns
+    (stations.csv path, number of rows)."""
+    from wtune import calc
+    meta = {k.strip().upper(): tuple(v) for k, v in (stations_meta or {}).items()}
+    pos, vals = {}, []
+    with open(csv_path, newline="") as fh:
+        rd = csv.DictReader(fh)
+        cols = {c.strip().lower(): c for c in (rd.fieldnames or [])}
+        for need in ("station", "valid"):
+            if need not in cols:
+                raise ValueError("%s: no %r column" % (os.path.basename(csv_path), need))
+        for i, r in enumerate(rd, start=2):
+            r = {k.strip().lower(): v for k, v in r.items() if k}
+            sid = r["station"].strip()
+            try:
+                t = datetime.strptime(r["valid"].strip()[:16], TIME_FMT)
+                for col in ("lat", "lon", "elevation"):
+                    v = _asos_num(r.get(col))
+                    if v is not None:
+                        pos.setdefault(sid, {}).setdefault(col, v)
+                for col, var in _ASOS_VARS:
+                    v = _asos_num(r.get(col))
+                    if v is None:
+                        continue
+                    if col in ("tmpf", "dwpf"):
+                        v = (v - 32.0) * 5.0 / 9.0
+                    elif col in ("sknt", "gust"):
+                        v = calc.kt_to_ms(v)
+                    vals.append((sid, t, var, v))
+            except ValueError as e:
+                raise ValueError("%s line %d: %s" % (os.path.basename(csv_path), i, e))
+    where = {}
+    for sid in sorted({v[0] for v in vals}):
+        got = pos.get(sid, {})
+        m = meta.get(sid.upper())
+        lat = got.get("lat", m[0] if m else None)
+        lon = got.get("lon", m[1] if m else None)
+        elev = got.get("elevation", m[2] if m and len(m) > 2 else None)
+        lack = [n for n, v in (("lat", lat), ("lon", lon)) if v is None]
+        if lack:
+            raise ValueError("station %s: no %s in the CSV (lat/lon columns) and none in "
+                             "stations_meta" % (sid, "/".join(lack)))
+        where[sid] = (lat, lon, elev)
+    if not vals:
+        raise ValueError("%s: no usable observation" % os.path.basename(csv_path))
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, STATIONS_FILE)
+    with open(out, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(EXTRA_COLS)
+        for sid, t, var, v in sorted(vals, key=lambda x: (x[0], x[1], x[2])):
+            lat, lon, elev = where[sid]
+            w.writerow([sid, "%.5f" % lat, "%.5f" % lon, "" if elev is None else "%.1f" % elev,
+                        t.strftime(TIME_FMT),
+                        var, "%.3f" % v])
+    prov = {"format": FORMAT, "kind": "stations", "citation": ""}
+    prov.update({k: v for k, v in provenance.items() if k not in ("format", "kind", "files")})
+    prov.setdefault("fetched_utc", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    prov["files"] = {STATIONS_FILE: _sha256(out)}
+    with open(os.path.join(out_dir, "provenance.json"), "w") as fh:
+        json.dump(prov, fh, indent=1)
+    return out, len(vals)
 
 
 def _check_grids(ds_dir, files, err, warn):
@@ -388,21 +544,30 @@ def tile(index, start, end):
     return []
 
 
-def pick_window(frame_times, spinup_hours, index, spans=(24, 12, 6, 3, 1)):
+def pick_window(frame_times, spinup_hours, index, spans=(24, 12, 6, 3, 1), around=None):
     """(hours, start, end, paths) of the longest window of `spans` that starts after spin-up,
-    starts and ends on model frames, and the files tile; the latest such window. Else None."""
+    starts and ends on model frames, and the files tile; the latest such window, or with
+    `around` (datetime, the rain peak) the one centred nearest it among those containing it
+    (haitang2017: the latest 24 h began after the peak). Else None."""
     if len(frame_times) < 2:
         return None
     have = set(frame_times)
     t0 = frame_times[0] + timedelta(hours=spinup_hours)
     for span in spans:
+        wins = []
         for end in sorted(have, reverse=True):
             start = end - timedelta(hours=span)
             if start < t0 or start not in have:
                 continue
             paths = tile(index, start, end)
             if paths:
-                return span, start, end, paths
+                if around is None:
+                    return span, start, end, paths
+                wins.append((span, start, end, paths))
+        if wins:
+            inside = [w for w in wins if w[1] < around <= w[2]]
+            return (min(inside, key=lambda w: abs(w[1] + (w[2] - w[1]) / 2 - around))
+                    if inside else wins[0])
     return None
 
 

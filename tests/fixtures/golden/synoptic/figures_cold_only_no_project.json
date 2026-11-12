@@ -53,6 +53,13 @@
    "n": 3825,
    "stat_file": "gs.stat",
    "era5_source": "local.nc"
+  },
+  {
+   "id": "syn_era5_850_diff",
+   "missing": true,
+   "dataset": "ERA5 (ARCO)",
+   "reason": "no local ERA5 850 hPa subset and no internet on this node -- run `wtune post recipe --project P` (a project) or `wtune post fetch-era5 --project P --run-dir R` on the login node",
+   "run": null
   }
  ],
  "calls": [
@@ -604,6 +611,28 @@
     "crs": "<CRS>",
     "gridline_labels": true
    }
+  ],
+  [
+   "getvar",
+   "pressure",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "uvmet",
+   1,
+   null
+  ],
+  [
+   "interplevel",
+   850.0
+  ],
+  [
+   "getvar",
+   "QVAPOR",
+   1,
+   null
   ],
   [
    "z500_for",

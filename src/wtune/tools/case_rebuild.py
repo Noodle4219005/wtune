@@ -328,6 +328,9 @@ def complete_namelist(nl_text: str, facts: dict, registry: dict | None = None,
         ed.fill_if_missing("p_top_requested", _DEFAULT_P_TOP_PA, "default model top (Pa)")
     _fill_run_defaults(ed, facts, run_s)
     _fill_physics_suite(ed, nl_text)
+    if re.search(r"(?im)^[^!\n]*(?<![a-z0-9_])mp_physics\s*=[^\n/!]*(?<![0-9])7(?![0-9])", ed.txt):
+        ed.sync("do_radar_ref", 1, "mp_physics=7 writes refl_10cm, allocated only then",
+                group_default="physics")
     _fill_bdy_quilt_and_groups(ed)
     return ed.txt, ed.changes
 
@@ -1042,8 +1045,9 @@ def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
     if vertical_grid_warning:
         print("WARNING: %s" % vertical_grid_warning)
 
-    config = {"ranks": ranks, "omp": omp, "nx": nx or 1, "ny": ny or (ranks // max(omp, 1)),
-             "numtiles": 1}
+    if not (nx and ny):
+        nx, ny = near_square(ranks // max(omp, 1))
+    config = {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": 1}
     plan = {
         "case_dir": os.path.abspath(case_dir),
         "namelist_input": os.path.abspath(namelist or os.path.join(case_dir, "namelist.input")),
@@ -1118,12 +1122,36 @@ def cmd_rebuild_fetch(out_dir: str, cache_dir: str | None = None, grib_dir: str 
     return total_bytes, forcing
 
 
+def near_square(n: int) -> tuple[int, int]:
+    """(nx, ny) with nx * ny == n and nx <= ny as close as possible: real.exe's decomposition.
+    1 x n put all ranks along y, more than a 126-row domain has (haitang2017, 144 ranks)."""
+    nx = max(d for d in range(1, int(n ** 0.5) + 1) if n % d == 0)
+    return nx, n // nx
+
+
+def fit_plan_to_machine(plan: dict) -> dict:
+    """plan with its real.exe/wrf.exe config shrunk to the machine's cores_per_node when the plan
+    was written for more (cores_per_node lowered after `prep wps`: haitang2017 144 -> 72 asserted
+    in _rebuild_job). Mutates and returns plan; a note is printed when it changes."""
+    cfg = plan.get("config") or {}
+    nodes = max(int(plan.get("nodes") or 1), 1)
+    omp = max(int(cfg.get("omp") or 1), 1)
+    cores = wtune.machine.cores_per_node()
+    if cfg.get("ranks") and -(-cfg["ranks"] * omp // nodes) > cores:
+        ranks = cores // omp * nodes
+        nx, ny = near_square(ranks)
+        print("note: plan.json was made for %d ranks; this machine has %d cores/node -> %d ranks "
+              "(%dx%d)" % (cfg["ranks"], cores, ranks, nx, ny))
+        cfg.update(ranks=ranks, nx=nx, ny=ny)
+    return plan
+
+
 def _rebuild_forcing_choice(out_dir):
     """The chosen forcing (prefix/vtable/interval) for this rebuild's span -- forcing.json if
     `fetch` already ran, else the plan-time default (mirrors
     coldstart_sample._load_window_forcing / _default_per_window_forcing)."""
     with open(os.path.join(out_dir, "plan.json")) as f:
-        plan = json.load(f)
+        plan = fit_plan_to_machine(json.load(f))
     forcing_path = os.path.join(out_dir, "forcing.json")
     if os.path.exists(forcing_path):
         with open(forcing_path) as f:
@@ -1438,7 +1466,8 @@ def _sbatch_header(job: _RebuildJob) -> list[str]:
         lines.append("#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()))
     if wtune.machine.account_arg():
         lines.append("#SBATCH " + wtune.machine.account_arg())
-    lines += ["#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
+    lines += [("#SBATCH -N %d %s --ntasks-per-node=%d"
+               % (job.nodes, wtune.machine.node_share_arg(job.ppn), job.ppn)).replace("  ", " "),
              "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
              "#SBATCH --signal=B:USR1@90"]
     if job.out_dir_abs:
@@ -1854,10 +1883,20 @@ def interp_pressure_level_field(field_3d: ArrayLike, p_3d: ArrayLike, target_pa:
     field_3d = np.asarray(field_3d, dtype=float)
     p_3d = np.asarray(p_3d, dtype=float)
     nz, ny, nx = field_3d.shape
+    # same bracket rule as interp_pressure_level_column (searchsorted on -p == count of levels
+    # with p > target), done for every column at once
     out = np.full((ny, nx), np.nan)
-    for j in range(ny):
-        for i in range(nx):
-            out[j, i] = interp_pressure_level_column(field_3d[:, j, i], p_3d[:, j, i], target_pa)
+    inside = ~((target_pa > p_3d[0]) | (target_pa < p_3d[-1]))
+    idx = np.clip((p_3d > target_pa).sum(axis=0) - 1, 0, nz - 2)[None]
+    p_hi = np.take_along_axis(p_3d, idx, 0)[0]
+    p_lo = np.take_along_axis(p_3d, idx + 1, 0)[0]
+    f_hi = np.take_along_axis(field_3d, idx, 0)[0]
+    f_lo = np.take_along_axis(field_3d, idx + 1, 0)[0]
+    same = p_hi == p_lo
+    with np.errstate(all="ignore"):
+        frac = (np.log(target_pa) - np.log(p_hi)) / (np.log(p_lo) - np.log(p_hi))
+    val = np.where(same, f_hi, f_hi + frac * (f_lo - f_hi))
+    out[inside] = val[inside]
     return out
 
 
@@ -2426,7 +2465,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--geog-path")
     sp.add_argument("--grib-dir")
     sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
-                    help="K5 (2026-09-24): after real.exe, apply state_correction_model.py's "
+                    help="RETIRED (archive/deprecated; worse than no correction in LOCO). K5 (2026-09-24): after real.exe, apply state_correction_model.py's "
                     "ML state correction (--targets-from-report) to the fresh wrfinput_d01 "
                     "before any wrf.exe smoke run. Default: off.")
 

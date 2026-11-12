@@ -122,7 +122,7 @@ class PredictionPlanRecord(Record):
     method: str
     source: str
     T_est_s: float | None
-    precision_min: float
+    precision_min: Any
     measured: bool
     rebuild_cancelled: Any = UNSET
 
@@ -271,6 +271,7 @@ class PipelineRun:
     prep_handle: dict | None = None
     sub: RebuildSubmission | None = None
     rebuilt: list | None = None
+    rebuild_pred: dict | None = None   # phase 2 rebuild-winner result (combine() + its jobs)
     winner: MeasuredLayout | None = None
     ranked_all: list = dataclasses.field(default_factory=list)  # [MeasuredLayout] by pred time
     frame_runs: list = dataclasses.field(default_factory=list)  # [(rp, cid, job)] with frames

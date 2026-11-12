@@ -17,7 +17,7 @@
    "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_nodes_over_max/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_nodes_over_max/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
   },
   "pipeline_fixed_nodes": {
-   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto or --rank-by predicted",
+   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto",
    "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_pipeline_fixed_nodes/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_pipeline_fixed_nodes/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
   }
  },
@@ -127,6 +127,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -159,7 +162,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/auto/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_tuning_at",
      "kwargs": {}
@@ -299,6 +303,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -331,7 +338,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/fixed_n/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_tuning_at",
      "kwargs": {}
@@ -456,6 +464,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -488,7 +499,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/no_preflight_o3/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_pipeline_full",
      "kwargs": {
@@ -505,7 +517,7 @@
       "objective": "time",
       "physics": false,
       "physics_max_candidates": 3,
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "recheck": null,
       "stop_if_short": false,
       "sweep_budget_frac": 0.4,
@@ -621,6 +633,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -653,7 +668,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/o0/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_level0",
      "kwargs": {}
@@ -777,6 +793,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -809,7 +828,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/o1/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_pipeline_full",
      "kwargs": {
@@ -826,7 +846,7 @@
       "objective": "time",
       "physics": false,
       "physics_max_candidates": 3,
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "recheck": "<callable>",
       "stop_if_short": false,
       "sweep_budget_frac": 0.4,
@@ -966,6 +986,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -998,7 +1021,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/o2_minutes/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_pipeline_full",
      "kwargs": {
@@ -1015,7 +1039,7 @@
       "objective": "time",
       "physics": false,
       "physics_max_candidates": 3,
-      "precision_min": 5.0,
+      "precision_min": "5",
       "recheck": "<callable>",
       "stop_if_short": true,
       "sweep_budget_frac": 0.4,
@@ -1152,6 +1176,9 @@
        "sweep_steps": null
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1184,7 +1211,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/o3_full/out/tune.state.json",
-      "steps": 9
+      "steps": 9,
+      "wrf_tree": ""
      },
      "kind": "run_pipeline_full",
      "kwargs": {
@@ -1201,7 +1229,7 @@
       "objective": "time",
       "physics": true,
       "physics_max_candidates": 2,
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "recheck": "<callable>",
       "stop_if_short": false,
       "sweep_budget_frac": 0.4,
@@ -1341,6 +1369,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1373,7 +1404,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/search_cost/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_node_search",
      "kwargs": {
@@ -1520,6 +1552,9 @@
        ]
       },
       "proposer": null,
+      "proxy": true,
+      "proxy_max_nodes": 0,
+      "proxy_used": false,
       "queue_only_s": 0.0,
       "ranking_gates": [],
       "ranking_start_note": null,
@@ -1552,7 +1587,8 @@
       "startup_s": 120.0,
       "startup_source": "documented constant (scc_sweep.STARTUP_S)",
       "state_file": "<TMP>/search_default/out/tune.state.json",
-      "steps": 20
+      "steps": 20,
+      "wrf_tree": ""
      },
      "kind": "run_node_search",
      "kwargs": {

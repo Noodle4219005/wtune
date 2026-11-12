@@ -7,6 +7,7 @@ import datetime as dt
 import glob
 import os
 import re
+from fractions import Fraction
 from typing import Callable, Iterable, Optional
 
 from ._deps import coldstart, sweep, wp
@@ -69,23 +70,51 @@ def _stamps(t_a: dt.datetime, t_b: dt.datetime, step_s: float, include_start: bo
     return out
 
 
+def _domain_dts(nl: dict, max_dom: int) -> Optional[list]:
+    """[Fraction seconds] time step of each domain (d01's time_step + fract, divided by the
+    cumulative parent_time_step_ratio); None with use_adaptive_time_step (dt not known)."""
+    if bool(wp.g(nl, "domains", "use_adaptive_time_step", False)):
+        return None
+    den = int(wp.g(nl, "domains", "time_step_fract_den", 1) or 1) or 1
+    step = (Fraction(int(wp.g(nl, "domains", "time_step", 0) or 0))
+            + Fraction(int(wp.g(nl, "domains", "time_step_fract_num", 0) or 0), den))
+    out = []
+    for d in range(max_dom):
+        if d:
+            step /= wp.parent_time_step_ratio(nl, d, 1)
+        out.append(step)
+    return out
+
+
+def _on_step(t: str, t_a: dt.datetime, step: Fraction) -> bool:
+    """True when t is a whole number of steps after t_a. WRF names an output file by the
+    domain's clock at the step whose alarm rang, so an interval the time step does not
+    divide writes off the nominal time (d01 dt 270 s, history 60 min -> 21:04:30)."""
+    off = Fraction(round((dt.datetime.strptime(t, WRF_FMT) - t_a).total_seconds()))
+    return step > 0 and off % step == 0
+
+
 def output_dir_names(nl: dict, t_a: dt.datetime, t_b: dt.datetime, max_dom: int) -> list[str]:
     """Names of the ADIOS2 history/restart outputs a segment [t_a, t_b] writes (parsed namelist).
     A custom history_outname gives no history names; a stream whose io_form is not 14 none (a
     netCDF writer cannot create a file over a pre-created directory); other streams are never
-    listed."""
+    listed. Only times on the domain's time step (all of them unknown under adaptive dt): an
+    off-step name would stay an empty directory beside the file WRF really writes."""
     tc = lambda key, d=0, default=None: wp.g_dom(nl, "time_control", key, d, default)  # noqa: E731
     bp = lambda key: int(wp.g(nl, "time_control", key, 14) or 0) == 14  # noqa: E731
+    dts = _domain_dts(nl, max_dom)
+    on = lambda t, d: dts is not None and _on_step(t, t_a, dts[d])  # noqa: E731
     names = []
     for d in range(max_dom if bp("io_form_history") else 0):
         iv = round(coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60)
         if iv > 0 and not wp.g(nl, "time_control", "history_outname"):
             per_file = max(1, int(tc("frames_per_outfile", d, 1) or 1))
             names += ["wrfout_d%02d_%s" % (d + 1, t)
-                      for t in _stamps(t_a, t_b, iv, True)[::per_file]]
+                      for t in _stamps(t_a, t_b, iv, True)[::per_file] if on(t, d)]
     rst = round(coldstart.wrf_interval_minutes(nl, "restart_interval") * 60)
     for t in _stamps(t_a, t_b, rst if bp("io_form_restart") else 0, False):
-        names += ["wrfrst_d%02d_%s" % (d, t) for d in range(1, max_dom + 1)]
+        if on(t, 0):
+            names += ["wrfrst_d%02d_%s" % (d, t) for d in range(1, max_dom + 1)]
     return names
 
 

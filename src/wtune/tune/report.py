@@ -199,17 +199,24 @@ def _mb(v: float | None) -> str:
 
 
 def _node_table_lines(ns: dict) -> list[str]:
-    lines = ["", "--- node selection (measured, ANCHOR config per node count) ---",
-             "%5s %12s %5s %8s %8s %6s %10s %10s %9s"
+    joint = ns.get("note") == "joint proxy search"
+    lines = ["", "--- node selection (joint proxy: each N's fastest layout, proxy s/step, no real "
+             "N-node run) ---" if joint else
+             "--- node selection (measured, ANCHOR config per node count) ---",
+             "%5s %12s %5s %8s %8s %6s %10s %10s %9s%s"
              % ("nodes", "median_s", "reps", "spread", "speedup", "eff", "wall_s", "node_hours",
-                "maxrss_MB")]
+                "maxrss_MB", "  fidelity layout" if joint else "")]
     for r in ns.get("table", []):
-        lines.append("%5d %12.4f %5d %7.1f%% %7.2fx %6.2f %10s %10s %9s"
+        lines.append("%5d %12.4f %5d %7.1f%% %7.2fx %6.2f %10s %10s %9s%s"
                      % (r["nodes"], r["median"], r["n"], r["spread"] * 100, r["speedup"],
                         r["efficiency"],
                         "%.0f" % r["wall_s"] if r.get("wall_s") is not None else "-",
                         "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-",
-                        _mb(r.get("maxrss_mb"))))
+                        _mb(r.get("maxrss_mb")),
+                        "  %-8s %s" % (r.get("fidelity"), r.get("layout")) if joint else ""))
+    if joint:
+        lines.append("NOTE: one-node scores read 0-18% low; band and full scores rank the N "
+                     "(speedup/eff across fidelities are not a scaling measurement)")
     if ns.get("table") and ns["table"][0]["nodes"] != 1:
         lines.append("NOTE: speedup and eff are relative to N=%d, the smallest N measured"
                      % ns["table"][0]["nodes"])
@@ -226,7 +233,10 @@ def _core_table_lines(ns: dict) -> list[str]:
     lines = []
     for n, rows in sorted((ns.get("core_tables") or {}).items(), key=lambda kv: int(kv[0])):
         lines.append("")
-        lines.append("--- cores per node at N=%s (ANCHOR; idle cores = hardware - c) ---" % n)
+        lines.append(("--- cores per node at N=%s (joint proxy: each count's fastest layout, %s; "
+                      "idle cores = hardware - c) ---" % (n, rows[0]["fidelity"]))
+                     if rows and rows[0].get("fidelity") else
+                     "--- cores per node at N=%s (ANCHOR; idle cores = hardware - c) ---" % n)
         lines.append("%7s %10s %4s %11s %6s %8s %9s"
                      % ("cores", "ranks/node", "omp", "median_s", "reps", "spread", "maxrss_MB"))
         for r in rows:
@@ -241,8 +251,9 @@ def _layout_lines(ns: dict) -> list[str]:
     """The measured layouts (first LAYOUT_ROWS_SHOWN), the winner, the runner-up and whether
     they differ beyond noise."""
     rows = ns["layouts"]
-    lines = ["", "--- measured layouts (%d; best first; the full table is in tune_report.json "
-             "node_selection.layouts) ---" % len(rows),
+    lines = ["", "--- %s layouts (%d; best first; the full table is in tune_report.json "
+             "node_selection.layouts) ---" % ("proxy-timed" if ns.get("note") == "joint proxy search"
+                                             else "measured", len(rows)),
              "%4s %5s %6s %4s %9s %5s %11s %7s %5s  %s"
              % ("N", "c/n", "ranks", "omp", "nx x ny", "tiles", "median_s", "spread",
                 "reps", "source")]

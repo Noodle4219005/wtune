@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 from wtune import cli as _core
 from wtune.post import atcf
+from wtune.post.conventions import continuous_lons, lon_in_range
 from wtune.post.extract import list_frames, segment_dirs
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
@@ -159,7 +160,8 @@ def initial_state(case_dir, domain=1):
 
 def _d01_bbox_and_window(run_dir):
     """(lat_min, lat_max, lon_min, lon_max, t_start, t_end) for d01, from its wrfout frames'
-    own XLAT/XLONG and valid times (each file's Times variable via post.extract, so a
+    own XLAT/XLONG (continuous across 180E, so lon_max may pass 180: test a longitude with
+    conventions.lon_in_range) and valid times (each file's Times variable via post.extract, so a
     frames_per_outfile > 1 file contributes all its times; netCDF4, lazily imported -- this
     module is otherwise stdlib-only). Before the run (no frames yet): wrfinput_d01's (or a
     restart case's wrfrst_d01's) grid and time plus the namelist run length."""
@@ -169,7 +171,7 @@ def _d01_bbox_and_window(run_dir):
     if not frames and wrfinput:
         with netCDF4.Dataset(wrfinput) as ds:
             t_start = datetime.strptime(b"".join(ds.variables["Times"][0]).decode(), WRF_TIME_FMT)
-            lat, lon = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
+            lat, lon = ds.variables["XLAT"][0], continuous_lons(ds.variables["XLONG"][0])
             return (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()),
                     t_start, t_start + timedelta(hours=run_length_hours(run_dir)))
     if not frames:
@@ -180,7 +182,7 @@ def _d01_bbox_and_window(run_dir):
     t_end = datetime.strptime(max(times), WRF_TIME_FMT)
     with netCDF4.Dataset(frames[0][1]) as ds:
         lat = ds.variables["XLAT"][0]
-        lon = ds.variables["XLONG"][0]
+        lon = continuous_lons(ds.variables["XLONG"][0])
         lat_min, lat_max = float(lat.min()), float(lat.max())
         lon_min, lon_max = float(lon.min()), float(lon.max())
     return lat_min, lat_max, lon_min, lon_max, t_start, t_end
@@ -208,7 +210,8 @@ def detect_tc(run_dir, hurdat2_path=None, storm_id=None, bdeck_path=None):
         return False, "no --hurdat2/--bdeck given -- tc not auto-detected"
     lat_min, lat_max, lon_min, lon_max, t_start, t_end = _d01_bbox_and_window(run_dir)
     hits = [(t, lat, lon) for t, lat, lon in points
-            if t_start <= t <= t_end and lat_min <= lat <= lat_max and lon_min <= lon <= lon_max]
+            if t_start <= t <= t_end and lat_min <= lat <= lat_max
+            and lon_in_range(lon, lon_min, lon_max)]
     if not hits:
         return False, ("best track has no fix inside d01 (lat %.1f..%.1f, lon %.1f..%.1f) "
                        "during %s..%s" % (lat_min, lat_max, lon_min, lon_max, t_start, t_end))

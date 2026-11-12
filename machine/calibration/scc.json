@@ -104,7 +104,14 @@
     "r_rad_day_night_ratio_source": "MEASURED, 2026-09-23, 5 full scc runs' rsl.error.0000 (schedule-identified radiation steps, see wtune/predict.py's steps_per_radiation_call/classify_steps_detected): matthew night 1.92-1.97 vs day 3.42-3.64 (ratio 1.85), sc26p2 night 2.47-2.52 vs day 4.57-4.70 (ratio 1.87), sc26p2narr night 2.45-2.48 vs day 4.61-4.71 (ratio 1.90); mean of the 3 ratios = 1.87. conus12 (all-day run, no night regime observed) measured 3.83-3.98, consistent with a day-level r_rad in this same family. severe2023's night radiation-step cost (2.02-2.06 daytime; night NOT DETECTED by the OLD cost-threshold heuristic) is exactly the case that exposed the old single-r_rad model as wrong -- see wtune/predict.py module docstring's 'radiation' section.",
     "r_rad_default_night": 2.46,
     "r_rad_default_day": 3.93,
-    "r_rad_default_levels_source": "2026-09-23 ground-truth runs on scc, radiation-step cost / normal-step cost by local day/night: night medians matthew 1.95, sc26p2 2.49, sc26p2narr 2.46 -> 2.46; day medians matthew 3.55, sc26p2 4.63, sc26p2narr 4.66, conus12 3.93, severe2023 2.04 -> 3.93. Used only when the probe window contains no radiation step (probe shorter than one radiation interval); otherwise measured per case."
+    "r_rad_default_levels_source": "2026-09-23 ground-truth runs on scc, radiation-step cost / normal-step cost by local day/night: night medians matthew 1.95, sc26p2 2.49, sc26p2narr 2.46 -> 2.46; day medians matthew 3.55, sc26p2 4.63, sc26p2narr 4.66, conus12 3.93, severe2023 2.04 -> 3.93. Used only when the probe window contains no radiation step (probe shorter than one radiation interval); otherwise measured per case.",
+    "r_rad_scheme_defaults": {
+      "1/1": {
+        "night": 1.29,
+        "day": 1.29
+      }
+    },
+    "r_rad_scheme_defaults_source": "MEASURED 2026-11-09, f1-arm (Grace), Sundowner IOP1 d03 (181x181x77, 750 m, dt 5 s, radt 1 min, stepra 12) under RRTM LW + Dudhia SW (ra_lw/ra_sw 1/1), 108 ranks, 183 radiation vs 2012 normal d03 steps of job 2031652: medians 0.1143 / 0.0887 s = 1.29, daytime only (18-21Z), one case; night set equal for want of data. The r_rad_default_night/_day levels (2.46/3.93) are RRTMG-family runs and apply to every other pair."
   },
   "fallback_s_per_cell_step_ns": 4437.341522526475,
   "fallback_s_per_cell_step_ns_formula": "UNCALIBRATED GUESS, used only when NO probe ledger row exists for the case at ANY rank count: (s_per_step_median * n_ranks / (e_we*e_sn*e_vert)) * 1e9 from the ONE conus25 calibration run = (0.5555*720/90135050)*1e9. Applying a conus25-suite compute rate to a case with a different physics suite/hardware mix is NOT validated -- treat predictions on this path with a wide (50%) uncertainty band.",

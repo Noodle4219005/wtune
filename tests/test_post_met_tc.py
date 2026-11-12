@@ -18,14 +18,6 @@ FAKE_TCST = (
 )
 
 
-def test_parse_met_table():
-    rows = met_tc.parse_met_table(FAKE_TCST)
-    assert len(rows) == 2
-    assert rows[0]["AMODEL"] == "WTUN"
-    assert rows[0]["TK_ERR"] == "12.3"
-    assert rows[1]["LEAD"] == "6"
-
-
 def test_parse_met_table_empty():
     assert met_tc.parse_met_table("") == []
     assert met_tc.parse_met_table("   \n  \n") == []

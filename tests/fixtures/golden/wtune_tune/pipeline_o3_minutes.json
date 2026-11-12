@@ -78,9 +78,11 @@
     "7035",
     "7036",
     "7037",
-    "8040",
-    "8041",
-    "8042"
+    "7038",
+    "7039",
+    "8042",
+    "8043",
+    "8044"
   ],
   "layout_table": {
     "comparison": {
@@ -271,6 +273,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -386,6 +403,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -719,6 +751,7 @@
       72,
       70,
       64,
+      54,
       48,
       36
     ],
@@ -761,6 +794,19 @@
           "omp": 1,
           "ranks": 256,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.3,
+          "n": 2,
+          "nx": 12,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 216,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -828,6 +874,19 @@
           "omp": 1,
           "ranks": 320,
           "ranks_per_node": 64,
+          "spread": 0.0
+        },
+        {
+          "chosen": false,
+          "cores": 54,
+          "maxrss_mb": null,
+          "median": 0.305,
+          "n": 2,
+          "nx": 15,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 270,
+          "ranks_per_node": 54,
           "spread": 0.0
         },
         {
@@ -1073,6 +1132,21 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 216,
+        "reps": 2,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 48,
         "dist": "block",
         "median": 0.3,
@@ -1188,6 +1262,21 @@
         "omp": 1,
         "ranks": 320,
         "reps": 4,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 54,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 15,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 270,
+        "reps": 2,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -1668,7 +1757,7 @@
       "estimate_info": {
         "nodes": 13,
         "points_source": "wtune.cost_drivers",
-        "precision_min": 15.0,
+        "precision_min": "10%",
         "prediction_points": 3,
         "s_per_step_n": 10.0,
         "source": "ledger estimate (fallback_10s)",
@@ -1765,7 +1854,9 @@
           "7034",
           "7035",
           "7036",
-          "7037"
+          "7037",
+          "7038",
+          "7039"
         ],
         "limit_s": 198000.00000000003,
         "name": "layout",
@@ -1784,8 +1875,8 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8040",
-          "8041"
+          "8042",
+          "8043"
         ],
         "limit_s": 288000.0,
         "name": "predict",
@@ -1803,7 +1894,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8042"
+          "8044"
         ],
         "limit_s": 360000.0,
         "name": "physics",
@@ -1957,7 +2048,7 @@
         1,
         2
       ],
-      "precision_min": 15.0,
+      "precision_min": "10%",
       "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,
